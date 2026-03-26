@@ -5,6 +5,8 @@ Automatic Novel Narrative System
 
 ## Current Phase
 Foundation design only. Do not rush into implementation.
+This is a phase boundary, not a permanent repository boundary.
+Implementation is deferred until the conceptual foundation is stable enough to support it.
 
 ## Primary Goal
 Build the conceptual foundation of a novel system that can:
@@ -87,6 +89,9 @@ When writing docs for this repo:
 
 ## File Priorities
 If new work begins, prioritize these files first:
+- README.md
+- 00_project/02_agent_quickstart.md
+- 00_project/03_current_status.md
 - 00_project/00_project_brief.md
 - 00_project/01_scope_and_boundaries.md
 - 01_concepts/00_glossary.md

@@ -175,12 +175,15 @@
 - `weak_progression`
 - `promise_loss`
 - `abrupt_payoff`
+- `missing_consequence`
+- `missing_transition`
 - `redundancy`
 - `information_leak`
 - `style_drift`
 - `missing_cost`
 - `motivation_gap`
 - `relationship_jump`
+- `duplication_of_threads`
 
 #### 说明
 
@@ -526,6 +529,10 @@
 - `relationship_bridge_scene`
 - `cost_insertion`
 - `info_gate_adjustment`
+- `reveal_split`
+- `thread_cleanup`
+- `scene_merge`
+- `style_realignment`
 
 ##### 说明
 
