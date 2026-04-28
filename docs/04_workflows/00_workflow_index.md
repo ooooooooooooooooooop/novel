@@ -52,6 +52,7 @@
 - `04_workflows/02_review_workflow.md`
 - `04_workflows/03_continue_workflow.md`
 - `04_workflows/04_rewrite_workflow.md`
+- `04_workflows/05_workflow_handoff_contract.md`
 
 ---
 
@@ -125,6 +126,23 @@
 - 某场戏不成立，想修而不是推倒重来
 - 某段关系线节奏有问题，想局部重构
 - 某条主线跑偏，想在中途拉回
+
+---
+
+## 3.5 `05_workflow_handoff_contract.md`
+### 作用
+用于给四条主 workflow 提供共享的最小交接契约。
+
+### 主要回答
+- 一次 workflow 完成后最少必须交代什么
+- 什么算正式 handoff，什么只是局部说明
+- 下一个 workflow 不应再重新猜什么
+- handoff 如何与 memory tiers 和未解决项对齐
+
+### 适用场景
+- 收紧 `Rebuild / Review / Continue / Rewrite` 的交接口径
+- 比较不同 workflow 的输入输出表达是否失衡
+- 设计样例时需要确认交接是否足够稳定
 
 ---
 

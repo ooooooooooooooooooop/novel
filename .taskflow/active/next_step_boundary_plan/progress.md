@@ -1,0 +1,46 @@
+# Progress
+
+## 2026-03-27
+
+- reviewed `Agent Quickstart`, `Current Status`, and the latest pressure-test examples tied to the three unresolved boundary clusters
+- confirmed the repository already had the right boundary list, but not yet a clear next-step execution plan for those boundaries
+- converted the three unresolved clusters into three explicit work tracks: `FactLedger` long-chain threshold validation, `Rewrite` bounded runtime-first exception hardening, and `CharacterModel` cross-field keep-vs-drop hardening
+- updated `docs/00_project/03_current_status.md` so the repo now exposes goals, next artifacts, and done conditions instead of only abstract unresolved-boundary wording
+- updated `docs/00_project/02_agent_quickstart.md` so newly opened agents immediately see the default near-term plan tied to the same three fragile boundaries
+- added `docs/05_examples/23_mixed_threshold_recovery_chain.md` to extend Track 1 with a mixed knowledge / relation / situation repeated-recovery counterexample
+- updated `docs/05_examples/00_example_index.md` and `docs/00_project/03_current_status.md` so the new mixed-family long-chain example is visible from the repo’s main example and status entry points
+- resumed the repository from the previous handoff state instead of starting a new planning branch
+- added `docs/05_examples/24_second_recovery_handoff_split.md` to extend Track 1 from threshold stability into second-recovery handoff-package stability
+- updated `docs/05_examples/00_example_index.md`, `docs/00_project/02_agent_quickstart.md`, and `docs/00_project/03_current_status.md` so the new Track 1 anchor is visible from the default onboarding path
+- updated `docs/07_decisions/08_context_packaging_decisions.md` so its immediate follow-up guidance now matches the repo’s current pressure-test direction instead of older reminder-focused follow-up
+- updated `docs/04_workflows/05_workflow_handoff_contract.md` so cross-workflow handoff now explicitly forbids flattening hard constraints, current working pressures, and unpromoted inferences into one prose trend line
+- updated `docs/04_workflows/01_rebuild_workflow.md` so repeated-recovery rebuild output now requires the same hard-fact vs working-state vs confidence-gap split before handing off to `Continue` or `Review`
+- switched to Track 2 and reviewed the existing rewrite-exception example, rewrite workflow, and workflow-order decision layer before adding new material
+- added `docs/05_examples/25_rewrite_exception_misuse_chain.md` to pressure-test three explicit misuse paths together: cross-handoff delay, ledger-late repair, and `CharacterModel`-first patching
+- updated `docs/04_workflows/04_rewrite_workflow.md` so bounded runtime-first repair is now explicitly limited to same-packet local root-cause repair before review
+- updated `docs/07_decisions/03_workflow_order_decisions.md` so the decision layer now states that the rewrite exception cannot cross handoff, cannot cross re-review, and cannot be routed through `CharacterModel`
+- updated `docs/05_examples/00_example_index.md`, `docs/00_project/02_agent_quickstart.md`, and `docs/00_project/03_current_status.md` so the new Track 2 anchor is visible from the default onboarding and status path
+- switched to Track 3 and reviewed `CharacterModel` field rules, ownership decisions, schema granularity decisions, and the current single-field / dual-field pressure-test set before adding new material
+- added `docs/05_examples/26_charactermodel_cross_field_recovery.md` to pressure-test `knowledge_state`, `relations`, `misinformation`, `self_image`, and `arc_stage` together inside one repeated recovery chain
+- updated `docs/02_data_models/09_field_rules.md` so cross-field `CharacterModel` synchronization now explicitly forbids mixing long-term structure, current working state, subjective misinformation, and supporting evidence
+- updated `docs/07_decisions/04_schema_granularity_decisions.md` so the decision layer now records a first-pass mixed-field counterexample instead of only single-field boundary evidence
+- updated `docs/05_examples/00_example_index.md`, `docs/00_project/02_agent_quickstart.md`, and `docs/00_project/03_current_status.md` so the new Track 3 anchor is visible from the default onboarding and status path
+- added `docs/05_examples/27_charactermodel_rollback_misinformation.md` to pressure-test a second Track 3 long-chain shape where legitimate `self_image` / `arc_stage` progress coexists with still-active old misinformation
+- updated `docs/02_data_models/09_field_rules.md` so growth progression and misinformation decay are now explicitly decoupled at the field-rule layer
+- updated `docs/07_decisions/04_schema_granularity_decisions.md`, `docs/05_examples/00_example_index.md`, `docs/00_project/02_agent_quickstart.md`, and `docs/00_project/03_current_status.md` so the second Track 3 anchor is visible from the default onboarding, status, and decision-entry path
+- extended Track 3 with `docs/05_examples/28_charactermodel_supporting_evidence_leakback.md` to pressure-test second-recovery evidence leakback, where legitimate field updates tempt the system to write supporting evidence back into `CharacterModel`
+- updated `docs/02_data_models/09_field_rules.md` so repeated recovery now explicitly forbids leaking supporting evidence back into `knowledge_state`, `relations`, `misinformation`, `self_image`, or `arc_stage`
+- updated `docs/07_decisions/04_schema_granularity_decisions.md`, `docs/05_examples/00_example_index.md`, `docs/00_project/02_agent_quickstart.md`, and `docs/00_project/03_current_status.md` so the third Track 3 anchor is visible from the default onboarding, status, and decision-entry path
+- tightened the repo-level next-step signal so the most natural follow-up is now a three-track convergence pressure test rather than another immediately local Track 3 variation
+- added `docs/05_examples/29_three_track_convergence_pressure_test.md` to pressure-test a combined failure mode where missing same-packet `FactLedger` writeback is incorrectly compensated by denser handoff prose and by `CharacterModel` evidence leakback
+- updated `docs/04_workflows/05_workflow_handoff_contract.md` and `docs/07_decisions/08_context_packaging_decisions.md` so explicit handoff quality is now formally forbidden from standing in for incomplete object synchronization
+- updated `docs/05_examples/00_example_index.md`, `docs/00_project/02_agent_quickstart.md`, and `docs/00_project/03_current_status.md` so the new three-track convergence anchor is visible from the main onboarding and status path
+- tightened the repo-level next-step signal again so the most natural follow-up after `29` is a foundation checkpoint / exit-criteria review rather than another reflex local counterexample
+- added `docs/00_project/06_foundation_checkpoint.md` to turn the current anchor set into an explicit phase judgment instead of leaving checkpoint language scattered across status and quickstart docs
+- updated `README.md`, `docs/00_project/00_project_brief.md`, `docs/00_project/02_agent_quickstart.md`, and `docs/00_project/03_current_status.md` so the repository now exposes one consistent checkpoint conclusion: foundation skeleton stable, boundary clusters first-pass stable, phase exit not yet recommended
+- added `docs/00_project/07_phase_transition_memo.md` to separate residual risks into `accepted_for_now`, `must_resolve_before_implementation`, and `defer_to_implementation_phase`, so “not yet” now has explicit reasons instead of a vague delay signal
+- updated `README.md`, `docs/00_project/00_project_brief.md`, `docs/00_project/02_agent_quickstart.md`, and `docs/00_project/03_current_status.md` so the repository now exposes one consistent transition judgment: `remain_in_foundation`, with specific pre-implementation gate items rather than only a generic checkpoint warning
+- added `docs/00_project/08_foundation_phase_gate.md` to convert the current checkpoint and transition conclusions into a minimal through / block gate, so the repo now distinguishes “design skeleton stable” from “allowed to leave foundation”
+- updated `README.md`, `docs/00_project/02_agent_quickstart.md`, and `docs/00_project/03_current_status.md` so the repository now exposes one consistent gate conclusion: currently `blocked` by missing explicit pre-implementation locks on Track 1, Track 2, and Track 3
+- added `docs/00_project/09_preimplementation_boundary_lock.md` to lock Track 1, Track 2, and Track 3 into explicit no-loosening statements before implementation planning
+- updated `docs/00_project/07_phase_transition_memo.md`, `docs/00_project/08_foundation_phase_gate.md`, `README.md`, `docs/00_project/00_project_brief.md`, `docs/00_project/02_agent_quickstart.md`, and `docs/00_project/03_current_status.md` so the repository now exposes one consistent new phase conclusion: foundation gate passed, transition status `ready_for_transition_planning`, and the next step is planning rather than more local boundary exploration

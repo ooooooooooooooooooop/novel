@@ -200,7 +200,7 @@ warning 表示：
 - 当前未正式失真
 - 但短期内必须补偿或继续观察
 - 不一定阻断
-- 可以只写入 `review_notes` 或 reminder
+- 可以只写入 `review_notes` 或 `ReviewReminder`
 
 正式 issue 表示：
 
@@ -222,7 +222,7 @@ warning 表示：
 
 ### 风险 / 待验证项
 
-- reminder 层目前仍偏轻量，未来可能需要更明确的半正式对象层
+- `ReviewReminder` 已作为轻量正式层建立，但 reminder 建立阈值仍需继续压实
 
 ### 后续动作
 
@@ -352,7 +352,7 @@ warning 应尽量带上：
 
 - `Review Workflow`
 - 实验层的观察模板
-- 未来可能的 reminder 管理机制
+- `ReviewReminder` 的具体窗口模板
 
 ### 风险 / 待验证项
 
@@ -410,7 +410,7 @@ warning 如果长期不兑现，就会从风险变成问题。但何时升级，
 
 - `Review Workflow`
 - `06_experiments/`
-- 后续 reminder / issue 关系设计
+- 不同 `ReviewReminder` 类型的升级阈值设计
 
 ### 风险 / 待验证项
 
@@ -457,7 +457,7 @@ issue 数量应受控，优先提高单条 issue 的信号质量。
 
 当前口径是：
 
-- 轻量提醒 → 优先 `review_notes`
+- 轻量局部提醒 → 优先 `review_notes`
 - 中度风险 → warning
 - 正式失真 → issue
 - 阻断性错误 → 高优先 issue
@@ -528,7 +528,7 @@ issue 数量应受控，优先提高单条 issue 的信号质量。
 
 ### 风险 / 待验证项
 
-- 仍需通过实验验证：当前分流是否已经足够覆盖 reminder 层和局部失败层之间的灰区
+- 仍需通过实验验证：当前 `ReviewReminder` 与 low severity issue 的边界阈值
 
 ### 后续动作
 
@@ -562,7 +562,7 @@ issue 数量应受控，优先提高单条 issue 的信号质量。
 
 ### 12.3 低优先 issue 是否值得长期保留
 
-需要验证 reminder 与 low severity issue 的边界。
+需要验证 `ReviewReminder` 与 low severity issue 的边界。
 
 ### 12.4 Review 的节奏是否会过于频繁
 

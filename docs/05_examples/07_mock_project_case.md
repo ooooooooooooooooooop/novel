@@ -17,6 +17,7 @@
 - `05_examples/04_sample_plotunit.md`
 - `05_examples/05_sample_factledger.md`
 - `05_examples/06_sample_review.md`
+- `05_examples/08_reviewreminder_chain.md`
 
 以及：
 
@@ -189,7 +190,7 @@
 
 - `pu_scene_014`：通过但有警告
 
-当前警告重点是，后续 1 到 2 个单元内必须体现旧伤、追踪风险与保密压力。
+当前警告重点是，后续 1 到 2 个单元内必须体现旧伤、追踪风险与保密压力；这一点已由 `ReviewReminder` 进入正式轻量追踪层。
 
 ---
 

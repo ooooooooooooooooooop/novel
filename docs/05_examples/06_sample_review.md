@@ -329,14 +329,26 @@
 - 没有已经发生的角色失真
 - 没有已经发生的承诺崩坏
 
-但可以保留一个提醒型审查备注，作为近程续写约束。
+但可以保留一个 `ReviewReminder`，作为近程续写约束。
 
 ```json id="exrv06reminder"
 {
-  "issue_type": "missing_consequence",
+  "reminder_id": "rr_scene014_01",
+  "reminder_type": "missing_consequence",
+  "title": "scene_014 的后果需在近程兑现",
   "severity": "low",
-  "status": "acknowledged",
+  "status": "active",
   "summary": "scene_014 已激活旧伤、追踪与保密压力，后续 1-2 个单元内必须兑现至少其一。",
+  "source_object_type": "PlotUnit",
+  "source_object_id": "pu_scene_014",
+  "plotunit_ref": "pu_scene_014",
+  "review_pass_ref": "sample_review_pass_01",
+  "related_issue_type": "missing_consequence",
+  "supporting_refs": ["f_016", "f_017", "f_019"],
+  "window_type": "plotunit_count",
+  "window_value": "2",
+  "window_note": "当前不阻断，但不能继续空转。",
+  "escalation_rule": "若后续 2 个 PlotUnit 内仍未兑现至少一项后果，则升级为正式 missing_consequence。",
   "notes": "当前不阻断，只作为近程续写约束。"
 }
 ```
@@ -376,48 +388,34 @@
 
 ---
 
-## 7. 样例 ReviewIssue
+## 7. 样例 ReviewReminder
 
-虽然本次不需要正式阻断 issue，但为了验证 `ReviewIssue` 如何落地，这里给一个提醒型样例。
+虽然本次不需要正式 `ReviewIssue`，但为了验证轻量审查层如何落地，这里给一个 reminder 样例。
 
-```json id="exrv06issue"
+```json id="exrv06reviewreminder"
 [
   {
-    "issue_id": "ri_reminder_001",
-    "issue_type": "missing_consequence",
+    "reminder_id": "rr_scene014_01",
+    "reminder_type": "missing_consequence",
     "title": "scene_014 已启动的后果需在近程单元兑现",
     "summary": "旧伤、异常追踪和保密压力已被激活，若后续 1-2 个 PlotUnit 内完全不体现，将使本次强推进失去后果支撑。",
-    "object_type": "PlotUnit",
-    "object_id": "pu_scene_014",
-    "level": "scene",
+    "source_object_type": "PlotUnit",
+    "source_object_id": "pu_scene_014",
     "plotunit_ref": "pu_scene_014",
-    "chapter_ref": "chapter_06",
-    "scene_ref": "scene_014",
-    "violated_rule": "高风险行动一旦建立明确代价和后果链，后续必须在合理窗口内兑现至少一部分。",
-    "supporting_facts": ["f_016", "f_017", "f_019"],
-    "contradictory_facts": [],
-    "missing_elements": ["missing_near_term_payoff"],
-    "evidence_note": "当前单元不是缺代价，而是代价已经建立，等待后续兑现。",
-    "impact_scope": "arc",
-    "affected_characters": ["c001", "c002"],
-    "affected_threads": ["fg_002"],
-    "affected_states": ["s_015_scene"],
-    "downstream_risk": "若不兑现，会让 scene_014 retroactively 失去强推进应有的压力回响。",
-    "suggested_fix_type": "state_update",
-    "suggested_fix_note": "下一单元至少体现旧伤、追踪或保密压力中的一项。",
-    "rewrite_needed": false,
-    "replanning_needed": false,
-    "memory_update_needed": false,
+    "review_pass_ref": "sample_review_pass_01",
+    "related_issue_type": "missing_consequence",
+    "supporting_refs": ["f_016", "f_017", "f_019", "fg_002"],
+    "window_type": "plotunit_count",
+    "window_value": "2",
+    "window_note": "下一到两次推进内必须兑现至少一项后果。",
+    "escalation_rule": "若后续 2 个 PlotUnit 内完全不体现，则升级为正式 missing_consequence。",
     "severity": "low",
-    "urgency": "soon",
-    "blocking_status": "non_blocking",
-    "fix_order": 3,
-    "status": "acknowledged",
+    "status": "active",
     "created_at": "sample_review_pass_01",
     "last_updated": "sample_review_pass_01",
     "resolved_by": "",
     "resolution_note": "",
-    "notes": "这是提醒型 issue，用于验证审查工作流中的轻量问题对象。"
+    "notes": "这是正式轻量 reminder，用于验证 warning 的跨轮承载层。"
   }
 ]
 ```

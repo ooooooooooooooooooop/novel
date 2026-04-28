@@ -21,6 +21,7 @@
 - `FactLedger`
 - `ForeshadowGraph`
 - `ReviewIssue`
+- `ReviewReminder`
 
 以及：
 
@@ -146,6 +147,56 @@
 
 ## 4. 工作流输出
 
+## 3.4 输入上下文包
+
+从 harness 视角看，`Review` 读取的不是“所有历史”，而是足以判断本轮是否成立的审查上下文包。
+
+### A. 判定核心包
+
+必须优先读取：
+
+- 当前审查对象
+- `input_state_ref`
+- `output_state_ref`
+- 相关 `CharacterModel`
+- 相关 `WorldModel`
+
+这是判断“本轮是否成立”的最低核心。
+
+### B. 长期约束包
+
+必须按需读取：
+
+- 相关 `FactLedger`
+- 相关 `ForeshadowGraph`
+
+这部分决定本轮是否越过已成立事实、信息边界和承诺线程。
+
+### C. 历史与修复包
+
+如条件允许，建议额外读取：
+
+- 前一到三个 `PlotUnit`
+- 相关 `ReviewIssue` 历史记录
+- 未关闭 `ReviewReminder`
+- 当前局部规划摘要
+
+这部分决定 `ReviewReminder` 是否应升级，以及当前问题是否已经从局部失败变成结构性失衡。
+
+### D. 置信度包
+
+审查开始前，应能回答：
+
+- 当前输入是否完整
+- 哪些判定是高置信
+- 哪些判定受输入缺失影响
+
+如果这组信息不清楚，审查结果就应降低置信，而不是伪装成高确定性裁决。
+
+---
+
+## 4. 工作流输出
+
 一次正式审查至少应产出以下内容。
 
 ### 4.1 审查结论
@@ -201,8 +252,62 @@
 
 - 生成 `ReviewIssue`
 - 或写入 `review_notes`
+- 或建立 `ReviewReminder`
 
 而不是在审查阶段静默修正它们。
+
+---
+
+## 4.6 输出状态包
+
+`Review` 的结果应被理解为一组判定与分流包，而不只是“通过 / 失败”口头结论。
+
+### A. 判定包
+
+至少包含：
+
+- 审查结论
+- 判定依据
+- 输入完整性等级
+- 当前主要失败类型或 warning 类型
+
+### B. 问题包
+
+按情况输出：
+
+- 新生成的 `ReviewIssue`
+- 保留中的 warning
+- 新生成或延续中的 `ReviewReminder`
+- 本轮 `review_notes`
+
+这部分负责把问题从模糊印象转成后续可处理对象。
+
+### C. 分流包
+
+至少包含以下之一：
+
+- `Continue`
+- 带 warning 的 `Continue`
+- 带 `ReviewReminder` 的 `Continue`
+- `Rewrite`
+- `Replan`
+
+这部分的目标不是解释问题，而是决定系统下一步往哪里走。
+
+### D. 回写包
+
+审查阶段只应回写：
+
+- `PlotUnit` 的审查字段
+- `ReviewIssue`
+- `ReviewReminder`
+- warning 或 `review_notes`
+
+不应越权回写长期记忆主存。
+
+### 原则
+
+一次好的 `Review` 输出，应该足够让后续 workflow 在不重跑整次审查的情况下，理解“为什么如此判定”和“下一步该做什么”。
 
 ---
 
@@ -552,7 +657,7 @@
 4. 局部 `Rewrite` 已经明显优于继续拖延
 5. arc 层结构失衡已经显形
 
-### 只生成 warning / review_notes 的条件
+### 只生成 warning / `review_notes` / `ReviewReminder` 的条件
 
 满足以下特征时，优先不生成正式 `ReviewIssue`：
 
@@ -560,9 +665,9 @@
 - 问题可在后续 1 到 3 个 `PlotUnit` 内自然补偿
 - 当前问题更适合下一单元兑现，而不是回头重写上一单元
 
-### warning 升级规则
+### warning / `ReviewReminder` 升级规则
 
-当以下任一条件成立时，warning 不应继续停留在备注层：
+当以下任一条件成立时，warning 不应继续停留在轻量层：
 
 1. 同一 warning 连续 2 次审查仍未补偿
 2. 某 warning 已开始污染主线、关系线或知识边界
@@ -579,7 +684,7 @@
 #### warning
 
 - 写入 `PlotUnit.review_notes`
-- 必要时写入轻量 reminder note
+- 如需跨轮追踪，建立 `ReviewReminder`
 
 当前不建议把所有 warning 都强行建单。
 
@@ -607,6 +712,7 @@
 
 - `PlotUnit` 的审查字段
 - 新生成的 `ReviewIssue`
+- 新生成或更新后的 `ReviewReminder`
 
 不建议在审查阶段直接修正：
 
@@ -746,7 +852,7 @@
 ### 处理
 
 - 写入 `review_notes`
-- 标注补偿窗口
+- 需要跨轮追踪时建立 `ReviewReminder`
 - 仅在连续未补偿时升级
 
 ---

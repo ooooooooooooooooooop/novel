@@ -451,7 +451,6 @@
 
 例如：
 - non_blocking
-- warning
 - blocking
 
 #### fix_order
@@ -730,7 +729,7 @@
     "memory_update_needed": true,
     "severity": "medium",
     "urgency": "soon",
-    "blocking_status": "warning",
+    "blocking_status": "non_blocking",
     "fix_order": 3,
     "status": "open",
     "created_at": "review_pass_03",

@@ -49,6 +49,20 @@
 
 ---
 
+## 2.1 辅助对象说明
+
+除 8 个核心对象外，当前还允许存在少量**辅助 workflow / review-layer object**。
+
+当前已明确的辅助对象是：
+
+- `ReviewReminder`
+
+它的职责是承载近程 warning，并服务 `Review -> Continue / Rewrite` 的交接。
+
+它不是新的核心叙事对象，不参与改写主存边界。
+
+---
+
 ## 3. 对象职责总览
 
 | 对象 | 主要职责 | 回答的问题 |
@@ -117,6 +131,7 @@ ReviewIssue
 审查阶段主要产出：
 
 - `ReviewIssue`
+- 必要时 `ReviewReminder`
 
 ### 5.4 修正阶段
 

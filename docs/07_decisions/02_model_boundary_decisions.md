@@ -557,7 +557,7 @@
 - 阻断型或结构型问题
 - 明确需要进入改写或重规划的问题
 
-`review_notes` / reminder 负责：
+`review_notes` / `ReviewReminder` 负责：
 
 - 还没坏，但短期必须注意的点
 - 近程后果兑现提醒
@@ -575,11 +575,11 @@
 
 ### 风险 / 待验证项
 
-- reminder 层目前还未完全独立建模，暂时依赖 `review_notes` 和低级 issue 表达
+- `ReviewReminder` 已独立建模，但 reminder 建立阈值和升级窗口仍需通过连续样例压实
 
 ### 后续动作
 
-`patch`
+`watch`
 
 ---
 

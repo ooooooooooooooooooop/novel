@@ -19,6 +19,7 @@
 - `FactLedger`
 - `ForeshadowGraph`
 - `ReviewIssue`
+- `ReviewReminder`
 
 以及：
 
@@ -107,7 +108,7 @@
 - 前一到三个 `PlotUnit`
 - 失败对象的上下游状态
 - 当前 arc 目标
-- 当前未关闭 warning 列表
+- 当前未关闭 `ReviewReminder` 列表
 - 作者额外改写约束
 
 ### 3.3 输入不足时的处理规则
@@ -121,6 +122,57 @@
 - `Review Workflow`
 
 先把问题对象化，再进入改写。
+
+---
+
+## 3.4 输入上下文包
+
+从 harness 视角看，`Rewrite` 读取的不是“哪里看着不对”，而是一组已经进入修复链的上下文包。
+
+### A. 问题定位包
+
+必须优先读取：
+
+- 一个或多个 `ReviewIssue`
+- 失败对象的类型与 ID
+- `violated_rule`
+- `supporting_facts`
+- `suggested_fix_type`
+
+这是判断“为什么修、先修哪里”的起点。
+
+### B. 失败对象包
+
+必须按需读取：
+
+- 失败的 `PlotUnit`
+- 对应 `NarrativeState`
+- 被污染的 `FactLedger`
+- 被污染的 `ForeshadowGraph`
+- 相关 `CharacterModel`
+
+这部分决定问题实际蔓延到了哪一层。
+
+### C. 上下游影响包
+
+如条件允许，建议额外读取：
+
+- 前一到三个 `PlotUnit`
+- 失败对象的输入 / 输出引用
+- 当前 arc 目标
+- 未关闭 `ReviewReminder`
+
+这部分帮助判断当前修复范围是 `point`、`chain`，还是 `segment`。
+
+### D. 修复边界包
+
+进入改写前，应能回答：
+
+- 主根因对象是哪一个
+- 哪些对象必须联动同步
+- 哪些对象不应被这次修复波及
+
+如果这组边界不清，改写很容易从局部修复滑向失控重写。
 
 ---
 
@@ -151,6 +203,68 @@
 
 - 原问题是否真正解决
 - 是否引入了新的问题
+
+---
+
+## 4.4 输出状态包
+
+`Rewrite` 的结果应被理解为一组修复包，而不只是“改过一版”。
+
+### A. 根因修复包
+
+至少包含：
+
+- 被修复的主对象
+- 修复方式
+- 修复后的关键变化摘要
+
+### B. 联动同步包
+
+按情况输出：
+
+- 新的 `PlotUnit`
+- 新的 `NarrativeState`
+- 修正后的 `FactLedger`
+- 修正后的 `ForeshadowGraph`
+- 必要时更新后的 `CharacterModel`
+
+这部分负责把单点修复真正同步回依赖层。
+
+### bounded runtime-first exception 的限制
+
+当主根因位于 `PlotUnit` / `NarrativeState`，且 `FactLedger` 本身不是根因时，允许 bounded runtime-first repair 起步。
+
+但这只表示：
+
+- repair packet 可以先修局部运行态根因
+
+不表示：
+
+- 可以把新硬事实拖到下一轮再补账
+- 可以先把结果送去 `Review`，之后再补 `FactLedger`
+- 可以先改 `CharacterModel` 摘要来替事实层兜底
+
+只要本轮 `Rewrite` 已明确某条新硬事实成立，就必须在同一 repair packet 内完成 `FactLedger` 写回，然后再进入 `Review`。
+
+### C. 问题状态包
+
+至少包含：
+
+- `ReviewIssue.status`
+- `resolution_note`
+- 是否仍有残留 `ReviewReminder`
+- 是否需要升级为 `Replan`
+
+### D. 复核入口包
+
+在重新进入 `Review` 前，至少应能清楚交付：
+
+- 修了哪个 issue
+- 改了哪些对象
+- 哪些字段被联动同步
+- 哪些风险仍未关闭
+
+如果这组信息交不清楚，复核就很难判断这次改写到底解决了什么。
 
 ---
 
@@ -412,6 +526,21 @@
 
 改写先改主根因对象，再考虑联动同步。
 
+### bounded runtime-first 的局部例外
+
+如果问题主根因位于：
+
+- `PlotUnit`
+- `NarrativeState`
+
+并且现有 `FactLedger` 不是根因对象，只是尚未被当前局部正确继承，则允许先修运行态根因。
+
+但这个局部例外只成立到：
+
+- `FactLedger` 是否需要新增 / 更正条目被确认之前
+
+一旦本轮修复已经确认新硬事实成立，就不能继续把它留在运行态或 prose handoff 中等待后补。
+
 ---
 
 ## 6.6 第六步：按依赖顺序同步相关对象
@@ -484,6 +613,12 @@
 ### 原则
 
 不允许“文本逻辑已经改了，但对象层仍然是旧的”。
+
+也不允许以下三种误用：
+
+1. 先修运行态，跨 handoff 再补 `FactLedger`
+2. 先复检 rewrite 结果，之后再补 `FactLedger`
+3. 先改 `CharacterModel` 摘要，再倒逼事实层追认
 
 ---
 
@@ -640,6 +775,20 @@
 
 - 改完觉得“应该好了”
 - 但没有重新审查
+
+### 8.6 把 runtime-first 例外拖成跨轮 shortcut
+
+表现：
+
+- 本轮已明确新硬事实
+- 却让 `FactLedger` 等到 handoff 后、复检后、或下一轮再补
+
+### 8.7 先改 `CharacterModel` 解释 scene
+
+表现：
+
+- 角色摘要先吸收了新 access / route / authority 约束
+- 事实层与运行态层仍停留在旧版本
 
 ---
 

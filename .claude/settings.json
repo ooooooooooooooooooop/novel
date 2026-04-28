@@ -1,0 +1,37 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python D:\\Desktop\\ai_memory_minimal_design\\run_hook.py pre-run claude"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python D:\\Desktop\\ai_memory_minimal_design\\run_hook.py post-run claude"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python D:\\Desktop\\ai_memory_minimal_design\\run_hook.py post-run claude"
+          }
+        ]
+      }
+    ]
+  }
+}

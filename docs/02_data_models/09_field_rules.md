@@ -74,6 +74,32 @@
 
 ---
 
+### 3.1 记忆分层视角
+
+从 narrative agent harness 的角度看，字段不只是在分类，也是在决定“哪些信息以什么形态跨轮保存”。
+
+当前建议至少区分四层：
+
+- 长期稳定记忆：`WorkSpec`、`WorldModel`、`CharacterModel` 的核心结构、已成立 `FactLedger`、已建立 `ForeshadowGraph`
+- 当前工作集：`NarrativeState` 与少量角色运行态字段
+- 临时推断层：派生字段、局部判断、待确认推断
+- 正式修复层：`ReviewIssue` 与其他明确进入修复链的对象
+
+如果一个字段被设计出来，却无法回答“它属于哪一层”，通常说明它的职责还不够清楚。
+
+### 3.2 字段设计应支持上下文压缩
+
+一个字段越适合作为长期 agent 工作接口，就越应该：
+
+- 在不重读全文时仍可理解
+- 不依赖大片正文才能解释
+- 能清楚区分事实、运行态、推断和修复状态
+- 能在 workflow 之间稳定传递
+
+如果一个字段只有在携带大段原文时才有意义，它更像临时注释，而不是稳定接口。
+
+---
+
 ## 4. 硬字段
 
 ### 4.1 定义
@@ -451,6 +477,51 @@
 - `ForeshadowGraph` 先推进，但本轮事件和事实层还没落定
 - 相关对象未同步完成，就直接进入 `Review`
 
+### 10.3 `CharacterModel` 多字段同步原则
+
+当同一轮推进同时影响：
+
+- `knowledge_state`
+- `relations`
+- `misinformation`
+- `self_image`
+- `arc_stage`
+
+也不应把它理解为“五个字段都顺手改一下”。
+
+当前建议至少遵守以下顺序：
+
+1. 先确认哪些内容已进入 `FactLedger` 或当前 `NarrativeState`
+2. 再区分哪些属于稳定认知负担、哪些属于稳定错误信念
+3. 再区分哪些只是关系依据，哪些已经形成长期关系基底
+4. 最后才判断 `self_image` 与 `arc_stage` 是否具备跨多轮、带代价、未快速回退的更新条件
+
+这能避免：
+
+- `misinformation` 被误写进 `knowledge_state`
+- 关系依据被误写进 `relations`
+- 成长依据被直接写进 `self_image` 或 `arc_stage`
+
+---
+
+### 10.4 工作流上下文包原则
+
+字段不应只按“对象归属”思考，也应按“workflow 会如何打包和读取”思考。
+
+当前建议：
+
+- `Rebuild` 重点产出可压缩的静态记忆包与可运行状态包
+- `Continue` 重点读取当前工作集与稳定约束包，并只写回发生变化的字段
+- `Review` 重点读取判定所需字段，不应默默接管长期记忆写回
+- `Rewrite` 重点按根因对象修复，再同步依赖字段
+
+这意味着字段设计应尽量支持：
+
+- 最小读取
+- 最小写回
+- 明确变更来源
+- 跨 workflow 稳定传递
+
 ---
 
 ## 11. 自动更新与人工更新边界
@@ -502,6 +573,72 @@
 - `FactLedger.known_by` 不应在对应事实尚未成立时先行更新
 - `CharacterModel.knowledge_state` 不应反向覆盖 `FactLedger`
 - `NarrativeState.open_questions` 不应代替 `ForeshadowGraph` 决定某线程是否正式建立
+
+### 11.5 `CharacterModel` cross-field 禁止混写
+
+以下内容当前建议禁止混写进同一个 `CharacterModel` 字段：
+
+- 当前路线、当前战术判断写进 `knowledge_state`
+- 主观押注写进 `knowledge_state`，而不是 `misinformation`
+- “最近几轮都如何如何”这类证据说明写进 `relations`
+- 一次失败后的自责或一次顺风后的自满写进 `self_image`
+- “最近三轮都怎样，所以成长推进”这类依据说明写进 `arc_stage`
+
+一句话说：
+
+- `CharacterModel` 字段本体只保留长期结构
+- supporting evidence 留在 `PlotUnit`、`NarrativeState`、handoff 或 review supporting context
+
+### 11.6 不要把成长推进误写成误判清零
+
+当 `self_image` 或 `arc_stage` 合法更新时，也不应自动假设：
+
+- 相关旧 `misinformation` 已完全失效
+
+如果旧误判在 rollback 或高压场景里仍会重新支配行为，它就仍应保留为：
+
+- 稳定错误信念
+- 或正在衰减但尚未退出的误判
+
+换句话说：
+
+- 成长推进
+- 误判消退
+
+可以相关，但不要求同轮完成。
+
+### 11.7 不要把 supporting evidence 回流写进 `CharacterModel` 字段本体
+
+当 repeated `Rebuild`、handoff 或第二次恢复发生时，也不应因为“证据已经很多、很稳定”就把 supporting evidence 写回：
+
+- `knowledge_state`
+- `relations`
+- `misinformation`
+- `self_image`
+- `arc_stage`
+
+这些字段本体应只保留：
+
+- 长期认知负担
+- 长期关系基底
+- 稳定错误信念
+- 稳定自我定义
+- 阶段性成长结论
+
+而不应同时吞进：
+
+- 最近几轮的 sequence 描述
+- 成长依据
+- rollback 经过
+- 当前任务策略
+- 当前压力下的证据说明
+
+换句话说：
+
+- 字段结论留在 `CharacterModel`
+- supporting evidence 留在 `PlotUnit`、`NarrativeState`、handoff supporting context 与 `Review` supporting context
+
+如果为了防止 handoff 丢信息而把 supporting evidence 倒灌回字段正文，`CharacterModel` 就会在 repeated recovery 中重新膨胀成半个当前工作包。
 
 ---
 
@@ -734,6 +871,9 @@
 8. 它是否真的需要主存？
 9. 它的上游写回对象是谁？
 10. 当它与其他对象冲突时，以谁为准？
+11. 它属于长期稳定记忆、当前工作集、临时推断层，还是正式修复层？
+12. 它能否在上下文压缩后仍然被后续 workflow 可靠理解？
+13. 它最常由哪个 workflow 读取，又最常由哪个 workflow 写回？
 
 ---
 

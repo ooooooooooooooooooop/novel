@@ -107,6 +107,34 @@
 5. 审查规则与失败类型已明确
 6. 至少有一个 mock case 能串联整个系统定义
 
+## 当前 checkpoint 判断
+
+当前判断不是“地基还没搭起来”，而是：
+
+- 地基骨架已经搭起来
+- 三个高风险边界簇已有 first-pass convergence 锚点
+- 当前最自然的动作是 phase judgment，而不是继续默认补局部反例
+
+这同时意味着：
+
+- 当前仍不建议进入实现阶段
+- 当前更适合继续做 foundation checkpoint / transition judgment
+
+## 当前 transition 判断
+
+当前 transition 状态为：
+
+- `ready_for_transition_planning`
+
+原因不是设计缺块，而是：
+
+- foundation gate 已通过
+- 当前更适合基于既有边界锁进入 transition planning，而不是直接开实现
+
+当前下一步为：
+
+- 写清 transition planning 入口、允许讨论项、禁止重开项与 implementation-planning 前置产物
+
 ## 当前建议工作顺序
 
 1. 项目定义
@@ -118,4 +146,4 @@
 7. 工作流
 
 ## 一句话总结
-先把小说定义成一个可维护、可记录、可审查的叙事系统，再考虑如何实现它。
+先把小说定义成一个可维护、可记录、可审查的叙事状态系统与 narrative agent harness，再考虑如何实现它。

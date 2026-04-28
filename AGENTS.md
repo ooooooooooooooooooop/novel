@@ -4,9 +4,10 @@
 Automatic Novel Narrative System
 
 ## Current Phase
-Foundation design only. Do not rush into implementation.
+Implementation planning only. Do not rush into code implementation.
+Foundation gate and transition-planning sufficiency have passed.
 This is a phase boundary, not a permanent repository boundary.
-Implementation is deferred until the conceptual foundation is stable enough to support it.
+Code implementation is deferred until implementation responsibilities are bounded enough to support it.
 
 ## Primary Goal
 Build the conceptual foundation of a novel system that can:
@@ -18,12 +19,12 @@ Build the conceptual foundation of a novel system that can:
 
 ## Current Scope
 At this stage, focus on:
-1. core concepts
-2. data models
-3. state transition rules
-4. review rules
-5. minimal workflows
-6. examples and decision logs
+1. implementation unit boundaries
+2. serialization responsibility boundaries
+3. workflow handoff responsibility boundaries
+4. orchestration gate boundaries
+5. no-regression acceptance targets
+6. examples and decision logs only when needed to test planning boundaries
 
 ## Out of Scope for Now
 Do not optimize for:
@@ -92,8 +93,12 @@ If new work begins, prioritize these files first:
 - README.md
 - 00_project/02_agent_quickstart.md
 - 00_project/03_current_status.md
+- 00_project/04_agent_operating_model.md
+- 00_project/05_narrative_agent_harness.md
 - 00_project/00_project_brief.md
 - 00_project/01_scope_and_boundaries.md
+- 07_decisions/08_context_packaging_decisions.md
+- 07_decisions/09_review_reminder_decisions.md
 - 01_concepts/00_glossary.md
 - 01_concepts/05_plotunit.md
 - 02_data_models/09_field_rules.md

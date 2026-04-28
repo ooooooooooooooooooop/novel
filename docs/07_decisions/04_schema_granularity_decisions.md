@@ -426,7 +426,15 @@
 
 ### 风险 / 待验证项
 
-- `knowledge_state` 仍是目前边界最模糊的字段之一
+- 已通过 `18_charactermodel_summary_bloat.md` 做 first-pass 长链反例压测：`knowledge_state` 与 `relations` 不应吸收当前路线、当前风险与 scene 级关系温度
+- 已通过 `19_charactermodel_rebuild_pruning.md` 做 first-pass 恢复后修剪压测：`Rebuild` 应把 stale runtime cache 从角色摘要中剔回当前工作层
+- 已通过 `20_charactermodel_keep_vs_drop.md` 做 first-pass 边界压测：稳定认知负担与长期关系基底可保留，但 scene 级证据说明、路线判断与强主观押注不可混入长期摘要
+- 已通过 `21_charactermodel_self_image_boundary.md` 做 first-pass 边界压测：`self_image` 只应记录跨多轮选择后稳定下来的自我定义变化，不应吸收当前羞耻、自责或顺风自满
+- 已通过 `22_charactermodel_arc_stage_boundary.md` 做 first-pass 边界压测：`arc_stage` 只应在跨多轮、带代价且可回看的行为基底变化出现时推进
+- 已通过 `26_charactermodel_cross_field_recovery.md` 做 first-pass 组合型压测：`knowledge_state`、`relations`、`misinformation`、`self_image`、`arc_stage` 在同一长链里一起变化时，也不得重新混成一个压缩很差的当前工作面摘要
+- 已通过 `27_charactermodel_rollback_misinformation.md` 做 first-pass rollback 压测：`self_image` 与 `arc_stage` 的合法推进，不等于旧 `misinformation` 可以被同轮自动清空
+- 已通过 `28_charactermodel_supporting_evidence_leakback.md` 做 second-pass mixed-loop 压测：即使 `CharacterModel` 字段已有合法 first-pass 更新，多轮 supporting evidence 也不得在第二次恢复里漏回字段本体
+- 当前 `CharacterModel` keep-vs-drop 边界已从单字段压测推进到 mixed-loop 压测，但后续仍应在三轨合流压力下继续观察，避免被 `FactLedger` / `Rewrite` 侧压力重新拉糊
 
 ### 后续动作
 

@@ -120,13 +120,14 @@
 
 1. 审查通过 / 警告 / 失败
 2. 若失败，生成一个或多个 `ReviewIssue`
-3. 对 `PlotUnit` 写入：
+3. 若当前未失败但需跨轮跟踪 warning，生成 `ReviewReminder`
+4. 对 `PlotUnit` 写入：
    - `progression_strength`
    - `legality_status`
    - `character_consistency_status`
    - `redundancy_risk`
    - `review_notes`
-4. 若必要，给出：
+5. 若必要，给出：
    - 是否需要重写
    - 是否需要重规划
    - 是否需要更新账本或图谱
@@ -686,7 +687,7 @@
 - 当前单元：通过
 - 附加警告：后续必须体现旧伤与封口压力
 - 不生成阻断 issue
-- 可生成一个低级提醒型 issue：若两章内不体现后果，则升级为正式问题
+- 可生成一个 `ReviewReminder`：若两章内不体现后果，则升级为正式问题
 
 ---
 
