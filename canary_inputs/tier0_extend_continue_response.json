@@ -1,0 +1,61 @@
+{
+  "plotunit": {
+    "unit_id": "pu_002",
+    "level": "scene",
+    "goal": "林青借令牌穿过护山阵法，潜入宗门后山",
+    "participants": [
+      "c001"
+    ],
+    "conflict": "潜入者身份与令牌异常效能之间的张力",
+    "input_state_ref": "s001",
+    "output_state_ref": "s002",
+    "released_information": [
+      "令牌能令护山阵法视持有者为无物"
+    ],
+    "emotional_shift": "压抑->困惑：她意识到令牌比预想更危险",
+    "hook": "reveal：阵法为何对她形同虚设？令牌背后另有来历",
+    "formula_node": "opener_hook",
+    "consequences": [
+      "林青进入后山范围",
+      "令牌的异常被她亲自验证"
+    ],
+    "is_effective": true
+  },
+  "new_state": {
+    "state_id": "s002",
+    "current_time": "宗门大比前夜",
+    "current_location": "青云宗后山废弃石阶",
+    "active_characters": [
+      "c001"
+    ],
+    "current_situation": "林青已穿过第一道护山阵，进入后山，尚不知令牌为何对她放行",
+    "active_conflicts": [
+      "与宗门执法长老的冲突",
+      "令牌来历不明的疑虑"
+    ],
+    "public_information": [
+      "宗门大比即将开始"
+    ],
+    "hidden_information": [
+      "令牌在主角手中",
+      "令牌能令护山阵法无视持有者"
+    ]
+  },
+  "new_facts": [
+    {
+      "fact_id": "f002",
+      "statement": "护山阵法对持有云纹令牌的c001视若无物",
+      "fact_type": "event",
+      "involved_entities": [
+        "c001",
+        "令牌",
+        "护山阵法"
+      ],
+      "confirmed": true
+    }
+  ],
+  "confidence_gaps": [
+    "令牌为何能令阵法放行尚不明确",
+    "塞令牌之人的身份仍未确认"
+  ]
+}

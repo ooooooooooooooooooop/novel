@@ -1,0 +1,59 @@
+{
+  "plotunit": {
+    "unit_id": "pu_001",
+    "level": "scene",
+    "goal": "主角在仙侠典型起点场景察觉自身瓶颈，萌生突破之念",
+    "participants": [
+      "c001"
+    ],
+    "conflict": "对成长的渴望与当前修为限制之间的矛盾",
+    "input_state_ref": "s001",
+    "output_state_ref": "s002",
+    "released_information": [
+      "主角正处修为瓶颈"
+    ],
+    "emotional_shift": "压抑->不甘：主角意识到若不主动求变将停滞于此",
+    "hook": "cliffhanger：一封来历不明的挑战书出现在主角案前",
+    "formula_node": "opener_hook",
+    "consequences": [
+      "主角决意外出寻机突破",
+      "挑战书埋下后续冲突"
+    ],
+    "is_effective": true
+  },
+  "new_state": {
+    "state_id": "s002",
+    "current_time": "故事起始",
+    "current_location": "仙侠典型起点场景",
+    "active_characters": [
+      "c001"
+    ],
+    "current_situation": "日常被打破的前夕，主角收到来历不明的挑战书",
+    "active_conflicts": [
+      "修为瓶颈与突破之念的矛盾",
+      "挑战书来源不明的疑虑"
+    ],
+    "public_information": [
+      "主角已是宗门一员"
+    ],
+    "hidden_information": [
+      "挑战书背后另有布局"
+    ]
+  },
+  "new_facts": [
+    {
+      "fact_id": "f001",
+      "statement": "主角c001收到一封来历不明的挑战书",
+      "fact_type": "event",
+      "involved_entities": [
+        "c001",
+        "挑战书"
+      ],
+      "confirmed": true
+    }
+  ],
+  "confidence_gaps": [
+    "挑战书的发出者身份未明",
+    "挑战书与主角瓶颈是否相关尚不确定"
+  ]
+}

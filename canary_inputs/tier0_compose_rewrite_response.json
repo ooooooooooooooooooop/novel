@@ -1,0 +1,11 @@
+[
+  {
+    "target_type": "PlotUnit",
+    "target_id": "pu_001",
+    "field": "input_state_ref",
+    "action": "replace",
+    "old_value": "s001",
+    "new_value": "ns_initial",
+    "reason": "compose Initialize 生成的 stub NarrativeState 的 state_id 为 ns_initial，原文 input_state_ref s001 不存在于当前对象集，触发 weak_progression blocking"
+  }
+]

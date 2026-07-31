@@ -1,0 +1,25 @@
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.venv/
+venv/
+*.egg-info/
+output/
+output_*/
+# pytest transient temp roots from CLI/runtime contract suites (large, not evidence)
+.pytest-tmp/
+.pytest-tmp-*/
+# Canary workspaces under novels/tier0-*-canary/ are pinned production
+# evidence: their output/artifacts are force-added despite the output/ rule
+# above. Git still tracks them once staged. Do not delete the force-added
+# audit/extend/compose canary artifacts in docs/00_project/releases/.
+*.bak
+.claude/settings.local.json
+.claude/settings.json
+.arts/
+.codeartsdoer/
+input_short.txt
+input.txt
+.ai-memory/
+.taskflow/

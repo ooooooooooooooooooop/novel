@@ -1,0 +1,44 @@
+{
+  "schema_version": 1,
+  "type": "tier0_canary_evidence",
+  "release_id": "tier0-canary-20260728",
+  "canary_result": "pass",
+  "canary_commands": [
+    "novel audit tier0-canary --input canary_input.txt",
+    "novel pending tier0-canary --require-automation-ready --json",
+    "novel respond tier0-canary --slot-id rebuild --prompt-hash <rebuild_prompt_hash> --response-file canary_rebuild_response.json --json",
+    "novel resume tier0-canary",
+    "novel pending tier0-canary --require-automation-ready --json",
+    "novel respond tier0-canary --slot-id review --prompt-hash <review_prompt_hash> --response-file canary_review_response.json --json",
+    "novel resume tier0-canary",
+    "novel gate tier0-canary --json"
+  ],
+  "workspace_path": "novels/tier0-canary",
+  "final_artifact_paths": [
+    "novels/tier0-canary/output/audit/audit_report.json",
+    "novels/tier0-canary/output/audit/review_result.json",
+    "novels/tier0-canary/output/audit/route_handoff.json",
+    "novels/tier0-canary/output/audit/rebuild_package.json"
+  ],
+  "final_artifact_sha256": {
+    "novels/tier0-canary/output/audit/audit_report.json": "1e2e77dc076df902e6b5db415602f8a558bfd689b30d60bf268abaab85c767ba",
+    "novels/tier0-canary/output/audit/review_result.json": "68c5ef984a81c292b9d9637d08fe2da911e51f0d4800a0f1aeb54b36eeba8fa6",
+    "novels/tier0-canary/output/audit/route_handoff.json": "7dd819d69fadc8d0f1f0ad11284e373ef322023fa6d2e071f6e1a1f40a83d5c9",
+    "novels/tier0-canary/output/audit/rebuild_package.json": "112f4831dd7e77113ecceb5bb20fa55885488d04f01904201008f8aa36a7f4ad"
+  },
+  "gate_result_path": "docs/00_project/releases/tier0-canary-gate.json",
+  "gate_result_sha256": "a1e6002012db75db4a7b71534a64a8076e0febd1446b3d2822ad89ae29445049",
+  "final_gate_ok": true,
+  "final_review_route": "pass",
+  "final_next_workflow": "ContinueUnit",
+  "blocking_pending_count": 0,
+  "directapi_provider_calling": false,
+  "provider_calls_implemented": false,
+  "closed_loop_allowed": false,
+  "provider_call_performed": false,
+  "closed_loop_advanced": false,
+  "materialized_actions": [
+    "materialize_staged_response_only",
+    "materialize_staged_response_only"
+  ]
+}

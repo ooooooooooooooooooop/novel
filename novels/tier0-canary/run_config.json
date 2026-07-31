@@ -1,0 +1,9 @@
+{
+  "mode": "audit",
+  "format": "json",
+  "outline_only": false,
+  "chapter_wise": false,
+  "chapter_range": null,
+  "batch_size": null,
+  "max_chapters": null
+}

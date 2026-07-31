@@ -1,0 +1,15 @@
+{
+  "command": "gate",
+  "novel": "tier0-canary",
+  "mode": "audit",
+  "ok": true,
+  "schema_version": 1,
+  "review_route": "pass",
+  "next_workflow": "ContinueUnit",
+  "violations": [],
+  "handoff_path": "[本地路径]\\novels\\tier0-canary\\output\\audit\\route_handoff.json",
+  "package_path": "[本地路径]\\novels\\tier0-canary\\output\\audit\\rebuild_package.json",
+  "package_present": true,
+  "blocking_pending_count": 0,
+  "blocking_pending_prompt_files": []
+}

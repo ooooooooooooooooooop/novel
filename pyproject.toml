@@ -1,0 +1,21 @@
+[project]
+name = "novel-narrative-system"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = [
+    "pydantic>=2.0",
+]
+
+[project.scripts]
+novel = "src.novel_cli:main"
+novel-release-record = "src.boundary_control.release_record:main"
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["src", "src.*"]
+namespaces = false

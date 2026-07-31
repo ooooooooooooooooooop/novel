@@ -1,0 +1,43 @@
+{
+  "schema_version": 1,
+  "type": "tier0_release_record",
+  "production_tier": "local_staged_cli_v0",
+  "release_id": "tier0-canary-20260706",
+  "created_at_utc": "2026-07-06T00:00:00Z",
+  "release_tag_or_checkpoint": "git tag or immutable checkpoint id",
+  "git_commit": "0123456789abcdef0123456789abcdef01234567",
+  "baseline_tests_passing": 1248,
+  "full_pytest_command": "python -m pytest -q --basetemp .pytest-tmp-current-tier0-release-evidence-full -p no:cacheprovider",
+  "full_pytest_result": "1248 passed",
+  "canary_runbook": "docs/00_project/31_tier0_canary_runbook.md",
+  "canary_result": "pass",
+  "canary_commands": [
+    "novel audit tier0-canary --input canary_input.txt",
+    "novel pending tier0-canary --require-automation-ready --json",
+    "novel respond tier0-canary --slot-id rebuild --prompt-hash <rebuild_prompt_hash> --response-file canary_rebuild_response.json --json",
+    "novel resume tier0-canary",
+    "novel pending tier0-canary --require-automation-ready --json",
+    "novel respond tier0-canary --slot-id review --prompt-hash <review_prompt_hash> --response-file canary_review_response.json --json",
+    "novel resume tier0-canary",
+    "novel gate tier0-canary --json"
+  ],
+  "staged_runtime": "FileExchangeInterface",
+  "directapi_provider_calling": false,
+  "provider_calls_implemented": false,
+  "closed_loop_allowed": false,
+  "provider_call_performed": false,
+  "closed_loop_advanced": false,
+  "known_limitations": [
+    "DirectAPI provider calling is not implemented",
+    "closed-loop automation remains disallowed",
+    "Tier 0 is not a public product surface",
+    "release record does not replace a release tag or immutable checkpoint"
+  ],
+  "evidence_paths": [
+    "docs/00_project/30_production_readiness_checklist.md",
+    "docs/00_project/31_tier0_canary_runbook.md",
+    "docs/00_project/tier0_canary_evidence.example.json",
+    "docs/00_project/tier0_canary_gate.example.json",
+    "docs/00_project/tier0_release_record.example.json"
+  ]
+}

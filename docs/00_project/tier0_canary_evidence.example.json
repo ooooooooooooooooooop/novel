@@ -1,0 +1,44 @@
+{
+  "schema_version": 1,
+  "type": "tier0_canary_evidence",
+  "release_id": "tier0-canary-20260706",
+  "canary_result": "pass",
+  "canary_commands": [
+    "novel audit tier0-canary --input canary_input.txt",
+    "novel pending tier0-canary --require-automation-ready --json",
+    "novel respond tier0-canary --slot-id rebuild --prompt-hash <rebuild_prompt_hash> --response-file canary_rebuild_response.json --json",
+    "novel resume tier0-canary",
+    "novel pending tier0-canary --require-automation-ready --json",
+    "novel respond tier0-canary --slot-id review --prompt-hash <review_prompt_hash> --response-file canary_review_response.json --json",
+    "novel resume tier0-canary",
+    "novel gate tier0-canary --json"
+  ],
+  "workspace_path": "novels/tier0-canary",
+  "final_artifact_paths": [
+    "novels/tier0-canary/output/audit/audit_report.json",
+    "novels/tier0-canary/output/audit/review_result.json",
+    "novels/tier0-canary/output/audit/route_handoff.json",
+    "novels/tier0-canary/output/audit/rebuild_package.json"
+  ],
+  "final_artifact_sha256": {
+    "novels/tier0-canary/output/audit/audit_report.json": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "novels/tier0-canary/output/audit/review_result.json": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "novels/tier0-canary/output/audit/route_handoff.json": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    "novels/tier0-canary/output/audit/rebuild_package.json": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+  },
+  "gate_result_path": "docs/00_project/tier0_canary_gate.example.json",
+  "gate_result_sha256": "1f07e3a9b766cfcee7d67ccb9b3c13e66ecb8ed51bc84fdf4c9f6499f1d6d644",
+  "final_gate_ok": true,
+  "final_review_route": "pass",
+  "final_next_workflow": "ContinueUnit",
+  "blocking_pending_count": 0,
+  "directapi_provider_calling": false,
+  "provider_calls_implemented": false,
+  "closed_loop_allowed": false,
+  "provider_call_performed": false,
+  "closed_loop_advanced": false,
+  "materialized_actions": [
+    "materialize_staged_response_only",
+    "materialize_staged_response_only"
+  ]
+}
