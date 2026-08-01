@@ -204,10 +204,12 @@ class SerializationBoundaryUnit:
                         raise ValueError(
                             f"Serialized {type_name} item must be an object"
                         )
+                    # 只要求必填字段存在; 可选字段(如 FactEntry.validity_interval)
+                    # 缺省时由模型默认值补齐, 保证旧 state 可反序列化。
                     missing_fields = [
                         field_name
-                        for field_name in cls.model_fields
-                        if field_name not in item
+                        for field_name, field_def in cls.model_fields.items()
+                        if field_def.is_required() and field_name not in item
                     ]
                     if missing_fields:
                         raise ValueError(

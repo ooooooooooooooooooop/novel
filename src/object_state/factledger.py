@@ -12,6 +12,41 @@ from pydantic import (
 )
 
 
+class ValidityInterval(BaseModel):
+    """事实的有效时间区间.
+
+    可选字段, None 表示开放边界(未声明起点或终点).
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    valid_from: Optional[str] = Field(
+        default=None, description="有效起点(叙事时间), 如'第三章'"
+    )
+    valid_until: Optional[str] = Field(
+        default=None, description="有效终点(叙事时间), 如'第五章'"
+    )
+
+    @field_validator("valid_from", "valid_until")
+    @classmethod
+    def _bound_must_be_non_blank_when_provided(
+        cls, value: Optional[str], info: ValidationInfo
+    ) -> Optional[str]:
+        if value is not None and not value.strip():
+            raise ValueError(f"{info.field_name} must be non-empty when provided")
+        return value
+
+    def to_prompt_suffix(self) -> str:
+        """渲染有效性后缀, 如 '(第三章~第五章)'. 开放边界用 '~' 表示, 无边界省略."""
+        if self.valid_from is None and self.valid_until is None:
+            return ""
+        if self.valid_from is not None and self.valid_until is not None:
+            return f"({self.valid_from}~{self.valid_until})"
+        if self.valid_from is not None:
+            return f"({self.valid_from}~)"
+        return f"(~{self.valid_until})"
+
+
 class FactEntry(BaseModel):
     """单条已确认事实."""
 
@@ -30,6 +65,9 @@ class FactEntry(BaseModel):
     )
     confirmed: StrictBool = Field(default=False, description="是否已确认")
     timestamp: Optional[str] = Field(default=None, description="叙事时间戳")
+    validity_interval: Optional[ValidityInterval] = Field(
+        default=None, description="有效时间区间, None=始终有效"
+    )
 
     @field_validator("fact_id", "statement")
     @classmethod
@@ -58,7 +96,12 @@ class FactEntry(BaseModel):
 
     def to_prompt_line(self) -> str:
         status = "✓" if self.confirmed else "?"
-        return f"{status} [{self.fact_type}] {self.statement}"
+        suffix = (
+            self.validity_interval.to_prompt_suffix()
+            if self.validity_interval is not None
+            else ""
+        )
+        return f"{status} [{self.fact_type}]{suffix} {self.statement}"
 
 
 class FactLedger(BaseModel):

@@ -34,6 +34,8 @@ from src.workflow_action.continuation import ContinueUnit, admit_new_facts
 from src.workflow_action.frame import NarrativeFrameUnit
 from src.workflow_action.review import ReviewUnit
 from src.workflow_action.rewrite import RewriteUnit
+from src.workflow_action.style import load_style_context
+from src.workflow_action.retrieval import load_retrieval_context
 
 
 def _validate_no_regression(package) -> bool:
@@ -181,6 +183,17 @@ def main() -> int:
         help="从上次保存的状态继续（跳过 Initialize，加载已有对象和 frame 状态）",
     )
     parser.add_argument("--output-dir", default="output", help="输出目录")
+    parser.add_argument(
+        "--style",
+        default="",
+        help="引用风格库中的已有档案 <name>（novels/_style_library/<name>.json），注入续写 prompt",
+    )
+    parser.add_argument(
+        "--retrieval",
+        default="on",
+        choices=["on", "off"],
+        help="状态检索注入开关（默认 on；off 时与旧版 prompt 字节一致）",
+    )
     args = parser.parse_args()
 
     resume_mode = args.resume
@@ -301,6 +314,14 @@ def main() -> int:
             print(f"Error: {exc}")
             return 1
     else:
+        retrieval_context = ""
+        if args.retrieval == "on":
+            retrieval_context = load_retrieval_context(
+                output_dir,
+                state=narrative_state,
+                facts=facts,
+                foreshadows=foreshadows,
+            )
         continue_prompt_path.write_text(
             cont.build_prompt(
                 state=narrative_state,
@@ -312,6 +333,8 @@ def main() -> int:
                 structure_template=structure_template_name,
                 platform=workspec.platform,
                 genre=workspec.genre,
+                style_context=load_style_context(output_dir, style_name=args.style or None),
+                retrieval_context=retrieval_context,
             ),
             encoding="utf-8",
         )

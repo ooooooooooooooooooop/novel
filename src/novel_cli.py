@@ -59,8 +59,8 @@ DEFAULT_NOVELS_ROOT = PROJECT_ROOT / "novels"
 MODE_FILE = "mode.txt"
 CONFIG_FILE = "run_config.json"
 JSON_SCHEMA_VERSION = 1
-VALID_MODES = {"audit", "extend", "compose"}
-JSON_ERROR_COMMANDS = {"audit", "extend", "compose", "list", "gate", "pending", "respond"}
+VALID_MODES = {"audit", "extend", "compose", "style", "compliance"}
+JSON_ERROR_COMMANDS = {"audit", "extend", "compose", "style", "compliance", "list", "gate", "pending", "respond"}
 JSON_ERROR_COMMANDS_WITH_NOVEL = JSON_ERROR_COMMANDS - {"list"}
 ROUTE_HANDOFF_FILE = "route_handoff.json"
 PENDING_SELECTION_METHODS = {"all_pending", "slot_id"}
@@ -82,6 +82,12 @@ VALID_CONFIG_FIELDS = {
     "batch_size",
     "max_chapters",
     "workspec",
+    "style",
+    "name",
+    "platform",
+    "sensitive",
+    "lexicon",
+    "retrieval",
 }
 BASE_JSON_ERROR_FIELDS = (
     "ok",
@@ -1225,6 +1231,8 @@ def _expected_gate_package_name(mode: str) -> str:
         "audit": "rebuild_package.json",
         "extend": "extend_rebuild_package.json",
         "compose": "compose_state.json",
+        "style": "style_profile.json",
+        "compliance": "compliance_report.json",
     }
     return package_name_by_mode[mode]
 
@@ -1244,6 +1252,8 @@ def _expected_final_result_name(mode: str) -> str:
         "audit": "audit_report.json",
         "extend": "extend_result.json",
         "compose": "compose_result.json",
+        "style": "style_profile.json",
+        "compliance": "compliance_report.json",
     }
     return result_name_by_mode[mode]
 
@@ -2177,7 +2187,12 @@ def _run_extend(args: argparse.Namespace) -> int:
         return 1
     input_path = _ensure_input(args, novel_dir)
     _write_mode(novel_dir, "extend")
-    _write_config(novel_dir, {"mode": "extend", **_capture_long_config(args)})
+    _write_config(
+        novel_dir,
+        {"mode": "extend", **_capture_long_config(args)}
+        | ({"style": args.style} if getattr(args, "style", None) else {})
+        | {"retrieval": getattr(args, "retrieval", "on")},
+    )
 
     command = [
         sys.executable,
@@ -2187,6 +2202,9 @@ def _run_extend(args: argparse.Namespace) -> int:
         str(output_dir),
     ]
     _append_long_options(command, args)
+    if getattr(args, "style", None):
+        command.extend(["--style", args.style])
+    command.extend(["--retrieval", getattr(args, "retrieval", "on")])
     return _run_child(command)
 
 
@@ -2217,13 +2235,114 @@ def _run_compose(args: argparse.Namespace) -> int:
     if source_workspec_path is not None and args.workspec:
         workspec_path = _copy_to_workspace(args.workspec, novel_dir / "workspec.json")
         command.append(str(workspec_path))
-        _write_config(novel_dir, {"mode": "compose", "workspec": "workspec.json"})
+        _write_config(
+            novel_dir,
+            {"mode": "compose", "workspec": "workspec.json"}
+            | ({"style": args.style} if getattr(args, "style", None) else {}),
+        )
     elif source_workspec_path is not None:
         command.append(str(novel_dir / "workspec.json"))
-        _write_config(novel_dir, {"mode": "compose", "workspec": "workspec.json"})
+        _write_config(
+            novel_dir,
+            {"mode": "compose", "workspec": "workspec.json"}
+            | ({"style": args.style} if getattr(args, "style", None) else {})
+            | {"retrieval": getattr(args, "retrieval", "on")},
+        )
     else:
-        _write_config(novel_dir, {"mode": "compose", "workspec": None})
+        _write_config(
+            novel_dir,
+            {"mode": "compose", "workspec": None}
+            | ({"style": args.style} if getattr(args, "style", None) else {})
+            | {"retrieval": getattr(args, "retrieval", "on")},
+        )
     command.extend(["--output-dir", str(output_dir)])
+    if getattr(args, "style", None):
+        command.extend(["--style", args.style])
+    command.extend(["--retrieval", getattr(args, "retrieval", "on")])
+    return _run_child(command)
+
+
+def _run_style(args: argparse.Namespace) -> int:
+    """从已有小说文本提炼写作风格档案（或引用风格库档案做 lint）."""
+    novel_dir = _novel_dir(args.novel)
+    output_dir = _output_dir(novel_dir, "style")
+    source_input = _input_source(args, novel_dir)
+    # --style 引用模式不做提炼，跳过 hash 校验（输入仅供 lint 用）
+    if not args.style and not _preflight_run_hash(
+        output_dir=output_dir,
+        hash_filename=".input_hash",
+        current_hash=file_content_hash(source_input),
+        label="input file",
+    ):
+        return 1
+    input_path = _ensure_input(args, novel_dir)
+    _write_mode(novel_dir, "style")
+    _write_config(
+        novel_dir,
+        {
+            "mode": "style",
+            **({"name": args.name} if args.name else {}),
+            **({"style": args.style} if args.style else {}),
+        },
+    )
+
+    command = [
+        sys.executable,
+        _script_path("style_short_form.py"),
+        str(input_path),
+        "--output-dir",
+        str(output_dir),
+    ]
+    if args.tone:
+        command.extend(["--tone", args.tone])
+    if args.genre:
+        command.extend(["--genre", args.genre])
+    if args.lint:
+        command.append("--lint")
+    if args.name:
+        command.extend(["--name", args.name])
+    if args.style:
+        command.extend(["--style", args.style])
+    return _run_child(command)
+
+
+def _run_compliance(args: argparse.Namespace) -> int:
+    """内容合规模块：扫敏感词 + 平台政策（纯代码，无 LLM 阶段）."""
+    novel_dir = _novel_dir(args.novel)
+    output_dir = _output_dir(novel_dir, "compliance")
+    source_input = _input_source(args, novel_dir)
+    if not _preflight_run_hash(
+        output_dir=output_dir,
+        hash_filename=".input_hash",
+        current_hash=file_content_hash(source_input),
+        label="input file",
+    ):
+        return 1
+    input_path = _ensure_input(args, novel_dir)
+    _write_mode(novel_dir, "compliance")
+    _write_config(
+        novel_dir,
+        {
+            "mode": "compliance",
+            **({"platform": args.platform} if getattr(args, "platform", None) else {}),
+            **({"sensitive": args.sensitive} if getattr(args, "sensitive", None) else {}),
+            **({"lexicon": args.lexicon} if getattr(args, "lexicon", None) else {}),
+        },
+    )
+
+    command = [
+        sys.executable,
+        _script_path("compliance_short_form.py"),
+        str(input_path),
+        "--output-dir",
+        str(output_dir),
+    ]
+    if args.platform:
+        command.extend(["--platform", args.platform])
+    if args.sensitive:
+        command.extend(["--sensitive", args.sensitive])
+    if args.lexicon:
+        command.extend(["--lexicon", args.lexicon])
     return _run_child(command)
 
 
@@ -2271,18 +2390,53 @@ def _run_resume(args: argparse.Namespace) -> int:
             "--resume",
         ]
         _append_configured_long_options(command, config)
+        if config.get("style"):
+            command.extend(["--style", config["style"]])
+        command.extend(["--retrieval", config.get("retrieval", "on")])
         return _run_child(command)
     if mode == "compose":
         output_dir = _output_dir(novel_dir, "compose")
-        return _run_child(
-            [
-                sys.executable,
-                _script_path("compose_short_form.py"),
-                "--output-dir",
-                str(output_dir),
-                "--resume",
-            ]
-        )
+        command = [
+            sys.executable,
+            _script_path("compose_short_form.py"),
+            "--output-dir",
+            str(output_dir),
+            "--resume",
+        ]
+        if config.get("style"):
+            command.extend(["--style", config["style"]])
+        command.extend(["--retrieval", config.get("retrieval", "on")])
+        return _run_child(command)
+    if mode == "style":
+        output_dir = _output_dir(novel_dir, "style")
+        command = [
+            sys.executable,
+            _script_path("style_short_form.py"),
+            str(novel_dir / "input.txt"),
+            "--output-dir",
+            str(output_dir),
+        ]
+        if config.get("style"):
+            command.extend(["--style", config["style"]])
+        if config.get("name"):
+            command.extend(["--name", config["name"]])
+        return _run_child(command)
+    if mode == "compliance":
+        output_dir = _output_dir(novel_dir, "compliance")
+        command = [
+            sys.executable,
+            _script_path("compliance_short_form.py"),
+            str(novel_dir / "input.txt"),
+            "--output-dir",
+            str(output_dir),
+        ]
+        if config.get("platform"):
+            command.extend(["--platform", config["platform"]])
+        if config.get("sensitive"):
+            command.extend(["--sensitive", config["sensitive"]])
+        if config.get("lexicon"):
+            command.extend(["--lexicon", config["lexicon"]])
+        return _run_child(command)
 
     print(f"Error: unknown saved mode for {args.novel}: {mode}")
     return 1
@@ -2389,6 +2543,7 @@ def _final_route_path(mode: str, output_dir: Path) -> tuple[Path, float] | None:
     final_by_mode = {
         "extend": output_dir / "extend_result.json",
         "compose": output_dir / "compose_result.json",
+        "compliance": output_dir / "compliance_report.json",
     }
     final_path = final_by_mode.get(mode)
     if final_path and final_path.exists():
@@ -3014,12 +3169,49 @@ def build_parser(*, emit_json_errors: bool = False) -> argparse.ArgumentParser:
     extend.add_argument("novel", help="小说名")
     _add_input_argument(extend)
     _add_long_arguments(extend)
+    extend.add_argument("--style", help="引用风格库中的已有档案 <name>，注入续写 prompt")
+    extend.add_argument(
+        "--retrieval",
+        choices=["on", "off"],
+        default="on",
+        help="状态检索注入开关（默认 on；off 时与旧版 prompt 字节一致）",
+    )
     extend.set_defaults(func=_run_extend)
 
     compose = subparsers.add_parser("compose", help="从 WorkSpec 创作")
     compose.add_argument("novel", help="小说名")
     compose.add_argument("--workspec", help="WorkSpec JSON 文件路径")
+    compose.add_argument("--style", help="引用风格库中的已有档案 <name>，注入续写 prompt")
+    compose.add_argument(
+        "--retrieval",
+        choices=["on", "off"],
+        default="on",
+        help="状态检索注入开关（默认 on；off 时与旧版 prompt 字节一致）",
+    )
     compose.set_defaults(func=_run_compose)
+
+    style = subparsers.add_parser("style", help="从已有小说文本提炼写作风格档案")
+    style.add_argument("novel", help="小说名")
+    _add_input_argument(style)
+    style.add_argument("--tone", help="调性提示词（如 克制）")
+    style.add_argument("--genre", help="类型提示词（如 仙侠）")
+    style.add_argument("--lint", action="store_true", help="对全文做 AI 味 lint")
+    style.add_argument("--name", help="另存到风格库 novels/_style_library/<name>.json（可跨小说复用）")
+    style.add_argument("--style", help="引用风格库中的已有档案 <name>，跳过提炼")
+    style.set_defaults(func=_run_style)
+
+    compliance = subparsers.add_parser("compliance", help="内容合规模块：扫敏感词 + 平台政策")
+    compliance.add_argument("novel", help="小说名")
+    _add_input_argument(compliance)
+    compliance.add_argument("--platform", default="通用", help="目标平台（默认 通用）")
+    compliance.add_argument(
+        "--sensitive",
+        default="on",
+        choices=["on", "off"],
+        help="敏感词扫描开关（默认 on；off 时跳过词库扫描，平台政策检查仍跑）",
+    )
+    compliance.add_argument("--lexicon", help="自定义词库 JSON 文件路径（与内置词库合并）")
+    compliance.set_defaults(func=_run_compliance)
 
     resume = subparsers.add_parser("resume", help="按上次模式断点续跑")
     resume.add_argument("novel", help="小说名")

@@ -64,6 +64,8 @@ class ContinueUnit:
         structure_template: str | None = None,
         platform: str | None = None,
         genre: str | None = None,
+        style_context: str = "",
+        retrieval_context: str = "",
     ) -> str:
         """生成续写 prompt."""
         return self._build_prompt(
@@ -76,6 +78,8 @@ class ContinueUnit:
             structure_template,
             platform,
             genre,
+            style_context,
+            retrieval_context,
         )
 
     def parse_response(self, response: str) -> tuple[PlotUnit, NarrativeState, list[str], list[str]]:
@@ -128,6 +132,8 @@ class ContinueUnit:
         structure_template: str | None,
         platform: str | None,
         genre: str | None,
+        style_context: str,
+        retrieval_context: str,
     ) -> str:
         char_ctx = "\n---\n".join(c.to_prompt_context() for c in characters)
         active_threads = foreshadows.get_active()
@@ -166,6 +172,12 @@ class ContinueUnit:
             guidance = get_genre_guidance(genre)
             if guidance:
                 genre_section = f"\n\n{guidance}"
+        style_section = ""
+        if style_context:
+            style_section = f"\n\n【写作风格】\n{style_context}"
+        retrieval_section = ""
+        if retrieval_context:
+            retrieval_section = f"\n\n【相关事实检索】\n{retrieval_context}"
         structure_section = ""
         if structure_template:
             nodes = get_structure_template(structure_template)
@@ -180,7 +192,7 @@ class ContinueUnit:
         return f"""你是一位叙事续写专家。请基于当前叙事状态，生成下一个 PlotUnit。
 
 【作品约束】
-{workspec_context}{platform_section}{genre_section}
+{workspec_context}{platform_section}{genre_section}{style_section}{retrieval_section}
 
 【当前叙事状态】
 {state.to_prompt_context()}

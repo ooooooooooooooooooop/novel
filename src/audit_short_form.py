@@ -354,7 +354,8 @@ def main() -> int:
         print(f"\nReconciled {len(objects)} global objects from {len(chunks)} chapters")
         cross_issues_list = reconciler.check_cross_chapter_consistency(objects)
         outline_issues = reconciler.check_outline_consistency(objects, book_outline)
-        combined_cross = cross_issues_list + outline_issues
+        temporal_issues = reconciler.check_temporal_contradictions(objects)
+        combined_cross = cross_issues_list + outline_issues + temporal_issues
         if combined_cross:
             cross_issues = combined_cross
             print(f"\nCross-chapter issues: {len(cross_issues)}")

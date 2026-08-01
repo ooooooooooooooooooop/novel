@@ -12,7 +12,7 @@ What this covers:
 
 What this does NOT cover (by design, documented here so it is not silently assumed):
   - Re-running `novel respond` materialization from a clean workspace. That path is
-    covered by tests/test_novel_cli.py within the 1248-test pytest baseline.
+    covered by tests/test_novel_cli.py within the 1416-test pytest baseline.
     The audit canary workspace is an immutable evidence baseline (doc 32 binds its
     sha256) and must not be mutated by regression, so we do not replay writes here.
   - Response content quality (that is the Review unit's job, not the regression gate).

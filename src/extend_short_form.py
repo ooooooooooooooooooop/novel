@@ -26,6 +26,8 @@ from src.workflow_action.frame import NarrativeFrameUnit
 from src.workflow_action.rebuild import RebuildUnit
 from src.workflow_action.review import ReviewUnit
 from src.workflow_action.rewrite import RewriteUnit
+from src.workflow_action.style import load_style_context
+from src.workflow_action.retrieval import load_retrieval_context
 
 continuation_module = importlib.import_module("src.workflow_action.continuation")
 ContinueUnit = continuation_module.ContinueUnit
@@ -111,6 +113,17 @@ def main() -> int:
         type=int,
         default=100,
         help="无 --range 时的最大允许章节数（默认 100，超过则硬阻止）",
+    )
+    parser.add_argument(
+        "--style",
+        default="",
+        help="引用风格库中的已有档案 <name>（novels/_style_library/<name>.json），注入续写 prompt",
+    )
+    parser.add_argument(
+        "--retrieval",
+        default="on",
+        choices=["on", "off"],
+        help="状态检索注入开关（默认 on；off 时与旧版 prompt 字节一致）",
     )
     args = parser.parse_args()
     try:
@@ -389,6 +402,14 @@ def main() -> int:
             print(f"Error: {exc}")
             return 1
     else:
+        retrieval_context = ""
+        if args.retrieval == "on":
+            retrieval_context = load_retrieval_context(
+                output_dir,
+                state=narrative_state,
+                facts=facts,
+                foreshadows=foreshadows,
+            )
         continue_prompt_path.write_text(
             cont.build_prompt(
                 state=narrative_state,
@@ -400,6 +421,8 @@ def main() -> int:
                 structure_template=structure_template_name,
                 platform=workspec.platform,
                 genre=workspec.genre,
+                style_context=load_style_context(output_dir, style_name=args.style or None),
+                retrieval_context=retrieval_context,
             ),
             encoding="utf-8",
         )

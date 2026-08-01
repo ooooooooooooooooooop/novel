@@ -10,7 +10,7 @@ Tier 0 was declared production-ready on 2026-07-28.
 - immutable checkpoint: git tag `v0.1.0-tier0` → commit `b8738060689af137f544303cf64d5fd37f225a8c`
 - canary evidence: `docs/00_project/releases/tier0-canary-evidence.json`
 - saved canary gate result: `docs/00_project/releases/tier0-canary-gate.json`
-- the single combined validation command passes with expected baseline 1248
+- the single combined validation command passes with expected baseline 1416
 
 Three-flow daily-production hardening completed on 2026-07-29 (planning: `docs/00_project/34_tier0_daily_production_hardening_plan.md`), extending the audit-only Tier 0 verdict to all three flows (`audit` / `extend` / `compose`):
 
@@ -37,7 +37,7 @@ Tier 0 is ready only when all of these are true:
 - the runtime is still `local staged CLI v0`
 - one operator controls response materialization
 - the release candidate has a clean full pytest run
-- the release candidate records `1248 tests passing`
+- the release candidate records `1416 tests passing`
 - a release tag or equivalent immutable checkpoint exists
 - known limitations are documented in this file and the current status page
 - no provider call is made by the staged CLI entrypoints

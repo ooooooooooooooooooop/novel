@@ -2621,6 +2621,83 @@ def test_novel_compose_accepts_workspec_and_writes_mode(tmp_path):
     assert (novel_dir / "output" / "compose" / "compose_continue_prompt.txt").exists()
 
 
+def test_novel_style_accepts_input_and_writes_mode(tmp_path):
+    novels_root = tmp_path / "novels"
+    source = tmp_path / "source.txt"
+    source.write_text(_chapter_text(2), encoding="utf-8")
+
+    result = _run(["style", "风格样书", "--input", str(source)], novels_root)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    novel_dir = novels_root / "风格样书"
+    assert (novel_dir / "mode.txt").read_text(encoding="utf-8") == "style"
+    style_output = novel_dir / "output" / "style"
+    assert (style_output / "style_extract_prompt.txt").exists()
+    assert (style_output / ".input_hash").exists()
+
+
+def test_novel_style_resume_uses_saved_style_mode(tmp_path):
+    novels_root = tmp_path / "novels"
+    source = tmp_path / "source.txt"
+    source.write_text(_chapter_text(2), encoding="utf-8")
+    first = _run(["style", "风格样书", "--input", str(source)], novels_root)
+    assert first.returncode == 0, first.stdout + first.stderr
+
+    novel_dir = novels_root / "风格样书"
+    style_output = novel_dir / "output" / "style"
+    style_output.joinpath("style_extract_response.txt").write_text(
+        json.dumps(
+            {
+                "tone_labels": ["克制"],
+                "genre_guess": "古典仙侠",
+                "narrative_pov": "第三人称有限",
+                "pacing_description": "叙述默认长句，情绪爆点短句独立成段",
+                "sentence_habits": ["情绪靠身体反应"],
+                "rhetorical_preferences": ["具象物比喻"],
+                "show_dont_tell_notes": ["恐惧→冷汗/攥拳"],
+                "closed_loop_objects": ["那本书"],
+                "chapter_end_hook_notes": ["章末留疑问钩"],
+                "taboo_words": ["轻轻", "淡淡"],
+                "style_references": ["tone_kz_01"],
+                "confidence_gaps": [],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    result = _run(["resume", "风格样书"], novels_root)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert (style_output / "style_profile.json").exists()
+
+
+def test_novel_list_reports_style_waiting_tasks(tmp_path):
+    novels_root = tmp_path / "novels"
+    source = tmp_path / "source.txt"
+    source.write_text(_chapter_text(2), encoding="utf-8")
+    first = _run(["style", "风格样书", "--input", str(source)], novels_root)
+    assert first.returncode == 0, first.stdout + first.stderr
+
+    result = _run(["list"], novels_root)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "风格样书" in result.stdout
+    assert "style" in result.stdout
+    assert "[WAITING: style_extract_response.txt]" in result.stdout
+
+
+def test_cli_style_mode_contract_maps():
+    from src.novel_cli import (
+        VALID_MODES,
+        _expected_final_result_name,
+        _expected_gate_package_name,
+    )
+
+    assert "style" in VALID_MODES
+    assert _expected_gate_package_name("style") == "style_profile.json"
+    assert _expected_final_result_name("style") == "style_profile.json"
+
+
 def test_novel_list_reports_waiting_tasks(tmp_path):
     novels_root = tmp_path / "novels"
     source = tmp_path / "source.txt"
