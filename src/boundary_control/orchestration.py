@@ -4,6 +4,7 @@ from collections.abc import Mapping
 
 from pydantic import ValidationError
 
+from src.boundary_control.approval_gate import CONTINUE_BLOCKED_UNRESOLVED_ISSUE
 from src.boundary_control.handoff import HandoffBoundaryUnit, HandoffPacket, NextRoute
 from src.boundary_control.review_object_contracts import (
     review_issue_from_payload,
@@ -265,9 +266,9 @@ class OrchestrationGateUnit:
         if self._has_incomplete_open_review_issue(package):
             return ["route gate: ContinueUnit blocked by incomplete ReviewIssue"]
         if self._has_blocking_handoff_issue(packet):
-            return ["route gate: ContinueUnit blocked by unresolved ReviewIssue"]
+            return [CONTINUE_BLOCKED_UNRESOLVED_ISSUE]
         if self._has_blocking_review_issue(package):
-            return ["route gate: ContinueUnit blocked by unresolved ReviewIssue"]
+            return [CONTINUE_BLOCKED_UNRESOLVED_ISSUE]
         return []
 
     def _rewrite_entry_violations(

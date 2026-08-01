@@ -19,6 +19,14 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
+from src.boundary_control.approval_gate import (
+    APPROVAL_DECISION_FILE,
+    APPROVAL_GATE_EXTRA_FIELDS,
+    blocking_review_issue_ids,
+    critical_review_issue_ids,
+    load_approval_decision,
+    resolve_approval_gate_verdict,
+)
 from src.boundary_control.automation_contracts import (
     AUTOMATION_FORBIDDEN_AUDIT_PAYLOAD_FIELDS,
     AUTOMATION_FORBIDDEN_EXECUTION_CLAIM_FIELDS,
@@ -180,6 +188,11 @@ GATE_JSON_FIELDS = (
     "blocking_pending_count",
     "blocking_pending_prompt_files",
 )
+# Approval gate JSON = the 13 standard fields as an identical prefix, then the
+# approval fields. This new shape has no existing locks, so the default gate
+# contract (GATE_JSON_FIELDS) and its sha256-pinned canary fixtures stay
+# byte-identical.
+APPROVAL_GATE_JSON_FIELDS = (*GATE_JSON_FIELDS, *APPROVAL_GATE_EXTRA_FIELDS)
 LIST_JSON_ROW_FIELDS = (
     "schema_version",
     "command",
@@ -1457,6 +1470,246 @@ def _validate_gate_json_payload(payload: dict[object, object]) -> None:
     _validate_gate_json_current_verdict(payload, handoff_path=handoff_path)
 
 
+def _validate_approval_gate_json_payload(payload: dict[object, object]) -> None:
+    """Validate the opt-in approval gate JSON contract.
+
+    The first 13 fields mirror the standard gate contract exactly. The one
+    deliberate relaxation: under an approve override, review_route may be
+    rewrite/block while next_workflow is ContinueUnit (and
+    _validate_continue_package_presence is skipped), which the standard
+    contract rejects. That override is confined to this new contract and gated
+    on approval_ok and approval_decision == "approve".
+    """
+    _validate_exact_fields(
+        payload,
+        fields=APPROVAL_GATE_JSON_FIELDS,
+        label="CLI approval gate JSON",
+        forbidden_cross_contract_metadata_fields=(
+            *PENDING_AUTOMATION_METADATA_FIELDS,
+            *RESPONSE_MATERIALIZATION_METADATA_FIELDS,
+        ),
+    )
+    if payload["command"] != "gate":
+        raise ValueError(
+            f"unsupported CLI approval gate JSON command: {payload['command']}"
+        )
+    for field in (
+        "novel",
+        "mode",
+        "review_route",
+        "next_workflow",
+        "handoff_path",
+        "package_path",
+    ):
+        value = payload[field]
+        if not isinstance(value, str) or not value.strip():
+            raise ValueError(
+                f"CLI approval gate JSON {field} must be a non-empty string"
+            )
+    _validate_novel_name(payload["novel"])
+    _validate_cli_mode(payload, label="CLI approval gate JSON")
+    for field in ("handoff_path", "package_path"):
+        _validate_absolute_path_field(payload, field, label="CLI approval gate JSON")
+        _validate_mode_output_path(
+            mode=payload["mode"],
+            artifact_path=payload[field],
+            field=field,
+            label="CLI approval gate JSON",
+        )
+    _validate_shared_artifact_directory(
+        artifact_paths=[payload["handoff_path"], payload["package_path"]],
+        label="CLI approval gate JSON",
+    )
+    _validate_route_handoff_name(
+        handoff_name=Path(payload["handoff_path"]).name,
+        label="CLI approval gate JSON",
+    )
+    _validate_gate_package_name(
+        mode=payload["mode"],
+        package_name=Path(payload["package_path"]).name,
+        label="CLI approval gate JSON",
+    )
+    handoff_path = Path(payload["handoff_path"])
+    package_path = Path(payload["package_path"])
+    if not handoff_path.is_file():
+        raise ValueError("CLI approval gate JSON handoff_path must exist")
+    review_route = payload["review_route"]
+    next_workflow = payload["next_workflow"]
+    if next_workflow not in VALID_WORKFLOW_ROUTES:
+        raise ValueError(
+            "CLI approval gate JSON next_workflow must be a supported workflow"
+        )
+    if review_route != "-" and review_route not in VALID_REVIEW_ROUTES:
+        raise ValueError(
+            "CLI approval gate JSON review_route must be pass, rewrite, block, or -"
+        )
+    override_combo = (
+        payload["ok"] is True
+        and next_workflow == "ContinueUnit"
+        and review_route != "pass"
+    )
+    if override_combo:
+        if payload["approval_ok"] is not True:
+            raise ValueError(
+                "CLI approval gate JSON ContinueUnit override requires "
+                "approved critical issues"
+            )
+        if payload["approval_decision"] != "approve":
+            raise ValueError(
+                "CLI approval gate JSON ContinueUnit override requires "
+                "approval_decision=approve"
+            )
+    else:
+        if review_route == "-" and next_workflow != "ReviewUnit":
+            raise ValueError(
+                "CLI approval gate JSON review_route=- must route to ReviewUnit"
+            )
+        if review_route == "pass" and next_workflow != "ContinueUnit":
+            raise ValueError(
+                "CLI approval gate JSON review_route=pass must route to ContinueUnit"
+            )
+        if review_route == "rewrite" and next_workflow != "RewriteUnit":
+            raise ValueError(
+                "CLI approval gate JSON review_route=rewrite must route to RewriteUnit"
+            )
+        if review_route == "block" and next_workflow not in BLOCK_REVIEW_WORKFLOWS:
+            raise ValueError(
+                "CLI approval gate JSON review_route=block must route to "
+                "Stop, RebuildUnit, or Replan"
+            )
+    handoff_review_route, handoff_workflow = _json_route_handoff_values(handoff_path)
+    if review_route != handoff_review_route:
+        raise ValueError(
+            "CLI approval gate JSON review_route must match route_handoff.json"
+        )
+    if not override_combo and next_workflow != handoff_workflow:
+        raise ValueError(
+            "CLI approval gate JSON next_workflow must match route_handoff.json"
+        )
+    if not isinstance(payload["ok"], bool):
+        raise ValueError("CLI approval gate JSON ok must be a boolean")
+    schema_version = payload["schema_version"]
+    if (
+        not isinstance(schema_version, int)
+        or isinstance(schema_version, bool)
+        or schema_version != JSON_SCHEMA_VERSION
+    ):
+        raise ValueError(
+            f"unsupported CLI approval gate JSON schema_version: {schema_version}"
+        )
+    if not isinstance(payload["package_present"], bool):
+        raise ValueError("CLI approval gate JSON package_present must be a boolean")
+    if payload["package_present"] is not package_path.is_file():
+        raise ValueError(
+            "CLI approval gate JSON package_present must match package_path existence"
+        )
+    violations = _validate_string_list(
+        payload["violations"],
+        label="CLI approval gate JSON violations",
+    )
+    blocking_prompt_files = _validate_prompt_filename_list(
+        payload["blocking_pending_prompt_files"],
+        label="CLI approval gate JSON blocking_pending_prompt_files",
+    )
+    _validate_non_negative_integer(
+        payload,
+        "blocking_pending_count",
+        label="CLI approval gate JSON",
+    )
+    if payload["blocking_pending_count"] != len(blocking_prompt_files):
+        raise ValueError(
+            "CLI approval gate JSON blocking_pending_count must match "
+            "blocking_pending_prompt_files"
+        )
+    _validate_gate_verdict_consistency(
+        ok=payload["ok"],
+        violations=violations,
+        blocking_count=payload["blocking_pending_count"],
+        label="CLI approval gate JSON",
+    )
+    if not override_combo:
+        _validate_continue_package_presence(
+            ok=payload["ok"],
+            next_workflow=next_workflow,
+            package_present=payload["package_present"],
+            label="CLI approval gate JSON",
+        )
+    _validate_approval_gate_fields(payload)
+    _validate_approval_gate_json_current_verdict(
+        payload,
+        handoff_path=handoff_path,
+    )
+
+
+def _validate_approval_gate_fields(payload: dict[object, object]) -> None:
+    if not isinstance(payload["approval_required"], bool):
+        raise ValueError("CLI approval gate JSON approval_required must be a boolean")
+    critical_ids = _validate_string_list(
+        payload["critical_issue_ids"],
+        label="CLI approval gate JSON critical_issue_ids",
+    )
+    if payload["approval_required"] is not (len(critical_ids) > 0):
+        raise ValueError(
+            "CLI approval gate JSON approval_required must match critical_issue_ids"
+        )
+    approval_decision = payload["approval_decision"]
+    if approval_decision not in {"approve", "reject", "-"}:
+        raise ValueError(
+            "CLI approval gate JSON approval_decision must be approve, reject, or -"
+        )
+    if not isinstance(payload["approval_ok"], bool):
+        raise ValueError("CLI approval gate JSON approval_ok must be a boolean")
+    if payload["approval_ok"] is False and payload["ok"] is True:
+        raise ValueError(
+            "CLI approval gate JSON failed approval must not pass the gate"
+        )
+    if approval_decision == "reject" and payload["approval_ok"] is True:
+        raise ValueError(
+            "CLI approval gate JSON rejected approval cannot be approval_ok"
+        )
+    if not critical_ids:
+        if payload["approval_ok"] is not True:
+            raise ValueError(
+                "CLI approval gate JSON no critical issues requires approval_ok"
+            )
+        if approval_decision != "-":
+            raise ValueError(
+                "CLI approval gate JSON no critical issues requires "
+                "approval_decision=-"
+            )
+
+
+def _validate_approval_gate_json_current_verdict(
+    payload: dict[object, object],
+    *,
+    handoff_path: Path,
+) -> None:
+    verdict = _approval_gate_verdict(
+        mode=payload["mode"],
+        output_dir=handoff_path.parent,
+        handoff_path=handoff_path,
+    )
+    comparisons = (
+        ("ok", "ok"),
+        ("review_route", "review_route"),
+        ("next_workflow", "next_workflow"),
+        ("violations", "violations"),
+        ("package_present", "package_present"),
+        ("blocking_pending_count", "blocking_pending_count"),
+        ("blocking_pending_prompt_files", "blocking_pending_prompt_files"),
+        ("approval_required", "approval_required"),
+        ("critical_issue_ids", "critical_issue_ids"),
+        ("approval_decision", "approval_decision"),
+        ("approval_ok", "approval_ok"),
+    )
+    for payload_field, verdict_field in comparisons:
+        if payload[payload_field] != verdict[verdict_field]:
+            raise ValueError(
+                f"CLI approval gate JSON {payload_field} must match current "
+                f"approval gate verdict"
+            )
+
+
 def _validate_optional_non_negative_integer(
     payload: dict[object, object],
     field: str,
@@ -2663,6 +2916,119 @@ def _route_gate_verdict(
     }
 
 
+def _approval_gate_verdict(
+    *,
+    mode: str,
+    output_dir: Path,
+    handoff_path: Path,
+) -> dict[str, object]:
+    """Resolve the opt-in approval gate verdict (critical issues require a
+    human approve/reject decision artifact before the workflow may advance).
+
+    Reuses ``_route_gate_verdict`` unchanged as the base verdict, then applies
+    the approval decision table. A missing or invalid decision artifact
+    produces a blocked verdict (never a hard raise) so ``--json`` always emits
+    the uniform approval-gate contract.
+    """
+    base = _route_gate_verdict(
+        mode=mode,
+        output_dir=output_dir,
+        handoff_path=handoff_path,
+    )
+    packet = _load_route_handoff_packet(handoff_path)
+    package = (
+        SerializationBoundaryUnit().load(base["package_path"])
+        if base["package_present"]
+        else None
+    )
+    critical_ids = critical_review_issue_ids(packet, package)
+    blocking_ids = blocking_review_issue_ids(packet, package)
+
+    decision_path = output_dir / APPROVAL_DECISION_FILE
+    decision = None
+    decision_error: str | None = None
+    # A missing artifact is the ordinary "require operator approval" case
+    # (decision-table row B), so only attempt to load when the file exists.
+    # A present-but-invalid artifact routes to the decision_error branch.
+    if critical_ids and decision_path.is_file():
+        try:
+            decision = load_approval_decision(decision_path)
+        except ValueError as exc:
+            decision_error = str(exc)
+
+    if decision_error is not None:
+        return {
+            **base,
+            "approval_required": True,
+            "critical_issue_ids": critical_ids,
+            "approval_decision": "-",
+            "approval_ok": False,
+            "ok": False,
+            "next_workflow": base["next_workflow"],
+            "violations": [f"approval gate: {decision_error}"],
+            "approval_decision_path": str(decision_path),
+            "approval_decision_present": False,
+        }
+
+    resolved = resolve_approval_gate_verdict(
+        critical_issue_ids=critical_ids,
+        blocking_issue_ids=blocking_ids,
+        decision=decision,
+        base_ok=base["ok"],
+        base_violations=base["violations"],
+        review_route=base["review_route"],
+        next_workflow=base["next_workflow"],
+    )
+    return {
+        **base,
+        **resolved,
+        "approval_decision_path": str(decision_path),
+        "approval_decision_present": decision is not None,
+    }
+
+
+def _gate_json_payload(
+    verdict: dict[str, object],
+    args: argparse.Namespace,
+    mode: str,
+) -> dict[str, object]:
+    """Build the 13-field standard gate JSON payload."""
+    return {
+        "command": "gate",
+        "novel": args.novel,
+        "mode": mode,
+        "ok": verdict["ok"],
+        "schema_version": JSON_SCHEMA_VERSION,
+        "review_route": verdict["review_route"],
+        "next_workflow": verdict["next_workflow"],
+        "violations": verdict["violations"],
+        "handoff_path": str(verdict["handoff_path"]),
+        "package_path": str(verdict["package_path"]),
+        "package_present": verdict["package_present"],
+        "blocking_pending_count": verdict["blocking_pending_count"],
+        "blocking_pending_prompt_files": verdict["blocking_pending_prompt_files"],
+    }
+
+
+def _approval_gate_json_payload(
+    verdict: dict[str, object],
+    args: argparse.Namespace,
+    mode: str,
+) -> dict[str, object]:
+    """Build the 17-field approval gate JSON payload.
+
+    The 13 standard fields are a verbatim prefix (``_gate_json_payload``);
+    the four approval fields are appended. Approve-override verdicts already
+    carry approval_required/critical_issue_ids/approval_decision/approval_ok.
+    """
+    payload = _gate_json_payload(verdict, args, mode)
+    payload["approval_required"] = verdict["approval_required"]
+    payload["critical_issue_ids"] = verdict["critical_issue_ids"]
+    payload["approval_decision"] = verdict["approval_decision"]
+    payload["approval_ok"] = verdict["approval_ok"]
+    return payload
+
+
 def _run_gate(args: argparse.Namespace) -> int:
     novel_dir = _novel_dir(args.novel)
     mode = _read_mode(novel_dir)
@@ -2673,33 +3039,31 @@ def _run_gate(args: argparse.Namespace) -> int:
     if not handoff_path.exists():
         raise ValueError(f"missing route handoff: {handoff_path}")
 
-    verdict = _route_gate_verdict(
-        mode=mode,
-        output_dir=output_dir,
-        handoff_path=handoff_path,
-    )
+    require_approval = bool(getattr(args, "require_approval", False))
+    if require_approval:
+        verdict = _approval_gate_verdict(
+            mode=mode,
+            output_dir=output_dir,
+            handoff_path=handoff_path,
+        )
+    else:
+        verdict = _route_gate_verdict(
+            mode=mode,
+            output_dir=output_dir,
+            handoff_path=handoff_path,
+        )
 
     if args.json:
-        payload = {
-            "command": "gate",
-            "novel": args.novel,
-            "mode": mode,
-            "ok": verdict["ok"],
-            "schema_version": JSON_SCHEMA_VERSION,
-            "review_route": verdict["review_route"],
-            "next_workflow": verdict["next_workflow"],
-            "violations": verdict["violations"],
-            "handoff_path": str(verdict["handoff_path"]),
-            "package_path": str(verdict["package_path"]),
-            "package_present": verdict["package_present"],
-            "blocking_pending_count": verdict["blocking_pending_count"],
-            "blocking_pending_prompt_files": verdict[
-                "blocking_pending_prompt_files"
-            ],
-        }
-        _validate_gate_json_payload(payload)
-        print(json.dumps(payload, ensure_ascii=False, indent=2))
-        return 0 if verdict["ok"] else 1
+        if require_approval:
+            payload = _approval_gate_json_payload(verdict, args, mode)
+            _validate_approval_gate_json_payload(payload)
+            print(json.dumps(payload, ensure_ascii=False, indent=2))
+            return 0 if verdict["ok"] else 1
+        else:
+            payload = _gate_json_payload(verdict, args, mode)
+            _validate_gate_json_payload(payload)
+            print(json.dumps(payload, ensure_ascii=False, indent=2))
+            return 0 if verdict["ok"] else 1
 
     if not verdict["ok"]:
         print("Gate failed:")
@@ -2707,9 +3071,12 @@ def _run_gate(args: argparse.Namespace) -> int:
             print(f"  - {violation}")
         return 1
 
+    approval_suffix = ""
+    if require_approval:
+        approval_suffix = f" approval={verdict['approval_decision']}"
     print(
         f"Gate PASS: mode={mode} route={verdict['review_route']} "
-        f"next={verdict['next_workflow']}"
+        f"next={verdict['next_workflow']}{approval_suffix}"
     )
     return 0
 
@@ -3277,6 +3644,12 @@ def build_parser(*, emit_json_errors: bool = False) -> argparse.ArgumentParser:
     gate = subparsers.add_parser("gate", help="verify route handoff gate")
     gate.add_argument("novel", help="novel name")
     gate.add_argument("--json", action="store_true", help="emit machine-readable JSON")
+    gate.add_argument(
+        "--require-approval",
+        action="store_true",
+        help="fail unless all open critical review issues are operator-approved "
+        "(approval_decision.json)",
+    )
     gate.set_defaults(func=_run_gate)
 
     return parser

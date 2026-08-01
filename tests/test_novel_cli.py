@@ -26,12 +26,14 @@ from src.boundary_control.automation_contracts import (
     response_materialization_metadata,
 )
 from src.novel_cli import (
+    APPROVAL_GATE_JSON_FIELDS,
     GATE_JSON_FIELDS,
     LIST_JSON_ROW_FIELDS,
     PENDING_JSON_ERROR_FIELDS,
     PENDING_JSON_FIELDS,
     PENDING_SLOT_FIELDS,
     RESPOND_JSON_FIELDS,
+    _validate_approval_gate_json_payload,
     _validate_gate_json_payload,
     _validate_json_error_payload,
     _validate_list_json_row_payload,
@@ -1285,6 +1287,226 @@ def test_cli_gate_json_payload_contract_rejects_current_verdict_blocking_mismatc
         match="blocking_pending_count must match current gate verdict",
     ):
         _validate_gate_json_payload(payload)
+
+
+def _review_issue_open_item(**overrides) -> dict:
+    """A ReviewIssue handoff open item with sensible defaults."""
+    item = {
+        "type": "ReviewIssue",
+        "issue_id": "iss_critical_1",
+        "issue_type": "weak_progression",
+        "severity": "critical",
+        "location": "pu_scene_001",
+        "scope_of_impact": "next unit",
+        "violated_rule": "progression",
+        "description": "critical issue for approval gate",
+        "resolution_status": "open",
+        "status": "open",
+        "suggested_fix": None,
+        "plotunit_ref": None,
+        "affected_threads": [],
+        "supporting_facts": [],
+        "contradictory_facts": [],
+    }
+    for key, value in overrides.items():
+        if value is None:
+            item.pop(key, None)
+        else:
+            item[key] = value
+    return item
+
+
+def _approval_decision_file(
+    output_dir: Path,
+    *,
+    decision: str = "approve",
+    critical_issue_ids: list[str] | None = None,
+) -> Path:
+    path = output_dir / "approval_decision.json"
+    path.write_text(
+        json.dumps(
+            {
+                "decision": decision,
+                "critical_issue_ids": (
+                    critical_issue_ids
+                    if critical_issue_ids is not None
+                    else ["iss_critical_1"]
+                ),
+                "operator_note": "operator accepted",
+                "decided_at_utc": "2026-08-01T12:34:56Z",
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    return path
+
+
+def _valid_approval_gate_json_payload(*, override: bool = False) -> dict:
+    """Mirror of _valid_gate_json_payload for the approval gate contract.
+
+    Writes a rewrite handoff with an open critical ReviewIssue, then hard-codes
+    the verdict the gate would produce. With override=True the payload reflects
+    the approve override (review_route=rewrite, next_workflow=ContinueUnit,
+    ok=true, approval_ok=true). Without it, the payload reflects a reject
+    decision (ok=false, decision=reject) — the on-disk state that actually
+    produces a non-override verdict, so the recomputed verdict matches.
+    """
+    output_dir = _contract_output_dir("extend")
+    handoff_path = output_dir / "route_handoff.json"
+    package_path = output_dir / "extend_rebuild_package.json"
+    handoff_payload = _route_handoff("rewrite", "RewriteUnit")
+    handoff_payload["open_items"] = [_review_issue_open_item()]
+    handoff_payload["change_set"][0]["issue_count"] = 1
+    handoff_path.write_text(
+        json.dumps(handoff_payload, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    package_path.write_text(
+        json.dumps(_serialization_package(), ensure_ascii=False),
+        encoding="utf-8",
+    )
+    if override:
+        _approval_decision_file(output_dir)
+        return {
+            "command": "gate",
+            "novel": "contract",
+            "mode": "extend",
+            "ok": True,
+            "schema_version": 1,
+            "review_route": "rewrite",
+            "next_workflow": "ContinueUnit",
+            "violations": [],
+            "handoff_path": str(handoff_path),
+            "package_path": str(package_path),
+            "package_present": True,
+            "blocking_pending_count": 0,
+            "blocking_pending_prompt_files": [],
+            "approval_required": True,
+            "critical_issue_ids": ["iss_critical_1"],
+            "approval_decision": "approve",
+            "approval_ok": True,
+        }
+    _approval_decision_file(output_dir, decision="reject")
+    return {
+        "command": "gate",
+        "novel": "contract",
+        "mode": "extend",
+        "ok": False,
+        "schema_version": 1,
+        "review_route": "rewrite",
+        "next_workflow": "RewriteUnit",
+        "violations": [
+            "approval gate: critical issue(s) rejected by operator: "
+            "iss_critical_1"
+        ],
+        "handoff_path": str(handoff_path),
+        "package_path": str(package_path),
+        "package_present": True,
+        "blocking_pending_count": 0,
+        "blocking_pending_prompt_files": [],
+        "approval_required": True,
+        "critical_issue_ids": ["iss_critical_1"],
+        "approval_decision": "reject",
+        "approval_ok": False,
+    }
+
+
+def test_cli_approval_gate_json_fields_extends_gate_json_fields_as_prefix():
+    assert APPROVAL_GATE_JSON_FIELDS[:13] == GATE_JSON_FIELDS
+    assert APPROVAL_GATE_JSON_FIELDS[13:] == (
+        "approval_required",
+        "critical_issue_ids",
+        "approval_decision",
+        "approval_ok",
+    )
+
+
+def test_cli_gate_json_payload_contract_rejects_approval_field_as_unknown():
+    payload = _valid_gate_json_payload()
+    payload["approval_required"] = True
+
+    with pytest.raises(ValueError, match="unknown CLI gate JSON field"):
+        _validate_gate_json_payload(payload)
+
+
+def test_cli_approval_gate_json_payload_contract_rejects_non_string_keys():
+    payload = _valid_approval_gate_json_payload()
+    payload[1] = "adapter-only"
+
+    with pytest.raises(ValueError, match="payload keys must be strings"):
+        _validate_approval_gate_json_payload(payload)
+
+
+def test_cli_approval_gate_json_payload_contract_rejects_unknown_fields():
+    payload = _valid_approval_gate_json_payload()
+    payload["auto_advance"] = True
+
+    with pytest.raises(ValueError, match="unknown CLI approval gate JSON field"):
+        _validate_approval_gate_json_payload(payload)
+
+
+def test_cli_approval_gate_json_payload_contract_rejects_credential_fields():
+    payload = _valid_approval_gate_json_payload()
+    payload["api_key"] = "not allowed"
+
+    with pytest.raises(ValueError, match="must not include credential field"):
+        _validate_approval_gate_json_payload(payload)
+
+
+def test_cli_approval_gate_json_payload_contract_rejects_execution_claim_fields():
+    payload = _valid_approval_gate_json_payload()
+    payload["retry"] = True
+
+    with pytest.raises(ValueError, match="must not include execution claim field"):
+        _validate_approval_gate_json_payload(payload)
+
+
+def test_cli_approval_gate_json_payload_contract_rejects_cross_contract_metadata():
+    payload = _valid_approval_gate_json_payload()
+    payload["provider_call_performed"] = False
+
+    with pytest.raises(ValueError, match="cross-contract metadata"):
+        _validate_approval_gate_json_payload(payload)
+
+
+def test_cli_approval_gate_json_payload_contract_rejects_bad_approval_required():
+    payload = _valid_approval_gate_json_payload()
+    payload["approval_required"] = False
+
+    with pytest.raises(ValueError, match="approval_required must match"):
+        _validate_approval_gate_json_payload(payload)
+
+
+def test_cli_approval_gate_json_payload_contract_rejects_bad_approval_decision():
+    payload = _valid_approval_gate_json_payload()
+    payload["approval_decision"] = "maybe"
+
+    with pytest.raises(ValueError, match="approval_decision must be approve, reject, or -"):
+        _validate_approval_gate_json_payload(payload)
+
+
+def test_cli_approval_gate_json_payload_contract_rejects_override_without_approval():
+    payload = _valid_approval_gate_json_payload(override=True)
+    payload["approval_ok"] = False
+
+    with pytest.raises(ValueError, match="ContinueUnit override requires approved"):
+        _validate_approval_gate_json_payload(payload)
+
+
+def test_cli_approval_gate_json_payload_contract_accepts_override_with_approval():
+    payload = _valid_approval_gate_json_payload(override=True)
+    _validate_approval_gate_json_payload(payload)
+
+
+def test_cli_approval_gate_json_payload_contract_rejects_approval_ok_true_when_gate_fails():
+    payload = _valid_approval_gate_json_payload(override=True)
+    payload["ok"] = False
+    payload["violations"] = ["route gate: pending prompt newer than handoff"]
+    payload["next_workflow"] = "RewriteUnit"
+
+    with pytest.raises(ValueError, match="must match current approval gate verdict"):
+        _validate_approval_gate_json_payload(payload)
 
 
 def _valid_list_json_row_payload() -> dict:
@@ -5868,6 +6090,209 @@ def test_novel_gate_accepts_rewrite_handoff_issue_without_package(tmp_path):
     assert result.returncode == 0, result.stdout + result.stderr
     assert "Gate PASS" in result.stdout
     assert "route=rewrite" in result.stdout
+
+
+def _approval_gate_workspace(
+    novels_root: Path,
+    name: str,
+    *,
+    decision: str | None = "approve",
+    review_issues: list[dict] | None = None,
+) -> Path:
+    """Build an extend workspace whose rewrite handoff carries open critical
+    ReviewIssues, plus an optional approval_decision.json."""
+    novel_dir = novels_root / name
+    output_dir = novel_dir / "output" / "extend"
+    output_dir.mkdir(parents=True)
+    (novel_dir / "run_config.json").write_text(
+        json.dumps({"mode": "extend"}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    packet = _route_handoff("rewrite", "RewriteUnit")
+    packet["open_items"] = review_issues or [_review_issue_open_item()]
+    packet["change_set"][0]["issue_count"] = len(packet["open_items"])
+    (output_dir / "route_handoff.json").write_text(
+        json.dumps(packet, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    if decision is not None:
+        _approval_decision_file(output_dir, decision=decision)
+    return output_dir
+
+
+def test_novel_gate_require_approval_matches_standard_when_no_critical(tmp_path):
+    novels_root = tmp_path / "novels"
+    novel_dir = novels_root / "approval-no-critical"
+    output_dir = novel_dir / "output" / "extend"
+    output_dir.mkdir(parents=True)
+    (novel_dir / "run_config.json").write_text(
+        json.dumps({"mode": "extend"}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    (output_dir / "route_handoff.json").write_text(
+        json.dumps(_route_handoff("pass", "ContinueUnit"), ensure_ascii=False),
+        encoding="utf-8",
+    )
+    (output_dir / "extend_rebuild_package.json").write_text(
+        json.dumps(_serialization_package(), ensure_ascii=False),
+        encoding="utf-8",
+    )
+
+    result = _run(["gate", "approval-no-critical", "--require-approval", "--json"], novels_root)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    payload = json.loads(result.stdout)
+    assert tuple(payload) == APPROVAL_GATE_JSON_FIELDS
+    assert payload["ok"] is True
+    assert payload["approval_required"] is False
+    assert payload["critical_issue_ids"] == []
+    assert payload["approval_decision"] == "-"
+    assert payload["approval_ok"] is True
+
+
+def test_novel_gate_require_approval_blocks_without_decision_artifact(tmp_path):
+    novels_root = tmp_path / "novels"
+    _approval_gate_workspace(novels_root, "approval-missing", decision=None)
+
+    result = _run(["gate", "approval-missing", "--require-approval", "--json"], novels_root)
+
+    assert result.returncode == 1
+    payload = json.loads(result.stdout)
+    assert payload["ok"] is False
+    assert payload["approval_required"] is True
+    assert payload["approval_decision"] == "-"
+    assert payload["approval_ok"] is False
+    assert "require operator approval" in payload["violations"][0]
+    assert "iss_critical_1" in payload["violations"][0]
+
+
+def test_novel_gate_require_approval_blocks_without_decision_human(tmp_path):
+    novels_root = tmp_path / "novels"
+    _approval_gate_workspace(novels_root, "approval-missing-human", decision=None)
+
+    result = _run(["gate", "approval-missing-human", "--require-approval"], novels_root)
+
+    assert result.returncode == 1
+    assert "approval required" in result.stdout or "require operator approval" in result.stdout
+    assert "iss_critical_1" in result.stdout
+
+
+def test_novel_gate_require_approval_passes_with_full_approve(tmp_path):
+    novels_root = tmp_path / "novels"
+    _approval_gate_workspace(novels_root, "approval-ok")
+
+    result = _run(["gate", "approval-ok", "--require-approval", "--json"], novels_root)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    payload = json.loads(result.stdout)
+    assert payload["ok"] is True
+    assert payload["review_route"] == "rewrite"
+    assert payload["next_workflow"] == "ContinueUnit"
+    assert payload["approval_required"] is True
+    assert payload["critical_issue_ids"] == ["iss_critical_1"]
+    assert payload["approval_decision"] == "approve"
+    assert payload["approval_ok"] is True
+
+
+def test_novel_gate_require_approval_reject_blocks(tmp_path):
+    novels_root = tmp_path / "novels"
+    _approval_gate_workspace(novels_root, "approval-reject", decision="reject")
+
+    result = _run(["gate", "approval-reject", "--require-approval", "--json"], novels_root)
+
+    assert result.returncode == 1
+    payload = json.loads(result.stdout)
+    assert payload["ok"] is False
+    assert payload["approval_decision"] == "reject"
+    assert payload["approval_ok"] is False
+    assert "rejected by operator" in payload["violations"][0]
+
+
+def test_novel_gate_require_approval_partial_approve_blocks(tmp_path):
+    novels_root = tmp_path / "novels"
+    output_dir = _approval_gate_workspace(novels_root, "approval-partial")
+    _approval_decision_file(
+        output_dir,
+        critical_issue_ids=["iss_critical_1"],
+    )
+    # add a second open critical issue not covered by the artifact
+    packet_path = output_dir / "route_handoff.json"
+    packet = json.loads(packet_path.read_text(encoding="utf-8"))
+    packet["open_items"].append(_review_issue_open_item(issue_id="iss_critical_2"))
+    packet["change_set"][0]["issue_count"] = len(packet["open_items"])
+    packet_path.write_text(json.dumps(packet, ensure_ascii=False), encoding="utf-8")
+
+    result = _run(["gate", "approval-partial", "--require-approval", "--json"], novels_root)
+
+    assert result.returncode == 1
+    payload = json.loads(result.stdout)
+    assert payload["ok"] is False
+    assert payload["approval_ok"] is False
+    assert "does not cover" in payload["violations"][0]
+    assert "iss_critical_2" in payload["violations"][0]
+
+
+def test_novel_gate_require_approval_invalid_artifact_blocks(tmp_path):
+    novels_root = tmp_path / "novels"
+    output_dir = _approval_gate_workspace(novels_root, "approval-invalid", decision=None)
+    (output_dir / "approval_decision.json").write_text(
+        '{"decision": "nope"}',
+        encoding="utf-8",
+    )
+
+    result = _run(["gate", "approval-invalid", "--require-approval", "--json"], novels_root)
+
+    assert result.returncode == 1
+    payload = json.loads(result.stdout)
+    assert payload["ok"] is False
+    assert payload["approval_ok"] is False
+    assert "invalid approval decision" in payload["violations"][0]
+
+
+def test_novel_gate_require_approval_blocking_issue_not_approvable(tmp_path):
+    novels_root = tmp_path / "novels"
+    blocking = _review_issue_open_item(
+        issue_id="iss_blocking_1",
+        severity="blocking",
+    )
+    critical = _review_issue_open_item(issue_id="iss_critical_1")
+    _approval_gate_workspace(
+        novels_root,
+        "approval-blocking",
+        review_issues=[blocking, critical],
+    )
+
+    result = _run(["gate", "approval-blocking", "--require-approval", "--json"], novels_root)
+
+    assert result.returncode == 1
+    payload = json.loads(result.stdout)
+    assert payload["approval_ok"] is True  # critical covered
+    assert payload["ok"] is False  # blocking remains, override suppressed
+    assert payload["next_workflow"] == "RewriteUnit"
+
+
+def test_novel_gate_require_approval_override_human_path(tmp_path):
+    novels_root = tmp_path / "novels"
+    _approval_gate_workspace(novels_root, "approval-human")
+
+    result = _run(["gate", "approval-human", "--require-approval"], novels_root)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "Gate PASS" in result.stdout
+    assert "approval=approve" in result.stdout
+
+
+def test_novel_gate_default_json_stays_thirteen_fields(tmp_path):
+    novels_root = tmp_path / "novels"
+    _approval_gate_workspace(novels_root, "approval-default", decision=None)
+
+    result = _run(["gate", "approval-default", "--json"], novels_root)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    payload = json.loads(result.stdout)
+    assert tuple(payload) == GATE_JSON_FIELDS
+    assert payload["ok"] is True
+    assert payload["next_workflow"] == "RewriteUnit"
 
 
 def test_novel_resume_uses_saved_extend_mode(tmp_path):

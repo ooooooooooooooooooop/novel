@@ -11,7 +11,7 @@ import pytest
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-EXPECTED_TEST_BASELINE = "1444"
+EXPECTED_TEST_BASELINE = "1497"
 
 
 def run_script(*args: str) -> subprocess.CompletedProcess[str]:

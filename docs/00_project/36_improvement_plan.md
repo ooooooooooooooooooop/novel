@@ -12,7 +12,7 @@
 
 | 决策点 | 结论 | 影响 |
 |---|---|---|
-| **正文生成** | 作为**独立 Track** 单独立项，不并入本期各 Phase | 架构哲学级改动（`frame.py:94` 明确不产出 PlotUnit prose），对 1444 基线冲击需单独评估 |
+| **正文生成** | 作为**独立 Track** 单独立项，不并入本期各 Phase | 架构哲学级改动（`frame.py:94` 明确不产出 PlotUnit prose），对 1497 基线冲击需单独评估 |
 | **目标平台** | **通用中文平台**（不锁死番茄/起点/七猫任一） | 平台政策表按「通用」设计 + 可插拔词库，具体平台条目作参考不阻塞 |
 | **敏感词过滤** | 做成**开关**（可用可关） | 合规模块 `--sensitive off` 关闭词库扫描；`--lexicon FILE` 支持自定义词库导入 |
 
@@ -156,15 +156,15 @@ PLATFORM_POLICY: dict[str, dict] = {
 
 **外部基准已拍板放弃**（朱雀 AI 检测免费 API 整体排除，无网络调用）。收敛为**纯本地、零依赖、离线**的两个交付物：**A. WebNovelBench 8 维 rubric 导出**——把 ReviewUnit domain rules + `web_fiction.py` 领域知识按 8 维（arXiv:2505.14818）映射成可导出 JSON（`novel rubric` 单遍命令，`offline:true`，诚实标注 LLM-judge 维为 none）；**B. `--lint` 本地校准**——把已定义未接线的 AI-flavor 信号（句首固定连接词、`一是…二是…三是` 整齐枚举）接入 marker 系统 + 修 severity passthrough。新增 28 测试，基线 **1416 → 1444**。
 
-### Phase 5 — 编辑人机回环
+### Phase 5 — 编辑人机回环（已落地，2026-08-01）
 
-`novel gate` 支持 `--require-approval`——severity=critical 的 issue 必须人工 approve/reject 才推进（对齐 webnovel-writer blocking gate / InkOS 人工 gate）。
+`novel gate` 支持 `--require-approval`——severity=critical 的 issue 必须人工 approve/reject 才推进（对齐 webnovel-writer blocking gate / InkOS 人工 gate）。新模块 `src/boundary_control/approval_gate.py`（纯 stdlib + pydantic，Tier 0 约束不变）：操作者手写 `approval_decision.json` 决策工件（approve/reject + 覆盖的 critical issue ids），gate 只读校验。决策表：无 critical → 原样放行；缺工件/reject/部分 approve → 阻塞；全 approve → **跳转 ContinueUnit**（用户拍板，人工绿灯=放行续写）。blocking issue 严格不可审批。输出独立的 17 字段审批 gate JSON 契约（13 标准字段前缀 + 4 审批字段），默认 `novel gate`（无 flag）路径字节不变。新增 53 测试，基线 **1444 → 1497**。
 
 ---
 
 ## 6. 独立 Track — 正文生成
 
-不并入本期 Phase，但方向已定：参照 `LongWriter`（`arXiv:2408.07055`）的 AgentWrite 拆解（plan → write 子任务，突破 4000 字天花板），在现有对象层（PlotUnit/NarrativeFrameUnit）基础上加**章级 prose 输出**。对架构哲学（`frame.py:94` 声明）和 1444 基线的冲击需单独立项评估，本文档不做落地规格。
+不并入本期 Phase，但方向已定：参照 `LongWriter`（`arXiv:2408.07055`）的 AgentWrite 拆解（plan → write 子任务，突破 4000 字天花板），在现有对象层（PlotUnit/NarrativeFrameUnit）基础上加**章级 prose 输出**。对架构哲学（`frame.py:94` 声明）和 1497 基线的冲击需单独立项评估，本文档不做落地规格。
 
 ---
 
@@ -183,3 +183,4 @@ PLATFORM_POLICY: dict[str, dict] = {
 - 2026-08-01：Phase 2 落地（FactLedger 时间有效性 + 矛盾检测，1367 tests）。
 - 2026-08-01：Phase 3 落地（状态检索层，1416 tests）。
 - 2026-08-01：Phase 4 落地（WebNovelBench 8 维 rubric 导出 + `--lint` 本地校准，1444 tests）。
+- 2026-08-01：Phase 5 落地（编辑人机回环 approval gate + 独立 17 字段审批 JSON 契约，1497 tests）。

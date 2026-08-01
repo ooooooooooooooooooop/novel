@@ -22,7 +22,7 @@ All three implementation slices are code-complete and validated:
 Tier 0 (local staged CLI v0, operator-in-the-loop) was declared production-ready on 2026-07-28:
 
 - production tier: `local staged CLI v0`
-- full pytest baseline: 1444 tests passing
+- full pytest baseline: 1497 tests passing
 - release record: `docs/00_project/releases/tier0-release.json` — passing the single combined validation command
 - canary evidence: `docs/00_project/releases/tier0-canary-evidence.json`
 - saved canary gate result: `docs/00_project/releases/tier0-canary-gate.json`
@@ -58,7 +58,7 @@ Current work has completed:
 - bounded implementation slices: all three complete and validated
 - LLM layer split: workflow units expose `build_prompt()` and `parse_response()`
 - long-form multi-arc stress test: PASS
-- executable no-regression tests: 1444 tests passing
+- executable no-regression tests: 1497 tests passing
 - end-to-end Audit / Extend / Compose validation: PASS
 ## Implementation Status
 
@@ -102,7 +102,7 @@ Current work has completed:
   - all flow outputs should be isolated with `--output-dir`
   - DirectAPI, UI, and fully automatic closed-loop model calls remain deferred
 - **Validation status**
-  - `pytest tests/ -q`: 1444 tests passing
+  - `pytest tests/ -q`: 1497 tests passing
   - long-form multi-arc Audit / Extend stress test: PASS
   - end-to-end Audit / Extend / Compose workflow validation: PASS
 
@@ -208,7 +208,7 @@ Shared automation contract constants, exact field-order declarations, metadata b
 That module is metadata-only: it must not import filesystem, provider, route, handoff, or runner dependencies.
 The CLI pending JSON payload also self-validates its exact pending fields, string keys, workspace novel names, `output_dir` must be absolute, pending slot entry fields, expected prompt hashes, positive pending prompt bytes, pending slot prompt hashes and byte counts must match current prompt files, pending slot prompt mtime must match current prompt files, pending/list JSON prompt evidence must match current prompt files, pending response paths must not already exist, all_pending entries must match current pending discovery, expected prompt hash binding, selection method contract, pending preflight requires slot_id selection, freshness timestamps, route_artifact_mtime must match current route artifacts, prompt_mtime must be newer than effective freshness cutoff, effective freshness cutoff, and `pending_count` versus pending entries before emit.
 The CLI respond JSON payload also self-validates its exact respond fields, string keys, content hashes, expected prompt hashes, expected prompt hash binding, selection method contract, freshness timestamps, route_artifact_mtime must match current route artifacts, prompt_mtime must be newer than effective freshness cutoff, effective freshness cutoff, byte/character counts, response_bytes must be at least response_chars, response_source_bytes must not be less than response_bytes, prompt-hash verification flag, `response_source` must not match staged `prompt_path` or `response_path`, respond JSON file evidence must match current files, respond JSON source text must match staged response file, respond JSON response text must be non-empty, respond JSON response_source mtime must not be older than prompt_path, respond JSON response_path mtime must not be older than prompt_path, and materialization metadata before emit. Response materialization audit flags `provider_call_performed` and `closed_loop_advanced` must be exact `false`; numeric stand-ins such as `0` are not accepted.
-The CLI gate JSON payload also self-validates exact gate fields, string keys, violation lists, blocking pending prompt file lists, blocking prompt files must be staged prompt filenames, gate package file must match mode, gate JSON artifact existence must match current files, gate JSON route handoff content must match current handoff file, gate JSON verdict fields must match current gate verdict, ContinueUnit pass requires package_present, and `blocking_pending_count` before emit.
+The CLI gate JSON payload also self-validates exact gate fields, string keys, violation lists, blocking pending prompt file lists, blocking prompt files must be staged prompt filenames, gate package file must match mode, gate JSON artifact existence must match current files, gate JSON route handoff content must match current handoff file, gate JSON verdict fields must match current gate verdict, ContinueUnit pass requires package_present, and `blocking_pending_count` before emit. With `novel gate --require-approval`, the CLI emits an independent self-validating approval gate JSON contract — the same 13 standard gate fields as a verbatim prefix plus four approval fields (`approval_required`, `critical_issue_ids`, `approval_decision`, `approval_ok`); the default `novel gate` output is unchanged.
 The CLI list JSON row payload also self-validates exact list row fields, string keys, finite non-negative `latest_mtime`, latest_mtime must match current workspace files, list JSON detail must match status and route evidence, list row pending prompt mtime, pending_prompt_mtime must be newer than current route artifacts, list row pending prompt bytes, pending/list JSON prompt evidence must match current prompt files, pending response paths must not already exist, list waiting rows must match current pending discovery, list JSON artifact existence must match current files, list JSON final result route content must match current result file, list JSON route handoff content must match current handoff file, list JSON gate verdict fields must match current gate verdict, pending metadata / count consistency, and gate blocking metadata before emit while keeping the top-level list output as an array.
 `novel pending --json` exposes `automation_contract_version`, `automation_contract`, `automation_ready`, `automation_ready_reason`, `automation_blockers`, `allowed_automation_action`, `provider_calls_implemented`, and `closed_loop_allowed`. Pending automation contract/action/reason labels must be non-empty strings, and `automation_blockers` must be a list of non-empty strings. `automation_ready=true` only authorizes the caller to prepare the same staged response materialization path; provider calls remain unimplemented and closed-loop workflow advancement remains disallowed. `--require-automation-ready --json` turns not-ready metadata into an `ok=false` runtime result while preserving the same evidence and blockers.
 

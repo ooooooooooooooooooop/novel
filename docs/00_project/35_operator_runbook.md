@@ -140,6 +140,34 @@ novel compose <name>                      # 若无 blocking issue → 完成；�
 
 三流通过此 gate 即视为该流 staged 循环在当前代码下未退化。一键回归见 `scripts/tier0_canary_regression.py`。
 
+### 5.1 人工审批 Gate（可选，Phase 5）
+
+`novel gate <name> --require-approval` 让 severity=critical 的 ReviewIssue 必须获得操作者人工 approve/reject 才推进（默认 `novel gate` 不带 flag，行为不变）：
+
+```bash
+novel gate <name> --require-approval            # 需在 output/ 放 approval_decision.json
+novel gate <name> --require-approval --json     # 输出 17 字段审批 gate JSON
+```
+
+`approval_decision.json`（操作者手写，gate 只读校验）形状：
+
+```json
+{
+  "decision": "approve",
+  "critical_issue_ids": ["iss_critical_1"],
+  "operator_note": "编辑接受该设定偏离，后续伏笔已补",
+  "decided_at_utc": "2026-08-01T12:34:56Z"
+}
+```
+
+语义：
+
+- **无 open critical** → 原样通过（等价于默认 gate，仅多出 4 个审批字段）。
+- **缺工件 / reject / approve 未覆盖全部 critical id** → 阻塞（exit 1）。
+- **approve 覆盖全部 critical id 且无 blocking issue** → 放行并**跳转 ContinueUnit**（人工绿灯=放行续写）。
+- **blocking issue 严格不可审批**：即便 approve 工件覆盖全部 critical id，任何 open blocking issue 仍使 gate 失败。
+- 审批 gate 输出独立的 17 字段契约（13 标准字段前缀 + `approval_required` / `critical_issue_ids` / `approval_decision` / `approval_ok`），默认 gate JSON 不变。
+
 ---
 
 ## 6. 常见失败处置
@@ -189,4 +217,4 @@ novel audit <name> --outline-only      # 仅产出结构概览，跳过详细 Re
 - DirectAPI / provider 调用：不实现，response 由操作者/Codex 手动物化
 - 闭环自动化：disallowed，无自动 route 推进、无 retry、无 fallback provider
 - UI / Web：不存在，Codex 单用户本地
-- 回归脚本不重放写入（audit canary 是不可变 evidence 基线，sha256 被 `docs/00_project/releases/` 锁定）；`novel respond` 物化路径回归由 1444-test pytest 的 `tests/test_novel_cli.py` 覆盖
+- 回归脚本不重放写入（audit canary 是不可变 evidence 基线，sha256 被 `docs/00_project/releases/` 锁定）；`novel respond` 物化路径回归由 1497-test pytest 的 `tests/test_novel_cli.py` 覆盖
