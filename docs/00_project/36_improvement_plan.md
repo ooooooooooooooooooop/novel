@@ -12,7 +12,7 @@
 
 | 决策点 | 结论 | 影响 |
 |---|---|---|
-| **正文生成** | 作为**独立 Track** 单独立项，不并入本期各 Phase | 架构哲学级改动（`frame.py:94` 明确不产出 PlotUnit prose），对 1416 基线冲击需单独评估 |
+| **正文生成** | 作为**独立 Track** 单独立项，不并入本期各 Phase | 架构哲学级改动（`frame.py:94` 明确不产出 PlotUnit prose），对 1444 基线冲击需单独评估 |
 | **目标平台** | **通用中文平台**（不锁死番茄/起点/七猫任一） | 平台政策表按「通用」设计 + 可插拔词库，具体平台条目作参考不阻塞 |
 | **敏感词过滤** | 做成**开关**（可用可关） | 合规模块 `--sensitive off` 关闭词库扫描；`--lexicon FILE` 支持自定义词库导入 |
 
@@ -152,9 +152,9 @@ PLATFORM_POLICY: dict[str, dict] = {
 
 档 1（零依赖）：纯 TF-IDF/关键词，以当前 NarrativeState 为 query 取 FactLedger/ForeshadowGraph top-k；档 2（语义）：bge-small-zh 余弦检索（后续）。`build_prompt` 加 `retrieval_context` 可选注入（第 11 参，默认 `""`），**API 层默认 off 时与现状字节相同**（回归测试锁死，style 先例同款防回归手段）；CLI 层默认 on + `--retrieval on|off` 开关（对齐 compliance `--sensitive`），loader 静默降级（空语料/空 query/全零分 → `""` 字节不变）。落地：`src/boundary_control/retrieval_metrics.py`（纯 stdlib TF-IDF/关键词引擎）+ `src/workflow_action/retrieval.py`（RetrievalUnit/load_retrieval_context）。新增 49 测试，基线 **1367 → 1416**。学术依据：BookWorm/MemBench/ENGRAM。
 
-### Phase 4 — lint/评测校准
+### Phase 4 — lint/评测校准（已落地，2026-08-01）
 
-`--lint` 加外部基准（朱雀 AI 检测免费 API，马良先例）双报告标分歧；ReviewUnit domain rules 按 WebNovelBench 8 维映射成可导出 rubric。离线降级为仅本地规则。
+**外部基准已拍板放弃**（朱雀 AI 检测免费 API 整体排除，无网络调用）。收敛为**纯本地、零依赖、离线**的两个交付物：**A. WebNovelBench 8 维 rubric 导出**——把 ReviewUnit domain rules + `web_fiction.py` 领域知识按 8 维（arXiv:2505.14818）映射成可导出 JSON（`novel rubric` 单遍命令，`offline:true`，诚实标注 LLM-judge 维为 none）；**B. `--lint` 本地校准**——把已定义未接线的 AI-flavor 信号（句首固定连接词、`一是…二是…三是` 整齐枚举）接入 marker 系统 + 修 severity passthrough。新增 28 测试，基线 **1416 → 1444**。
 
 ### Phase 5 — 编辑人机回环
 
@@ -164,7 +164,7 @@ PLATFORM_POLICY: dict[str, dict] = {
 
 ## 6. 独立 Track — 正文生成
 
-不并入本期 Phase，但方向已定：参照 `LongWriter`（`arXiv:2408.07055`）的 AgentWrite 拆解（plan → write 子任务，突破 4000 字天花板），在现有对象层（PlotUnit/NarrativeFrameUnit）基础上加**章级 prose 输出**。对架构哲学（`frame.py:94` 声明）和 1416 基线的冲击需单独立项评估，本文档不做落地规格。
+不并入本期 Phase，但方向已定：参照 `LongWriter`（`arXiv:2408.07055`）的 AgentWrite 拆解（plan → write 子任务，突破 4000 字天花板），在现有对象层（PlotUnit/NarrativeFrameUnit）基础上加**章级 prose 输出**。对架构哲学（`frame.py:94` 声明）和 1444 基线的冲击需单独立项评估，本文档不做落地规格。
 
 ---
 
@@ -182,3 +182,4 @@ PLATFORM_POLICY: dict[str, dict] = {
 - 2026-08-01：本文档创建。基于盲点审查；用户拍板三项方向决策（正文生成独立 Track / 通用中文平台 / 敏感词开关）；Phase 1 合规模块落地规格定稿。
 - 2026-08-01：Phase 2 落地（FactLedger 时间有效性 + 矛盾检测，1367 tests）。
 - 2026-08-01：Phase 3 落地（状态检索层，1416 tests）。
+- 2026-08-01：Phase 4 落地（WebNovelBench 8 维 rubric 导出 + `--lint` 本地校准，1444 tests）。

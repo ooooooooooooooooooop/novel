@@ -2,6 +2,8 @@
 
 from src.boundary_control.style_metrics import (
     analyze_style_metrics,
+    detect_colon_enumeration,
+    detect_connective_abuse,
     detect_dash_colons,
     detect_explanatory_phrases,
     detect_metaphor_repeats,
@@ -90,3 +92,50 @@ def test_full_analysis_clean_text_no_risks():
     assert stats.sentence_count >= 4
     assert stats.metaphor_repeats == []
     assert stats.explanatory_phrase_count == 0
+
+
+def test_detect_connective_abuse_sentence_start():
+    text = "此外，他走了。同时，他回来了。"
+    assert detect_connective_abuse(text) == 2
+
+
+def test_detect_connective_abuse_clean_and_mid_sentence_ignored():
+    assert detect_connective_abuse("他推开门，走了进去。") == 0
+    # 句中"同时"不算句首连接词滥用
+    assert detect_connective_abuse("他同时走了。") == 0
+
+
+def test_detect_colon_enumeration():
+    text = "一是铺垫，二是推进，三是回收。"
+    assert detect_colon_enumeration(text) == 1
+
+
+def test_detect_colon_enumeration_clean():
+    assert detect_colon_enumeration("他推开门，走了进去。") == 0
+    # 缺"三是"不算完整枚举
+    assert detect_colon_enumeration("一是铺垫，二是推进。") == 0
+
+
+def test_style_stats_backward_compat_old_json():
+    # 旧 style_profile.json 无新字段，反序列化必须成功且默认 0（Phase 2 先例）
+    from src.object_state.styleprofile import StyleQuantitativeStats
+
+    old_payload = {
+        "total_chars": 100,
+        "sentence_count": 5,
+        "avg_sentence_len": 20.0,
+        "short_sentence_ratio": 0.2,
+        "long_sentence_ratio": 0.1,
+        "dialogue_ratio": 0.3,
+        "weak_adverb_density_per_1000": 1.0,
+        "weak_adverb_counts": {},
+        "metaphor_repeats": [],
+        "explanatory_phrase_count": 0,
+        "shell_counts": {},
+        "dialogue_tag_density_per_1000": 0.0,
+        "emotion_announcement_count": 0,
+        "dash_colon_density_per_1000": 0.0,
+    }
+    stats = StyleQuantitativeStats.model_validate(old_payload)
+    assert stats.connective_abuse_count == 0
+    assert stats.colon_enumeration_count == 0

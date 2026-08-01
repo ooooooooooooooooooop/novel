@@ -37,7 +37,7 @@ Tier 0 已声明 production ready，但「ready」只建立在 **audit canary** 
 | DirectAPI / provider 调用 | 项目设计即不调 API，operator 写 response 文件 |
 | UI / Web 界面 | Codex 单用户本地，不需 UI |
 | 闭环自动化 | doc 30/32 已显式 disallowed |
-| 改 workflow 核心代码 | src 已通过 1416 测试；加固不以「加固」为名改 workflow 代码。若步骤实操暴露真实 bug，停下报告单独决策，不混入加固 commit |
+| 改 workflow 核心代码 | src 已通过 1444 测试；加固不以「加固」为名改 workflow 代码。若步骤实操暴露真实 bug，停下报告单独决策，不混入加固 commit |
 | 新 immutable checkpoint（新 tag） | 加固在 v0.1.0-tier0 范围内，新 tag 会暗示 tier 升级 |
 
 ---
@@ -126,7 +126,7 @@ canary 工作区入库策略：保留 audit canary 入库（doc 32 evidence 引�
 
 - 一键回归脚本 exit 0
 - 三流 gate 均 pass
-- 全量 pytest 仍 1416 passed
+- 全量 pytest 仍 1444 passed
 - `git status` 干净（无 .pytest-tmp/.taskflow 噪声）
 
 ---
@@ -158,7 +158,7 @@ canary 工作区入库策略：保留 audit canary 入库（doc 32 evidence 引�
 | compose canary | gate 4 项标准通过 |
 | 回归脚本 | `python scripts/tier0_canary_regression.py` exit 0 |
 | 工作区治理 | `.gitignore` 含 .pytest-tmp/.taskflow；canary 工作区入库、用户工作区不入 |
-| 测试基线 | 全量 pytest 仍 1416 passed |
+| 测试基线 | 全量 pytest 仍 1444 passed |
 | 文档 | status / checklist / README / AGENTS / runbook 已同步三流投产 |
 
 ---

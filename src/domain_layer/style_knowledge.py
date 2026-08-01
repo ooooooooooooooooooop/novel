@@ -224,6 +224,30 @@ AI_FLAVOR_MARKERS: list[AiFlavorMarker] = [
             "冒号+分号不要过于整齐的'一是…二是…三是'结构",
         ],
     },
+    {
+        "rule_id": "ai_connective_abuse",
+        "category": "connective",
+        "description": "段落/句首固定连接词（此外/同时/然而/综上所述等）",
+        "measure_unit": "count",
+        "threshold": 1.0,
+        "severity": "low",
+        "instructions": [
+            "删段落开头固定连接词，直接进入事件/画面",
+            "同一连接词连续出现即拆句",
+        ],
+    },
+    {
+        "rule_id": "ai_colon_enumeration",
+        "category": "dash_colon",
+        "description": "'一是…二是…三是…' 整齐枚举结构",
+        "measure_unit": "count",
+        "threshold": 1.0,
+        "severity": "low",
+        "instructions": [
+            "冒号+分号不要过于整齐的'一是…二是…三是'结构",
+            "枚举改成有主次的推进，避免罗列",
+        ],
+    },
 ]
 
 # --- 基础标记集合（供量化分析器使用） ---

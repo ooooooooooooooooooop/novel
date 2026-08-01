@@ -238,6 +238,16 @@ class StyleLintUnit:
                 "per_1000_chars",
             ),
             ("ai_dash_colon_density", stats.dash_colon_density_per_1000, "per_1000_chars"),
+            (
+                "ai_connective_abuse",
+                float(stats.connective_abuse_count),
+                "count",
+            ),
+            (
+                "ai_colon_enumeration",
+                float(stats.colon_enumeration_count),
+                "count",
+            ),
         ]
 
         for rule_id, value, measure_unit in checks:
@@ -269,7 +279,7 @@ class StyleLintUnit:
                 ReviewIssue(
                     issue_id=f"style_lint_{risk.rule_id}",
                     issue_type="generative_indicia",
-                    severity="warning" if risk.severity == "warning" else "low",
+                    severity=risk.severity,  # type: ignore[arg-type]
                     location=location,
                     scope_of_impact="表达层",
                     violated_rule=risk.measure,

@@ -59,8 +59,8 @@ DEFAULT_NOVELS_ROOT = PROJECT_ROOT / "novels"
 MODE_FILE = "mode.txt"
 CONFIG_FILE = "run_config.json"
 JSON_SCHEMA_VERSION = 1
-VALID_MODES = {"audit", "extend", "compose", "style", "compliance"}
-JSON_ERROR_COMMANDS = {"audit", "extend", "compose", "style", "compliance", "list", "gate", "pending", "respond"}
+VALID_MODES = {"audit", "extend", "compose", "style", "compliance", "rubric"}
+JSON_ERROR_COMMANDS = {"audit", "extend", "compose", "style", "compliance", "rubric", "list", "gate", "pending", "respond"}
 JSON_ERROR_COMMANDS_WITH_NOVEL = JSON_ERROR_COMMANDS - {"list"}
 ROUTE_HANDOFF_FILE = "route_handoff.json"
 PENDING_SELECTION_METHODS = {"all_pending", "slot_id"}
@@ -1233,6 +1233,7 @@ def _expected_gate_package_name(mode: str) -> str:
         "compose": "compose_state.json",
         "style": "style_profile.json",
         "compliance": "compliance_report.json",
+        "rubric": "rubric.json",
     }
     return package_name_by_mode[mode]
 
@@ -1254,6 +1255,7 @@ def _expected_final_result_name(mode: str) -> str:
         "compose": "compose_result.json",
         "style": "style_profile.json",
         "compliance": "compliance_report.json",
+        "rubric": "rubric.json",
     }
     return result_name_by_mode[mode]
 
@@ -2346,6 +2348,26 @@ def _run_compliance(args: argparse.Namespace) -> int:
     return _run_child(command)
 
 
+def _run_rubric(args: argparse.Namespace) -> int:
+    """导出 WebNovelBench 8 维本地评测 rubric（纯代码，无输入文件）.
+
+    rubric 是静态领域知识导出（无 input 文件、无 .input_hash），
+    输出到 novels/<name>/output/rubric/rubric.json。
+    """
+    novel_dir = _novel_dir(args.novel)
+    output_dir = _output_dir(novel_dir, "rubric")
+    _write_mode(novel_dir, "rubric")
+    _write_config(novel_dir, {"mode": "rubric"})
+
+    command = [
+        sys.executable,
+        _script_path("rubric_short_form.py"),
+        "--output-dir",
+        str(output_dir),
+    ]
+    return _run_child(command)
+
+
 def _run_resume(args: argparse.Namespace) -> int:
     novel_dir = _novel_dir(args.novel)
     mode = _read_mode(novel_dir)
@@ -2436,6 +2458,15 @@ def _run_resume(args: argparse.Namespace) -> int:
             command.extend(["--sensitive", config["sensitive"]])
         if config.get("lexicon"):
             command.extend(["--lexicon", config["lexicon"]])
+        return _run_child(command)
+    if mode == "rubric":
+        output_dir = _output_dir(novel_dir, "rubric")
+        command = [
+            sys.executable,
+            _script_path("rubric_short_form.py"),
+            "--output-dir",
+            str(output_dir),
+        ]
         return _run_child(command)
 
     print(f"Error: unknown saved mode for {args.novel}: {mode}")
@@ -3212,6 +3243,10 @@ def build_parser(*, emit_json_errors: bool = False) -> argparse.ArgumentParser:
     )
     compliance.add_argument("--lexicon", help="自定义词库 JSON 文件路径（与内置词库合并）")
     compliance.set_defaults(func=_run_compliance)
+
+    rubric = subparsers.add_parser("rubric", help="导出 WebNovelBench 8 维本地评测 rubric (离线)")
+    rubric.add_argument("novel", help="小说名（rubric 为全局知识，novel 仅作容器）")
+    rubric.set_defaults(func=_run_rubric)
 
     resume = subparsers.add_parser("resume", help="按上次模式断点续跑")
     resume.add_argument("novel", help="小说名")

@@ -8,6 +8,7 @@
 import re
 
 from src.domain_layer.style_knowledge import (
+    CONNECTIVE_ABUSE_OPENERS,
     DIALOGUE_TAG_OVERUSE,
     EMOTION_ANNOUNCEMENT_PHRASES,
     EXPLANATORY_PHRASES,
@@ -26,6 +27,14 @@ _METAPHOR_RE = re.compile(
 _SHELL_RE = re.compile(SHELL_NOT_A_BUT_B_RE)
 _QUOTE_RE = re.compile(r"[“\"「]")
 _CLAUSE_SPLIT_RE = re.compile(r"[，、,；;]")
+_CONNECTIVE_ABUSE_RE = re.compile(
+    r"^(?:"
+    + "|".join(re.escape(opener) for opener in CONNECTIVE_ABUSE_OPENERS)
+    + r")[，,:：]?"
+)
+_COLON_ENUM_RE = re.compile(
+    r"一是[^，。；\n]{1,15}[，,；;]?二是[^，。；\n]{1,15}[，,；;]?三是"
+)
 _ANAPHORA_PREFIX_LEN = 2
 _ANAPHORA_MIN_CLAUSES = 4
 _ANAPHORA_MIN_SAME_PREFIX = 3
@@ -190,6 +199,23 @@ def detect_dash_colons(text: str) -> float:
     return total / len(text) * 1000 if text else 0.0
 
 
+def detect_connective_abuse(text: str) -> int:
+    """句首固定连接词计数（此外/同时/然而/综上所述等）.
+
+    只锚定句子开头（'此外' 等出现在句中不算滥用），避免中置误报。
+    """
+    return sum(1 for s in _split_sentences(text) if _CONNECTIVE_ABUSE_RE.match(s))
+
+
+def detect_colon_enumeration(text: str) -> int:
+    """'一是…二是…三是…' 整齐枚举计数.
+
+    关闭 ai_dash_colon_density 指令里"冒号+分号不要过于整齐的'一是…二是…三是'
+    结构"（style_knowledge.py）此前无 detector 覆盖的缺口。
+    """
+    return len(_COLON_ENUM_RE.findall(text))
+
+
 def analyze_style_metrics(text: str) -> StyleQuantitativeStats:
     """对全文做纯代码量化分析."""
     sentences = _split_sentences(text)
@@ -211,4 +237,6 @@ def analyze_style_metrics(text: str) -> StyleQuantitativeStats:
         dialogue_tag_density_per_1000=round(detect_dialogue_tags(text), 2),
         emotion_announcement_count=detect_emotion_announcements(text),
         dash_colon_density_per_1000=round(detect_dash_colons(text), 2),
+        connective_abuse_count=detect_connective_abuse(text),
+        colon_enumeration_count=detect_colon_enumeration(text),
     )

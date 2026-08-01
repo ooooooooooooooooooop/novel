@@ -46,6 +46,26 @@ VALID_RESPONSE = json.dumps(
     ensure_ascii=False,
 )
 
+# 无任何 AI 味信号（无弱化副词/解释腔/句首连接词/枚举）的干净文本
+CLEAN_TEXT = """第一章 缘起
+
+顾临蹲在藏经阁的地板缝边上，把一本缺了封皮的册子插回架。
+他这双手在藏书阁待了六年。今天那扇门是开着的。
+他推开了门。
+
+第二章 代价
+
+顾临翻开那本书，第一页只有一行字。
+他蹲在灯下，把那行字读了三遍。
+他把册子放回原处，合上了门。
+
+第三章 路
+
+沈砚站在灯下，背对着门。
+"我沈砚，自认私习禁术，愿领宗门处置。"
+顾临没有说话。
+"""
+
 
 def _run_style(input_path: Path, output_dir: Path, *extra_args) -> subprocess.CompletedProcess:
     return subprocess.run(
@@ -123,6 +143,26 @@ def test_lint_flag_writes_report(tmp_path):
     report = json.loads(report_path.read_text(encoding="utf-8"))
     assert "issues" in report
     assert "source_text_ref" in report
+
+
+def test_lint_report_byte_shape_unchanged_clean_text(tmp_path):
+    # 干净文本：issue_count==0 且不引入任何新 rule_id（字节形状与旧版一致）
+    input_path = tmp_path / "input.txt"
+    input_path.write_text(CLEAN_TEXT, encoding="utf-8")
+    output_dir = tmp_path / "output"
+    _run_style(input_path, output_dir)
+    (output_dir / "style_extract_response.txt").write_text(VALID_RESPONSE, encoding="utf-8")
+
+    result = _run_style(input_path, output_dir, "--lint")
+    assert result.returncode == 0, result.stdout + result.stderr
+    report_path = output_dir / "style_lint_report.json"
+    assert report_path.exists()
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    assert set(report.keys()) == {"source_text_ref", "issue_count", "issues"}
+    assert report["issue_count"] == 0
+    assert report["issues"] == []
+    ids = {issue["issue_id"] for issue in report["issues"]}
+    assert not ids & {"style_lint_ai_connective_abuse", "style_lint_ai_colon_enumeration"}
 
 
 def test_tone_genre_knowledge_in_prompt(tmp_path):

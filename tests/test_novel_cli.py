@@ -2698,6 +2698,41 @@ def test_cli_style_mode_contract_maps():
     assert _expected_final_result_name("style") == "style_profile.json"
 
 
+def test_cli_rubric_mode_contract_maps():
+    from src.novel_cli import (
+        JSON_ERROR_COMMANDS,
+        VALID_MODES,
+        _expected_final_result_name,
+        _expected_gate_package_name,
+    )
+
+    assert "rubric" in VALID_MODES
+    assert "rubric" in JSON_ERROR_COMMANDS
+    # rubric 永不 gate，防御性映射为 rubric.json
+    assert _expected_gate_package_name("rubric") == "rubric.json"
+    assert _expected_final_result_name("rubric") == "rubric.json"
+
+
+def test_cli_rubric_writes_eight_dimension_report(tmp_path):
+    import json as json_mod
+
+    novels_root = tmp_path / "novels"
+    result = _run(["rubric", "评测样书"], novels_root)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "rubric" in result.stdout
+    assert "Saved" in result.stdout
+
+    report_path = (
+        novels_root / "评测样书" / "output" / "rubric" / "rubric.json"
+    )
+    assert report_path.exists()
+    report = json_mod.loads(report_path.read_text(encoding="utf-8"))
+    assert report["schema_version"] == 1
+    assert report["benchmark"] == "WebNovelBench"
+    assert report["offline"] is True
+    assert len(report["dimensions"]) == 8
+
+
 def test_novel_list_reports_waiting_tasks(tmp_path):
     novels_root = tmp_path / "novels"
     source = tmp_path / "source.txt"

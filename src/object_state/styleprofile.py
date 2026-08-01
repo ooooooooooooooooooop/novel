@@ -118,6 +118,12 @@ class StyleQuantitativeStats(BaseModel):
     dash_colon_density_per_1000: float = Field(
         ge=0, description="破折号+冒号密度（每千字）"
     )
+    connective_abuse_count: int = Field(
+        default=0, ge=0, description="句首固定连接词计数（此外/同时/然而/综上所述等）"
+    )
+    colon_enumeration_count: int = Field(
+        default=0, ge=0, description="'一是…二是…三是' 整齐枚举计数"
+    )
 
 
 class StyleProfile(BaseModel):
