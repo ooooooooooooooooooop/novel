@@ -10,9 +10,11 @@
 
 from pathlib import Path
 
+from src.boundary_control.chunking import count_non_whitespace, split_by_chapters
 from src.domain_layer.compliance_rules import (
     build_lexicon_from_categories,
     get_platform_policy,
+    parse_chapter_length_target,
 )
 from src.object_state.reviewissue import ReviewIssue
 
@@ -237,6 +239,31 @@ class ComplianceUnit:
                     ),
                 )
             )
+        # 章节字数下限检查：每章去空白字符数不低于平台下限（低于则 warning 提示）
+        target = policy.get("chapter_length_target")
+        bounds = parse_chapter_length_target(target) if target else None
+        if bounds:
+            lower, _ = bounds
+            chunks = split_by_chapters(text)
+            for chunk in chunks:
+                length = count_non_whitespace(chunk.text)
+                if length < lower:
+                    issues.append(
+                        ReviewIssue(
+                            issue_id=f"compliance_chapter_length_{chunk.chapter_index}",
+                            issue_type="world_violation",
+                            severity="warning",
+                            location=f"第{chunk.chapter_index}章 {chunk.chapter_title}",
+                            scope_of_impact="平台字数要求",
+                            violated_rule="章节字数下限",
+                            description=(
+                                f"第{chunk.chapter_index}章《{chunk.chapter_title}》"
+                                f"去空白后 {length} 字符，低于平台下限 {lower}。"
+                                f"平台 {policy.get('description', '')} 要求 {target}。"
+                            ),
+                            suggested_fix=f"补充本章内容至至少 {lower} 字符。",
+                        )
+                    )
         return issues
 
 

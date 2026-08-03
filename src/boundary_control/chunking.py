@@ -73,6 +73,11 @@ def _parse_chapter_number(s: str) -> int:
     result += current
     return result
 
+def count_non_whitespace(text: str) -> int:
+    """去空白后的字符数（含标点，不含空白）."""
+    return sum(1 for ch in text if not ch.isspace())
+
+
 def get_total_stats(chunks: list[ChapterChunk]) -> dict:
     """返回切分统计."""
     return {

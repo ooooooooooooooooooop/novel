@@ -4,6 +4,8 @@
 供 compliance workflow 消费。
 """
 
+import re
+
 from src.domain_layer.compliance_knowledge import (
     DEFAULT_PLATFORM,
     PLATFORM_POLICY,
@@ -49,6 +51,19 @@ def build_lexicon_from_categories(
 def get_platform_policy(platform: str) -> dict:
     """获取平台政策；未知平台回退通用."""
     return PLATFORM_POLICY.get(platform) or PLATFORM_POLICY[DEFAULT_PLATFORM]
+
+
+def parse_chapter_length_target(target: str) -> tuple[int, int] | None:
+    """解析平台章节字数目标 'X-Y' 为 (lower, upper)；无法解析返回 None.
+
+    '2000-3000' -> (2000, 3000)；'3000' -> (3000, 3000)；坏输入 -> None。
+    """
+    match = re.fullmatch(r"\s*(\d+)(?:\s*-\s*(\d+))?\s*", target)
+    if not match:
+        return None
+    lower = int(match.group(1))
+    upper = int(match.group(2)) if match.group(2) else lower
+    return (lower, upper)
 
 
 def get_platform_names() -> list[str]:

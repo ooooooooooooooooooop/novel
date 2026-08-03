@@ -128,3 +128,80 @@ def test_report_to_dict_has_route_pass():
     assert "risk_level" in data
     assert "hits" in data
     assert "platform_policy" in data
+
+
+# --- 章节字数下限检查（平台政策并入） ---
+
+
+def _two_chapters(n: int) -> str:
+    """构造两章、每章去空白后约 n 字符的正文."""
+    body = "文" * n
+    return f"第一章 修炼\n\n{body}\n\n第二章 突破\n\n{body}\n"
+
+
+def _length_issues(report) -> list:
+    return [
+        issue for issue in report.issues
+        if issue.issue_id.startswith("compliance_chapter_length_")
+    ]
+
+
+def test_chapter_length_below_minimum_flagged():
+    report = _scan(_two_chapters(100))  # 两章各 100 字符 << 通用 2000 下限
+    issues = _length_issues(report)
+    assert len(issues) == 2
+    for issue in issues:
+        assert issue.severity == "warning"
+        assert issue.issue_type == "world_violation"
+        assert issue.violated_rule == "章节字数下限"
+        assert issue.location.startswith("第")
+        assert issue.suggested_fix
+    ids = {issue.issue_id for issue in issues}
+    assert ids == {"compliance_chapter_length_1", "compliance_chapter_length_2"}
+
+
+def test_chapter_length_at_or_above_minimum_ok():
+    report = _scan(_two_chapters(2100))  # 每章 ≥ 通用 2000 下限
+    assert _length_issues(report) == []
+
+
+def test_chapter_length_sensitive_off_still_checked():
+    # 并入平台政策检查：--sensitive off 跳过词库，字数检查仍跑
+    report = _scan(_two_chapters(100), sensitive_on=False)
+    assert not report.hits
+    assert _length_issues(report)
+
+
+def test_chapter_length_single_value_target():
+    unit = ComplianceUnit()
+    policy = {
+        "description": "测试平台",
+        "chapter_length_target": "3000",
+    }
+    issues = unit._platform_policy_issues(_two_chapters(100), policy)
+    length_issues = [
+        issue for issue in issues
+        if issue.issue_id.startswith("compliance_chapter_length_")
+    ]
+    assert len(length_issues) == 2
+    assert "3000" in length_issues[0].description
+
+
+def test_chapter_length_unparseable_target_no_issue():
+    unit = ComplianceUnit()
+    policy = {
+        "description": "测试平台",
+        "chapter_length_target": "abc-xyz",
+    }
+    issues = unit._platform_policy_issues(_two_chapters(100), policy)
+    assert not any(
+        issue.issue_id.startswith("compliance_chapter_length_") for issue in issues
+    )
+
+
+def test_chapter_length_without_chapter_titles():
+    # 无「第X章」标题 → 整段按单章检查
+    report = _scan("文" * 100)
+    issues = _length_issues(report)
+    assert len(issues) == 1
+    assert issues[0].location == "第1章 全文"

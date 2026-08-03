@@ -183,3 +183,55 @@ def test_cli_compliance_resume(tmp_path):
         )
     )
     assert report["route"] == "pass"
+
+
+# --- 章节字数下限（平台政策并入，e2e） ---
+
+SHORT_TEXT = """第一章 修炼
+
+顾临蹲在藏经阁的地板缝边上，把一本缺了封皮的册子插回架。
+第二章 突破
+
+顾临翻开那本书，第一页只有一行字。
+"""
+
+
+def test_report_includes_chapter_length_issues(tmp_path):
+    input_path = tmp_path / "input.txt"
+    input_path.write_text(SHORT_TEXT, encoding="utf-8")
+    output_dir = tmp_path / "output"
+
+    result = _run_script(input_path, output_dir)
+    assert result.returncode == 0, result.stdout + result.stderr
+    report = json.loads(
+        (output_dir / "compliance_report.json").read_text(encoding="utf-8")
+    )
+    length_ids = [
+        issue["issue_id"]
+        for issue in report["issues"]
+        if issue["issue_id"].startswith("compliance_chapter_length_")
+    ]
+    assert length_ids  # 短章被标记
+    assert report["route"] == "pass"  # warning 不阻断
+    assert report["issue_count"] >= len(length_ids)
+
+
+def test_chapter_length_issues_have_anchors(tmp_path):
+    input_path = tmp_path / "input.txt"
+    input_path.write_text(SHORT_TEXT, encoding="utf-8")
+    output_dir = tmp_path / "output"
+
+    result = _run_script(input_path, output_dir)
+    assert result.returncode == 0, result.stdout + result.stderr
+    report = json.loads(
+        (output_dir / "compliance_report.json").read_text(encoding="utf-8")
+    )
+    length_issues = [
+        issue for issue in report["issues"]
+        if issue["issue_id"].startswith("compliance_chapter_length_")
+    ]
+    for issue in length_issues:
+        assert issue["location"].startswith("第")
+        assert issue["severity"] == "warning"
+        assert "低于平台下限" in issue["description"]
+        assert "补充本章内容" in issue["suggested_fix"]
