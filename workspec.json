@@ -1,0 +1,19 @@
+{
+  "genre": "仙侠",
+  "subgenre": "宗门成长",
+  "audience": "青年读者",
+  "theme": "代价",
+  "tone": "克制",
+  "pacing": "前快中稳后爆",
+  "structure_template": "eight_node",
+  "platform": "web_novel_daily",
+  "length_target": 50000,
+  "constraints": [
+    "主角不无敌",
+    "禁术使用留下痕迹",
+    "力量必须付出等价代价"
+  ],
+  "romance_weight": 0.2,
+  "mystery_weight": 0.4,
+  "action_weight": 0.4
+}

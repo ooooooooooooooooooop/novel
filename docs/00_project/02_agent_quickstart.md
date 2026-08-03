@@ -43,7 +43,7 @@ Validation status:
 - transition-planning sufficiency: `pass`
 - implementation-planning sufficiency: `pass`
 - long-form multi-arc stress test: PASS
-- no-regression tests as code: 1497 tests passing
+- no-regression tests as code: 1540 tests passing
 - end-to-end Audit / Extend / Compose validation: PASS
 
 That means:
@@ -162,6 +162,7 @@ Read these files next:
 22. `src/extend_short_form.py`
 23. `src/compose_short_form.py`
 24. `tests/test_no_regression.py`
+25. `docs/04_workflows/10_style_modeling_workflow.md`（写作风格建模 SOP：compose/extend 前建风格档案，12 必填 + 4 可选 v2 质性字段）
 
 Then go to the specific workflow or schema file relevant to the task.
 

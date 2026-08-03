@@ -210,6 +210,24 @@ novel audit <name> --outline-only      # 仅产出结构概览，跳过详细 Re
 - 只读 verdict：`novel gate <name>`、`novel gate <name> --json`
 - 回归自检：`python scripts/tier0_canary_regression.py`（exit 0 即三流基线未退化）
 
+### 8.1 写作风格建模 SOP（novel style，v2）
+
+**每部新书在 compose/extend 前，先按 `docs/04_workflows/10_style_modeling_workflow.md` 建风格档案**，否则续写无风格先验、易自由发挥。
+
+```bash
+novel style 某作 --input 某作.txt [--tone 克制] [--genre 都市]   # 量化 + 提炼 prompt → [WAITING]
+# 物化 style_extract_response.txt（12 必填 + 4 可选 v2 字段）
+novel style 某作 --input 某作.txt                                  # 合并 → style_profile.json（schema_version=2）
+novel style 某作 --input 某作.txt --name 风格名                     # 另存风格库供跨小说复用
+```
+
+v2 要点：
+
+- 量化新增 11 个叙事维度指标（景物/感官密度、场景转换计数、时间标记密度、心理动词、内独白句占比、动作动词、叙述句占比）
+- 质性新增 4 个可选字段：`environment_notes` / `scene_transition_notes` / `psychology_notes` / `rhythm_notes`
+- 续写 prompt 的【写作风格】段**恰好 1 次**，无【写作风格画像】内层头（双层段头已修复）；本地档案命中 `<book>/output/style/style_profile.json`
+- 旧 v1 档案不升级可继续反序列化（`schema_version` 缺省视为 1）
+
 ---
 
 ## 9. 边界（Tier 0 不做）
@@ -217,4 +235,4 @@ novel audit <name> --outline-only      # 仅产出结构概览，跳过详细 Re
 - DirectAPI / provider 调用：不实现，response 由操作者/Codex 手动物化
 - 闭环自动化：disallowed，无自动 route 推进、无 retry、无 fallback provider
 - UI / Web：不存在，Codex 单用户本地
-- 回归脚本不重放写入（audit canary 是不可变 evidence 基线，sha256 被 `docs/00_project/releases/` 锁定）；`novel respond` 物化路径回归由 1497-test pytest 的 `tests/test_novel_cli.py` 覆盖
+- 回归脚本不重放写入（audit canary 是不可变 evidence 基线，sha256 被 `docs/00_project/releases/` 锁定）；`novel respond` 物化路径回归由 1540-test pytest 的 `tests/test_novel_cli.py` 覆盖

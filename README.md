@@ -22,7 +22,7 @@ All three implementation slices are code-complete and validated:
 Tier 0 (local staged CLI v0, operator-in-the-loop) was declared production-ready on 2026-07-28:
 
 - production tier: `local staged CLI v0`
-- full pytest baseline: 1497 tests passing
+- full pytest baseline: 1540 tests passing
 - release record: `docs/00_project/releases/tier0-release.json` — passing the single combined validation command
 - canary evidence: `docs/00_project/releases/tier0-canary-evidence.json`
 - saved canary gate result: `docs/00_project/releases/tier0-canary-gate.json`
@@ -58,7 +58,7 @@ Current work has completed:
 - bounded implementation slices: all three complete and validated
 - LLM layer split: workflow units expose `build_prompt()` and `parse_response()`
 - long-form multi-arc stress test: PASS
-- executable no-regression tests: 1497 tests passing
+- executable no-regression tests: 1540 tests passing
 - end-to-end Audit / Extend / Compose validation: PASS
 ## Implementation Status
 
@@ -102,7 +102,7 @@ Current work has completed:
   - all flow outputs should be isolated with `--output-dir`
   - DirectAPI, UI, and fully automatic closed-loop model calls remain deferred
 - **Validation status**
-  - `pytest tests/ -q`: 1497 tests passing
+  - `pytest tests/ -q`: 1540 tests passing
   - long-form multi-arc Audit / Extend stress test: PASS
   - end-to-end Audit / Extend / Compose workflow validation: PASS
 

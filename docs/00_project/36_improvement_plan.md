@@ -12,9 +12,10 @@
 
 | 决策点 | 结论 | 影响 |
 |---|---|---|
-| **正文生成** | 作为**独立 Track** 单独立项，不并入本期各 Phase | 架构哲学级改动（`frame.py:94` 明确不产出 PlotUnit prose），对 1497 基线冲击需单独评估 |
+| **正文生成** | 作为**独立 Track** 单独立项，不并入本期各 Phase | 架构哲学级改动（`frame.py:94` 明确不产出 PlotUnit prose），对 1540 基线冲击需单独评估 |
 | **目标平台** | **通用中文平台**（不锁死番茄/起点/七猫任一） | 平台政策表按「通用」设计 + 可插拔词库，具体平台条目作参考不阻塞 |
 | **敏感词过滤** | 做成**开关**（可用可关） | 合规模块 `--sensitive off` 关闭词库扫描；`--lexicon FILE` 支持自定义词库导入 |
+| **写作风格 4 维建模** | 词典规则引擎量化 + LLM 质性提炼 + schema v2 双定型 | 补齐环境/转折/心理/节奏四维，解决「只有句式」片面性；流程文档化+SOP 定档 |
 
 其它保留决策：
 
@@ -33,6 +34,7 @@
 | 状态检索层 | #2 | 高 | 高（长文必崩） | 中-高 | Phase 3 |
 | lint/评测校准 | #4 #6 | 中 | 中 | 中 | Phase 4 |
 | 编辑人机回环 | #7 | 低 | 中 | 低 | Phase 5 |
+| 写作风格建模扩展 | #5 | 中 | 高（续写文风先验缺失） | 中 | Phase 6 |
 | 正文生成 | #1 | 极高 | 极高（方向性） | 极高 | **独立 Track** |
 
 排序逻辑：按价值排、按风险实施。Phase 1 自包含、不碰状态机、快赢建立动量；Phase 3 学术证据最强但工程最深，靠后。
@@ -160,11 +162,25 @@ PLATFORM_POLICY: dict[str, dict] = {
 
 `novel gate` 支持 `--require-approval`——severity=critical 的 issue 必须人工 approve/reject 才推进（对齐 webnovel-writer blocking gate / InkOS 人工 gate）。新模块 `src/boundary_control/approval_gate.py`（纯 stdlib + pydantic，Tier 0 约束不变）：操作者手写 `approval_decision.json` 决策工件（approve/reject + 覆盖的 critical issue ids），gate 只读校验。决策表：无 critical → 原样放行；缺工件/reject/部分 approve → 阻塞；全 approve → **跳转 ContinueUnit**（用户拍板，人工绿灯=放行续写）。blocking issue 严格不可审批。输出独立的 17 字段审批 gate JSON 契约（13 标准字段前缀 + 4 审批字段），默认 `novel gate`（无 flag）路径字节不变。新增 53 测试，基线 **1444 → 1497**。
 
+### Phase 6 — 写作风格建模扩展 v2（已落地，2026-08-02）
+
+**背景**：用户批评风格建模「太片面，只有句式」。扩展 4 个叙事维度（环境/景物描写、场景转换与过渡、心理与内视角、叙事节奏与结构），量化+质性双线，流程+Schema 双定型。
+
+**量化（词典规则引擎）**：新建 `src/domain_layer/style_lexicon.py`（7 类词表：景物名词/感官动词/时间标记/显式转场/心理动词/内独白/动作动词，`frozenset[str]` 纯数据）；`style_metrics.py` 新增 4 个 `detect_*_metrics` + `detect_narrative_ratio`，产出 11 个 v2 量化字段（密度 per_1000、占比 per 句子，跨书可比）。`StyleQuantitativeStats` 16 → 27 字段。
+
+**质性（LLM 提炼）**：`_OPTIONAL_RESPONSE_FIELDS` 新增 4 字段（`environment_notes`/`scene_transition_notes`/`psychology_notes`/`rhythm_notes`），**可选化 = 向后兼容**（旧 12 字段 response 仍可解析）；prompt【提炼要求】追加 8-11 条引用量化数据；`_render_quantitative_context` 加 11 行。
+
+**schema v2**：`StyleProfile` 加 `schema_version`（缺省=1）+ 4 质性字段（全默认 []）。旧 v1 档案可反序列化；`to_prompt_context(include_header)` 新块+量化行**仅当 v2 统计非零时渲染**（v1 逐字节不变）。
+
+**注入 bug 修复**：双层段头 3 处（style/retrieval/timeline）——loader 去内层头，消费方 continuation 独占外层段头；compose 本地风格档案路径 `output_dir/"style"` 对齐实际写盘位置。
+
+**流程定档**：`docs/04_workflows/10_style_modeling_workflow.md`（SOP：输入准备/运行/response 契约/验收标准/注入回归）；`35_operator_runbook.md` §8.1 链接；`02_agent_quickstart.md` Read Next 指针。新增 24 测试，基线 **1540 → 1540**。
+
 ---
 
 ## 6. 独立 Track — 正文生成
 
-不并入本期 Phase，但方向已定：参照 `LongWriter`（`arXiv:2408.07055`）的 AgentWrite 拆解（plan → write 子任务，突破 4000 字天花板），在现有对象层（PlotUnit/NarrativeFrameUnit）基础上加**章级 prose 输出**。对架构哲学（`frame.py:94` 声明）和 1497 基线的冲击需单独立项评估，本文档不做落地规格。
+不并入本期 Phase，但方向已定：参照 `LongWriter`（`arXiv:2408.07055`）的 AgentWrite 拆解（plan → write 子任务，突破 4000 字天花板），在现有对象层（PlotUnit/NarrativeFrameUnit）基础上加**章级 prose 输出**。对架构哲学（`frame.py:94` 声明）和 1540 基线的冲击需单独立项评估，本文档不做落地规格。
 
 ---
 
@@ -183,4 +199,6 @@ PLATFORM_POLICY: dict[str, dict] = {
 - 2026-08-01：Phase 2 落地（FactLedger 时间有效性 + 矛盾检测，1367 tests）。
 - 2026-08-01：Phase 3 落地（状态检索层，1416 tests）。
 - 2026-08-01：Phase 4 落地（WebNovelBench 8 维 rubric 导出 + `--lint` 本地校准，1444 tests）。
-- 2026-08-01：Phase 5 落地（编辑人机回环 approval gate + 独立 17 字段审批 JSON 契约，1497 tests）。
+- 2026-08-02：章节字数下限检查落地（compliance 平台政策并入章节去空白字符数下限检查，低于下限的章节标记 warning，1505 tests）。
+- 2026-08-02：续写「忠于原文 + 模仿文风」增强落地（Continue prompt 注入【已发生事件时间线】+【原文锚点与文风样例】few-shot，忠于原文硬规则；1540 tests）。
+- 2026-08-02：写作风格建模扩展 v2 落地（4 叙事维度量化 + schema v2 + 双层段头/compose 路径修复 + 风格建模 SOP 定档；1540 tests）。

@@ -17,7 +17,7 @@
 - 写作风格：`novel style` 提炼 StyleProfile（量化分析 + LLM 质性提炼），compose/extend 注入续写 prompt；`--lint` 做 AI 味检查；风格库（`--name` 另存 / `--style` 跨小说引用）
 - 状态检索：以当前 NarrativeState 为 query，从 FactLedger/ForeshadowGraph 检索 top-k 相关条目注入 Continue prompt（【相关事实检索】段）；零依赖 TF-IDF/关键词（档 1）；`--retrieval on|off` 开关（默认 on，空语料/空 query 静默降级字节不变）
 - 统一入口：`novel` 命令管理 `novels/<小说名>/` 工作目录，并调用 audit / extend / compose / style / compliance / rubric staged CLI
-- 测试：1497 passed
+- 测试：1540 passed
 
 ## 怎么用（在 Codex 中）
 
@@ -110,6 +110,7 @@ novel compliance 某作 --input 某作.txt --lexicon custom.json # 合并自定�
 - **单遍扫描**（纯代码，无 response 阶段）：扫已有正文，产出 `compliance_report.json`（含 `route: "pass"`、risk_level、max_severity、位置锚点、分类、严重级、替换建议）
 - `--platform 通用|番茄|起点|晋江`（默认 通用，未知回退通用）；`--sensitive on|off`（默认 on，off 时跳过词库扫描、platform 政策检查仍跑）
 - `--lexicon FILE` 合并自定义敏感词条目（与内置词库去重）
+- 章节字数下限：并入平台政策检查，每章去空白字符数低于平台 `chapter_length_target` 下限时产出 `compliance_chapter_length_<n>` warning issue（`--sensitive off` 时仍检查；route 保持 pass）
 - prose 模式扫输入 .txt；无正文场景降级 object 模式扫 PlotUnit 字段（genre/hook/conflict）
 - 注意：词库命中是风险提示不是平台封禁保证
 
