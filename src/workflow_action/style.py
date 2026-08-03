@@ -43,6 +43,15 @@ _REQUIRED_RESPONSE_FIELDS = (
     "confidence_gaps",
 )
 
+# v2: 叙事维度质性字段（可选）。缺省补 []，出现则必须 list[str]。
+# 可选化 = 向后兼容：现存 12 字段的手工 response 产物仍可解析。
+_OPTIONAL_RESPONSE_FIELDS = (
+    "environment_notes",        # 环境/景物：手法（白描/借景抒情/写实）+ 功能（交代时空/烘托情绪/转场）
+    "scene_transition_notes",   # 场景转换：章内/章间切换方式 + 段落衔接
+    "psychology_notes",         # 心理：密度判断 + 直接/间接内独白 + show-don't-tell 深化
+    "rhythm_notes",             # 节奏：叙述/对话/动作/描写配比 + 事件推进方式
+)
+
 
 class StyleExtractUnit:
     """从小说章节采样中提炼质性写作风格."""
@@ -94,6 +103,10 @@ class StyleExtractUnit:
 5. chapter_end_hook_notes 描述章末如何留钩子
 6. taboo_words 列出应避免的用词（本文本刻意回避的套话）
 7. style_references 命中风格知识表中的规则（如 tone_kz_01），未知的不要编造
+8. environment_notes 依据量化景物/感官密度判断环境描写手法（白描/借景抒情/写实）与功能（交代时空/烘托情绪/转场），可引用量化数据
+9. scene_transition_notes 依据量化转场/时间标记计数判断场景切换方式（显式标记/无痕切换/时间跳转）与段落衔接
+10. psychology_notes 依据量化心理动词密度判断内视角深度、直接/间接内独白与 show-don't-tell 深化手法
+11. rhythm_notes 依据量化动作/叙述/对话/景物四占比判断章内配比与事件推进方式（章末钩子已在 chapter_end_hook_notes）
 
 【输出格式】
 严格输出 JSON，不要 Markdown 代码块标记:
@@ -109,11 +122,19 @@ class StyleExtractUnit:
   "chapter_end_hook_notes": ["章末钩子手法1"],
   "taboo_words": ["禁忌词1"],
   "style_references": ["tone_kz_01"],
-  "confidence_gaps": ["不确定的信息"]
+  "confidence_gaps": ["不确定的信息"],
+  "environment_notes": ["环境描写手法与功能（可选）"],
+  "scene_transition_notes": ["场景转换手法（可选）"],
+  "psychology_notes": ["心理与内视角表现（可选）"],
+  "rhythm_notes": ["叙事节奏与结构（可选）"]
 }}"""
 
     def parse_response(self, response: str) -> dict:
-        """解析 LLM 风格提炼响应，严格校验字段."""
+        """解析 LLM 风格提炼响应，严格校验字段.
+
+        v2 起：_OPTIONAL_RESPONSE_FIELDS 允许出现（须 list[str]），缺省补 []。
+        _REQUIRED_RESPONSE_FIELDS 仍必填。未知字段仍拒绝。
+        """
         data = json.loads(response)
         if not isinstance(data, dict):
             raise ValueError("Style extraction response must be a JSON object")
@@ -124,7 +145,8 @@ class StyleExtractUnit:
                 "Style extraction response missing required field(s): "
                 + ", ".join(missing)
             )
-        extra = sorted(set(data) - set(_REQUIRED_RESPONSE_FIELDS))
+        allowed = set(_REQUIRED_RESPONSE_FIELDS) | set(_OPTIONAL_RESPONSE_FIELDS)
+        extra = sorted(set(data) - allowed)
         if extra:
             raise ValueError(
                 "Style extraction response has unexpected field(s): "
@@ -152,6 +174,18 @@ class StyleExtractUnit:
                 raise ValueError(
                     f"Style extraction response field {field} must be a list of strings"
                 )
+        # v2 可选字段：出现则须 list[str]，缺省补 []
+        for field in _OPTIONAL_RESPONSE_FIELDS:
+            value = data.get(field, [])
+            if not isinstance(value, list):
+                raise ValueError(
+                    f"Style extraction response field {field} must be a list"
+                )
+            if any(not isinstance(item, str) or not item.strip() for item in value):
+                raise ValueError(
+                    f"Style extraction response field {field} must be a list of strings"
+                )
+            data[field] = value
         for field in ("genre_guess", "narrative_pov", "pacing_description"):
             value = data[field]
             if not isinstance(value, str) or not value.strip():
@@ -183,6 +217,7 @@ class StyleExtractUnit:
         return StyleProfile(
             profile_id=profile_id,
             source_text_ref=source_text_ref,
+            schema_version=2,
             tone_labels=tone_labels,
             genre_guess=qualitative.get("genre_guess"),
             narrative_pov=qualitative["narrative_pov"],
@@ -192,6 +227,10 @@ class StyleExtractUnit:
             show_dont_tell_notes=qualitative.get("show_dont_tell_notes", []),
             closed_loop_objects=qualitative.get("closed_loop_objects", []),
             chapter_end_hook_notes=qualitative.get("chapter_end_hook_notes", []),
+            environment_notes=qualitative.get("environment_notes", []),
+            scene_transition_notes=qualitative.get("scene_transition_notes", []),
+            psychology_notes=qualitative.get("psychology_notes", []),
+            rhythm_notes=qualitative.get("rhythm_notes", []),
             taboo_words=qualitative.get("taboo_words", []),
             style_references=qualitative.get("style_references", []),
             stats=stats,
@@ -348,15 +387,21 @@ def load_style_context(output_dir: Path, style_name: str | None = None) -> str:
     """读取风格档案并渲染注入文本.
 
     style_name 指定时读风格库 <novels_root>/_style_library/<name>.json；
-    否则读规范位置 <output_dir>/style/style_profile.json。
+    否则读规范位置 <output_dir 的上级>/style/style_profile.json。
+
+    style 档案由 novel style 写到 <book>/output/style/。各消费模式的
+    output_dir 不同：compose=<book>/output/compose、extend=<book>/output/extend，
+    都需回到 <book>/output/style/ —— 即 output_dir.parent / "style"。
     不存在返回 ""；存在但损坏则抛错（stale/corrupt 文件应暴露）。
     """
     if style_name:
         profile_path = style_library_profile_path(style_name)
     else:
-        style_dir = Path(output_dir).parent / "style"
+        style_dir = output_dir.parent / "style"
         profile_path = style_dir / "style_profile.json"
     if not profile_path.exists():
         return ""
     profile = StyleProfile.model_validate_json(profile_path.read_text(encoding="utf-8"))
-    return profile.to_prompt_context()
+    # include_header=False：双层段头修复，内层【写作风格画像】头由 continuation
+    # 外层【写作风格】独占，避免叠层。
+    return profile.to_prompt_context(include_header=False)

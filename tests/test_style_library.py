@@ -109,13 +109,36 @@ def test_load_style_context_reference_style_name(tmp_path, monkeypatch):
     _write_library(novels_root)
     monkeypatch.setenv("NOVELS_ROOT", str(novels_root))
     ctx = load_style_context(tmp_path / "output", style_name="克制风")
-    assert "【写作风格画像】" in ctx
     assert "调性: 克制" in ctx
 
 
 def test_load_style_context_reference_missing_returns_empty(tmp_path):
     ctx = load_style_context(tmp_path / "output", style_name="不存在的风格")
     assert ctx == ""
+
+
+def test_load_style_context_local_resolves_parent_style(tmp_path):
+    """无 style_name 时读 <output_dir 上级>/style/style_profile.json.
+
+    novel style 写到 <book>/output/style/；compose/extend 的 output_dir 分别是
+    <book>/output/compose 与 <book>/output/extend，都需回到 output/style/。
+    """
+    local_dir = tmp_path / "output" / "style"
+    local_dir.mkdir(parents=True)
+    local_profile = json.loads(_full_profile_json())
+    local_profile["taboo_words"] = ["本地词"]
+    (local_dir / "style_profile.json").write_text(
+        json.dumps(local_profile, ensure_ascii=False), encoding="utf-8"
+    )
+    # compose 模式：output_dir = <book>/output/compose
+    ctx = load_style_context(tmp_path / "output" / "compose")
+    assert "调性: 克制" in ctx
+    assert "禁忌词: 本地词" in ctx
+    # extend 模式：output_dir = <book>/output/extend
+    ctx_extend = load_style_context(tmp_path / "output" / "extend")
+    assert "调性: 克制" in ctx_extend
+    # 内层【写作风格画像】头已被 loader 去掉（双层段头修复），只剩正文
+    assert "【写作风格画像】" not in ctx
 
 
 def test_load_style_context_reference_prefers_library_over_local(tmp_path, monkeypatch):

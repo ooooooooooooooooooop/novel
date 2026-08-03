@@ -124,7 +124,9 @@ def render_retrieval_context(
     if not hits:
         return ""
     by_id = {doc_id: (kind, display) for doc_id, kind, _text, display in docs}
-    lines = ["【相关事实检索】(top-k 与当前叙事状态相关)"]
+    # 双层段头修复：内层头去掉括号标签，由消费方 continuation.py 独占外层
+    # 【相关事实检索】段头（loader 只产正文）。
+    lines = ["(top-k 与当前叙事状态相关)"]
     for doc_id, _score in hits:
         kind, display = by_id[doc_id]
         label = _KIND_LABELS.get(kind, kind)

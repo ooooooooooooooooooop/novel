@@ -259,7 +259,6 @@ def test_render_format_contains_labels_and_ids():
     )
     unit = RetrievalUnit()
     out = unit.build_retrieval_context(_state(), facts, _foreshadows([]))
-    assert "【相关事实检索】" in out
     assert "- [事实] 古书藏于藏经阁密室 (id=f_001)" in out
 
 

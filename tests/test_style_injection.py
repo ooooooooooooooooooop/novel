@@ -47,6 +47,18 @@ def test_style_section_under_constraints():
     assert constraints_pos < style_pos
 
 
+def test_style_section_single_header_no_double_layer():
+    """双层段头回归：外层【写作风格】恰好 1 次，无内层【写作风格画像】头.
+
+    loader（to_prompt_context include_header=False）已去内层头，
+    消费方 continuation 独占外层段头。
+    """
+    style_content = "调性: 克制\n视角: 第三人称有限\n量化基线: 弱化副词 0.4/千字"
+    prompt = _base_prompt(style_content)
+    assert prompt.count("【写作风格】") == 1
+    assert "【写作风格画像】" not in prompt
+
+
 def test_style_context_default_unchanged_prompt():
     """默认 style_context='' 时 prompt 与无此参数时字节一致（防回归）."""
     cont = ContinueUnit()

@@ -257,6 +257,13 @@ def _render_quantitative_context(stats, risks) -> str:
     lines.append(f"- 壳句式: {dict(stats.shell_counts)}")
     lines.append(f"- 对话标签密度: {stats.dialogue_tag_density_per_1000}/千字 | 情绪宣布词: {stats.emotion_announcement_count}")
     lines.append(f"- 破折号+冒号密度: {stats.dash_colon_density_per_1000}/千字")
+    # ---- v2: 叙事维度量化（供 LLM 做质性判断） ----
+    lines.append(f"- 景物名词密度: {stats.scenery_density_per_1000}/千字 | 景物句占比: {stats.scenery_sentence_ratio:.2f}")
+    lines.append(f"- 感官动词密度: {stats.sensory_density_per_1000}/千字")
+    lines.append(f"- 场景转换计数: {stats.scene_transition_count} | 时间标记密度: {stats.time_marker_density_per_1000}/千字")
+    lines.append(f"- 心理动词密度: {stats.psych_verb_density_per_1000}/千字 | 心理句占比: {stats.psych_sentence_ratio:.2f} | 内独白句占比: {stats.inner_monologue_sentence_ratio:.2f}")
+    lines.append(f"- 动作动词密度: {stats.action_verb_density_per_1000}/千字 | 动作句占比: {stats.action_sentence_ratio:.2f}")
+    lines.append(f"- 叙述句占比: {stats.narration_sentence_ratio:.2f}")
     if risks:
         lines.append("- AI 味风险:")
         for risk in risks:

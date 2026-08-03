@@ -53,6 +53,7 @@
 - `04_workflows/03_continue_workflow.md`
 - `04_workflows/04_rewrite_workflow.md`
 - `04_workflows/05_workflow_handoff_contract.md`
+- `04_workflows/10_style_modeling_workflow.md`
 
 ---
 

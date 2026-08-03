@@ -125,6 +125,42 @@ class StyleQuantitativeStats(BaseModel):
         default=0, ge=0, description="'一是…二是…三是' 整齐枚举计数"
     )
 
+    # ---- v2: 叙事维度量化（纯代码，词典规则引擎） ----
+    # 密度口径 per_1000_chars，占比口径 per 句子（均对齐既有字段）。
+    scenery_density_per_1000: float = Field(
+        default=0.0, ge=0, description="景物名词密度（每千字）"
+    )
+    sensory_density_per_1000: float = Field(
+        default=0.0, ge=0, description="感官动词密度（每千字）"
+    )
+    scenery_sentence_ratio: float = Field(
+        default=0.0, ge=0, le=1, description="景物描写句子占比"
+    )
+    scene_transition_count: int = Field(
+        default=0, ge=0, description="场景转换计数（显式转场 + 段落首时间标记）"
+    )
+    time_marker_density_per_1000: float = Field(
+        default=0.0, ge=0, description="时间标记密度（每千字）"
+    )
+    psych_verb_density_per_1000: float = Field(
+        default=0.0, ge=0, description="心理动词密度（每千字）"
+    )
+    psych_sentence_ratio: float = Field(
+        default=0.0, ge=0, le=1, description="心理描写句子占比"
+    )
+    inner_monologue_sentence_ratio: float = Field(
+        default=0.0, ge=0, le=1, description="直接内独白句子占比"
+    )
+    action_verb_density_per_1000: float = Field(
+        default=0.0, ge=0, description="动作动词密度（每千字）"
+    )
+    action_sentence_ratio: float = Field(
+        default=0.0, ge=0, le=1, description="动作描写句子占比"
+    )
+    narration_sentence_ratio: float = Field(
+        default=0.0, ge=0, le=1, description="叙述句子占比（无引号∧无动作∧无景物∧无心理词）"
+    )
+
 
 class StyleProfile(BaseModel):
     """顶层写作风格档案.
@@ -136,6 +172,9 @@ class StyleProfile(BaseModel):
 
     profile_id: str = Field(description="档案唯一标识")
     source_text_ref: str = Field(description="来源文本路径")
+    schema_version: int = Field(
+        default=1, ge=1, description="Schema 版本；v2 起=2（旧 v1 档案缺省标为 1）"
+    )
 
     # 质性（LLM 提炼）
     tone_labels: list[str] = Field(
@@ -158,6 +197,19 @@ class StyleProfile(BaseModel):
     )
     chapter_end_hook_notes: list[str] = Field(
         default_factory=list, description="章末钩子手法清单"
+    )
+    # ---- v2: 叙事维度质性（LLM 提炼，可选；空列表时静默不渲染） ----
+    environment_notes: list[str] = Field(
+        default_factory=list, description="环境/景物描写手法与功能（白描/借景抒情/交代时空/烘托情绪/转场）"
+    )
+    scene_transition_notes: list[str] = Field(
+        default_factory=list, description="场景转换与过渡手法（显式标记/无痕切换/时间跳转/段落衔接）"
+    )
+    psychology_notes: list[str] = Field(
+        default_factory=list, description="心理与内视角表现（密度判断/直接与间接内独白/show-don't-tell 深化）"
+    )
+    rhythm_notes: list[str] = Field(
+        default_factory=list, description="叙事节奏与结构（叙述/对话/动作/描写配比/事件推进方式）"
     )
     taboo_words: list[str] = Field(
         default_factory=list, description="作者自查禁忌词（删/避用词）"
@@ -198,6 +250,10 @@ class StyleProfile(BaseModel):
         "show_dont_tell_notes",
         "closed_loop_objects",
         "chapter_end_hook_notes",
+        "environment_notes",
+        "scene_transition_notes",
+        "psychology_notes",
+        "rhythm_notes",
         "taboo_words",
         "style_references",
         "confidence_gaps",
@@ -208,13 +264,19 @@ class StyleProfile(BaseModel):
     ) -> list[str]:
         return _require_non_blank_items(values, info.field_name)
 
-    def to_prompt_context(self) -> str:
-        """渲染【写作风格画像】块, 供续写 prompt 注入."""
-        lines = [
-            "【写作风格画像】",
-            f"调性: {' / '.join(self.tone_labels) if self.tone_labels else '未标注'}",
-            f"视角: {self.narrative_pov}",
-        ]
+    def to_prompt_context(self, include_header: bool = True) -> str:
+        """渲染【写作风格画像】块, 供续写 prompt 注入.
+
+        include_header=False 时跳过【写作风格画像】首行（双层段头修复：
+        消费方 continuation.py 独占外层段头，loader 只产正文）。
+        """
+        lines: list[str] = []
+        if include_header:
+            lines.append("【写作风格画像】")
+        lines.append(
+            f"调性: {' / '.join(self.tone_labels) if self.tone_labels else '未标注'}"
+        )
+        lines.append(f"视角: {self.narrative_pov}")
         if self.genre_guess:
             lines.append(f"类型倾向: {self.genre_guess}")
         if self.pacing_description:
@@ -233,6 +295,19 @@ class StyleProfile(BaseModel):
         if self.chapter_end_hook_notes:
             lines.append("章末钩子:")
             lines.extend(f"- {item}" for item in self.chapter_end_hook_notes)
+        # ---- v2: 叙事维度质性（空字段不渲染） ----
+        if self.environment_notes:
+            lines.append("环境/景物描写:")
+            lines.extend(f"- {item}" for item in self.environment_notes)
+        if self.scene_transition_notes:
+            lines.append("场景转换与过渡:")
+            lines.extend(f"- {item}" for item in self.scene_transition_notes)
+        if self.psychology_notes:
+            lines.append("心理与内视角:")
+            lines.extend(f"- {item}" for item in self.psychology_notes)
+        if self.rhythm_notes:
+            lines.append("叙事节奏与结构:")
+            lines.extend(f"- {item}" for item in self.rhythm_notes)
         if self.taboo_words:
             lines.append(f"禁忌词: {', '.join(self.taboo_words)}")
         stats = self.stats
@@ -242,6 +317,33 @@ class StyleProfile(BaseModel):
             f"｜ 对话占比 {stats.dialogue_ratio:.2f}"
         )
         lines.append(baseline)
+        # v2 叙事维度量化行：仅当任一新统计非零时渲染。
+        # （纯数据门控，不用 schema_version：v2 但全零 → 不渲染 → 与 v1 逐字节相同，
+        #   保持「空新维度 = 静默」的注入静默降级契约。）
+        v2_stats_nonzero = any(
+            getattr(stats, field, 0.0) not in (0, 0.0)
+            for field in (
+                "scenery_density_per_1000",
+                "sensory_density_per_1000",
+                "scenery_sentence_ratio",
+                "scene_transition_count",
+                "time_marker_density_per_1000",
+                "psych_verb_density_per_1000",
+                "psych_sentence_ratio",
+                "inner_monologue_sentence_ratio",
+                "action_verb_density_per_1000",
+                "action_sentence_ratio",
+                "narration_sentence_ratio",
+            )
+        )
+        if v2_stats_nonzero:
+            lines.append(
+                f"叙事维度量化: 景物句占比 {stats.scenery_sentence_ratio:.2f}"
+                f"｜ 心理动词 {stats.psych_verb_density_per_1000:.1f}/千字"
+                f"｜ 动作动词 {stats.action_verb_density_per_1000:.1f}/千字"
+                f"｜ 时间标记 {stats.time_marker_density_per_1000:.1f}/千字"
+                f"｜ 叙述句占比 {stats.narration_sentence_ratio:.2f}"
+            )
         if self.ai_flavor_risks:
             lines.append("AI 味风险:")
             for risk in self.ai_flavor_risks:

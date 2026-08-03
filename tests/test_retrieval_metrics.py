@@ -141,6 +141,6 @@ def test_render_retrieval_context_lines():
         ("t_002", "foreshadow", "主角身世之谜", "主角身世之谜"),
     ]
     text = render_retrieval_context([("f_001", 0.9), ("t_002", 0.5)], docs)
-    assert "【相关事实检索】" in text
+    assert "(top-k 与当前叙事状态相关)" in text
     assert "- [事实] 古书藏于藏经阁密室 (id=f_001)" in text
     assert "- [伏笔] 主角身世之谜 (id=t_002)" in text

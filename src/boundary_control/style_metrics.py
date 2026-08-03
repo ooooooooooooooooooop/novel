@@ -15,6 +15,15 @@ from src.domain_layer.style_knowledge import (
     SHELL_NOT_A_BUT_B_RE,
     WEAK_ADVERB_SET,
 )
+from src.domain_layer.style_lexicon import (
+    ACTION_VERBS,
+    EXPLICIT_TRANSITION_MARKERS,
+    INNER_MONOLOGUE_PHRASES,
+    PSYCH_VERBS,
+    SCENERY_NOUNS,
+    SENSORY_VERBS,
+    TIME_MARKERS,
+)
 from src.object_state.styleprofile import (
     MetaphorHit,
     StyleQuantitativeStats,
@@ -216,11 +225,124 @@ def detect_colon_enumeration(text: str) -> int:
     return len(_COLON_ENUM_RE.findall(text))
 
 
+def _per_1000(count: float, text_len: int) -> float:
+    """计数转每千字密度."""
+    return count / text_len * 1000 if text_len else 0.0
+
+
+def _word_count_map(text: str, words: frozenset[str]) -> dict[str, int]:
+    """统计词表每个词的出现次数（子串匹配）."""
+    counts: dict[str, int] = {}
+    for word in words:
+        count = text.count(word)
+        if count:
+            counts[word] = count
+    return counts
+
+
+def detect_scenery_metrics(text: str) -> dict[str, float]:
+    """环境/景物描写指标：景物名词与感官动词的密度 + 句子占比."""
+    sentences = _split_sentences(text)
+    text_len = len(text)
+    sentence_count = len(sentences) or 1
+    scenery_hits = _word_count_map(text, SCENERY_NOUNS)
+    sensory_hits = _word_count_map(text, SENSORY_VERBS)
+    scenery_total = sum(scenery_hits.values())
+    sensory_total = sum(sensory_hits.values())
+    scenery_sentences = sum(
+        1 for s in sentences if any(word in s for word in SCENERY_NOUNS)
+    )
+    sensory_sentences = sum(
+        1 for s in sentences if any(word in s for word in SENSORY_VERBS)
+    )
+    return {
+        "scenery_density_per_1000": round(_per_1000(scenery_total, text_len), 2),
+        "sensory_density_per_1000": round(_per_1000(sensory_total, text_len), 2),
+        "scenery_sentence_ratio": round(scenery_sentences / sentence_count, 4),
+        "sensory_sentence_ratio": round(sensory_sentences / sentence_count, 4),
+    }
+
+
+def detect_transition_metrics(text: str) -> dict[str, float]:
+    """场景转换指标：显式转场计数 + 段落首时间标记计数（对齐句首锚定先例）.
+
+    scene_transition_count = 显式转场词计数 + 段落首时间标记计数。
+    段落按换行切，时间标记只锚定段落开头，避免中置误报。
+    """
+    explicit_total = sum(_word_count_map(text, EXPLICIT_TRANSITION_MARKERS).values())
+    paragraph_openers = sum(
+        1
+        for para in text.split("\n")
+        if para.strip() and any(para.lstrip().startswith(word) for word in TIME_MARKERS)
+    )
+    time_total = sum(_word_count_map(text, TIME_MARKERS).values())
+    return {
+        "scene_transition_count": explicit_total + paragraph_openers,
+        "time_marker_density_per_1000": round(_per_1000(time_total, len(text)), 2),
+    }
+
+
+def detect_psych_metrics(text: str) -> dict[str, float]:
+    """心理与内视角指标：心理动词密度 + 心理句子占比 + 内独白句子占比."""
+    sentences = _split_sentences(text)
+    sentence_count = len(sentences) or 1
+    psych_total = sum(_word_count_map(text, PSYCH_VERBS).values())
+    psych_sentences = sum(
+        1 for s in sentences if any(word in s for word in PSYCH_VERBS)
+    )
+    mono_sentences = sum(
+        1 for s in sentences if any(word in s for word in INNER_MONOLOGUE_PHRASES)
+    )
+    return {
+        "psych_verb_density_per_1000": round(_per_1000(psych_total, len(text)), 2),
+        "psych_sentence_ratio": round(psych_sentences / sentence_count, 4),
+        "inner_monologue_sentence_ratio": round(mono_sentences / sentence_count, 4),
+    }
+
+
+def detect_action_metrics(text: str) -> dict[str, float]:
+    """叙事节奏的动作维度：动作动词密度 + 动作句子占比."""
+    sentences = _split_sentences(text)
+    sentence_count = len(sentences) or 1
+    action_total = sum(_word_count_map(text, ACTION_VERBS).values())
+    action_sentences = sum(
+        1 for s in sentences if any(word in s for word in ACTION_VERBS)
+    )
+    return {
+        "action_verb_density_per_1000": round(_per_1000(action_total, len(text)), 2),
+        "action_sentence_ratio": round(action_sentences / sentence_count, 4),
+    }
+
+
+def detect_narrative_ratio(sentences: list[str]) -> float:
+    """叙述句子占比 = 无引号 ∧ 无动作词 ∧ 无景物词 ∧ 无心理词的句子占比.
+
+    与 dialogue_ratio / action_sentence_ratio / scenery_sentence_ratio /
+    psych_sentence_ratio 一起构成章内配比指纹。注意四正项可重叠，
+    narration 为余集，四正项 + narration 之和不等于 1。
+    """
+    if not sentences:
+        return 0.0
+    narration = sum(
+        1
+        for s in sentences
+        if not _QUOTE_RE.search(s)
+        and not any(word in s for word in ACTION_VERBS)
+        and not any(word in s for word in SCENERY_NOUNS)
+        and not any(word in s for word in PSYCH_VERBS)
+    )
+    return round(narration / len(sentences), 4)
+
+
 def analyze_style_metrics(text: str) -> StyleQuantitativeStats:
     """对全文做纯代码量化分析."""
     sentences = _split_sentences(text)
     distribution = sentence_length_distribution(sentences)
     weak_density, weak_counts = detect_weak_adverbs(text)
+    scenery = detect_scenery_metrics(text)
+    transition = detect_transition_metrics(text)
+    psych = detect_psych_metrics(text)
+    action = detect_action_metrics(text)
 
     return StyleQuantitativeStats(
         total_chars=len(text),
@@ -239,4 +361,15 @@ def analyze_style_metrics(text: str) -> StyleQuantitativeStats:
         dash_colon_density_per_1000=round(detect_dash_colons(text), 2),
         connective_abuse_count=detect_connective_abuse(text),
         colon_enumeration_count=detect_colon_enumeration(text),
+        scenery_density_per_1000=scenery["scenery_density_per_1000"],
+        sensory_density_per_1000=scenery["sensory_density_per_1000"],
+        scenery_sentence_ratio=scenery["scenery_sentence_ratio"],
+        scene_transition_count=transition["scene_transition_count"],
+        time_marker_density_per_1000=transition["time_marker_density_per_1000"],
+        psych_verb_density_per_1000=psych["psych_verb_density_per_1000"],
+        psych_sentence_ratio=psych["psych_sentence_ratio"],
+        inner_monologue_sentence_ratio=psych["inner_monologue_sentence_ratio"],
+        action_verb_density_per_1000=action["action_verb_density_per_1000"],
+        action_sentence_ratio=action["action_sentence_ratio"],
+        narration_sentence_ratio=detect_narrative_ratio(sentences),
     )

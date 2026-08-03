@@ -150,7 +150,7 @@ def test_extend_on_nonempty_corpus_injects_block(tmp_path):
         facts=facts,
         foreshadows=ForeshadowGraph(entries=[]),
     )
-    assert "【相关事实检索】" in retrieval
+    assert "(top-k 与当前叙事状态相关)" in retrieval
     prompt = ContinueUnit().build_prompt(
         state=state,
         characters=[],

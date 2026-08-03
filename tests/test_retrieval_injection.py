@@ -40,6 +40,17 @@ def test_retrieval_adds_section():
     assert "藏经阁密室 f_001" in prompt
 
 
+def test_retrieval_single_header_no_double_layer():
+    """双层段头回归：loader 已去内层头，外层【相关事实检索】恰好 1 次.
+
+    loader 正文以 (top-k 与当前叙事状态相关) 开头，不含【相关事实检索】标记。
+    """
+    retrieval = "(top-k 与当前叙事状态相关)\n- [事实] 古书藏于藏经阁密室 (id=f_001)"
+    prompt = _base_prompt(retrieval)
+    assert prompt.count("【相关事实检索】") == 1
+    assert "古书藏于藏经阁密室 (id=f_001)" in prompt
+
+
 def test_retrieval_section_under_constraints():
     prompt = _base_prompt("藏经阁")
     constraints_pos = prompt.find("【作品约束】")
