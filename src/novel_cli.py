@@ -67,8 +67,8 @@ DEFAULT_NOVELS_ROOT = PROJECT_ROOT / "novels"
 MODE_FILE = "mode.txt"
 CONFIG_FILE = "run_config.json"
 JSON_SCHEMA_VERSION = 1
-VALID_MODES = {"audit", "extend", "compose", "style", "compliance", "rubric"}
-JSON_ERROR_COMMANDS = {"audit", "extend", "compose", "style", "compliance", "rubric", "list", "gate", "pending", "respond"}
+VALID_MODES = {"audit", "extend", "compose", "style", "compliance", "rubric", "time"}
+JSON_ERROR_COMMANDS = {"audit", "extend", "compose", "style", "compliance", "rubric", "time", "list", "gate", "pending", "respond"}
 JSON_ERROR_COMMANDS_WITH_NOVEL = JSON_ERROR_COMMANDS - {"list"}
 ROUTE_HANDOFF_FILE = "route_handoff.json"
 PENDING_SELECTION_METHODS = {"all_pending", "slot_id"}
@@ -96,6 +96,8 @@ VALID_CONFIG_FIELDS = {
     "sensitive",
     "lexicon",
     "retrieval",
+    "rebuild",
+    "check",
 }
 BASE_JSON_ERROR_FIELDS = (
     "ok",
@@ -225,6 +227,7 @@ LIST_JSON_ROW_FIELDS = (
     "final_result_path",
     "route_handoff_file",
     "route_handoff_path",
+    "time_status",
 )
 
 
@@ -1247,6 +1250,7 @@ def _expected_gate_package_name(mode: str) -> str:
         "style": "style_profile.json",
         "compliance": "compliance_report.json",
         "rubric": "rubric.json",
+        "time": "time_book.json",
     }
     return package_name_by_mode[mode]
 
@@ -1269,6 +1273,7 @@ def _expected_final_result_name(mode: str) -> str:
         "style": "style_profile.json",
         "compliance": "compliance_report.json",
         "rubric": "rubric.json",
+        "time": "timeline_report.json",
     }
     return result_name_by_mode[mode]
 
@@ -2621,6 +2626,32 @@ def _run_rubric(args: argparse.Namespace) -> int:
     return _run_child(command)
 
 
+def _run_time(args: argparse.Namespace) -> int:
+    """时间域模块：TimeBook 管理 + 时间审计（纯代码，无 LLM 阶段）.
+
+    横向域：output/time 同时被 audit/extend/compose 消费；
+    时间域产出 time_book.json / timeline_report.json。
+    """
+    novel_dir = _novel_dir(args.novel)
+    output_dir = _output_dir(novel_dir, "time")
+    _write_mode(novel_dir, "time")
+    _write_config(novel_dir, {"mode": "time"})
+
+    command = [
+        sys.executable,
+        _script_path("time_short_form.py"),
+        "--output-dir",
+        str(output_dir),
+    ]
+    if args.input:
+        command.extend(["--input", str(_ensure_input(args, novel_dir))])
+    if args.rebuild:
+        command.append("--rebuild")
+    if args.check:
+        command.append("--check")
+    return _run_child(command)
+
+
 def _run_resume(args: argparse.Namespace) -> int:
     novel_dir = _novel_dir(args.novel)
     mode = _read_mode(novel_dir)
@@ -2720,6 +2751,21 @@ def _run_resume(args: argparse.Namespace) -> int:
             "--output-dir",
             str(output_dir),
         ]
+        return _run_child(command)
+    if mode == "time":
+        output_dir = _output_dir(novel_dir, "time")
+        command = [
+            sys.executable,
+            _script_path("time_short_form.py"),
+            "--output-dir",
+            str(output_dir),
+        ]
+        input_path = novel_dir / "input.txt"
+        if input_path.exists():
+            command.extend(["--input", str(input_path)])
+        if _read_config(novel_dir).get("rebuild"):
+            command.append("--rebuild")
+        command.append("--check")
         return _run_child(command)
 
     print(f"Error: unknown saved mode for {args.novel}: {mode}")
@@ -2828,6 +2874,7 @@ def _final_route_path(mode: str, output_dir: Path) -> tuple[Path, float] | None:
         "extend": output_dir / "extend_result.json",
         "compose": output_dir / "compose_result.json",
         "compliance": output_dir / "compliance_report.json",
+        "time": output_dir / "timeline_report.json",
     }
     final_path = final_by_mode.get(mode)
     if final_path and final_path.exists():
@@ -3194,6 +3241,26 @@ def _status_for(novel_dir: Path) -> tuple[str, str, str, dict[str, object]]:
     return mode, "initialized", "-", metadata
 
 
+def _time_status_detail(novel_dir: Path) -> str:
+    """每部小说当前叙事时间状态（无 TimeBook → 未设定）.
+
+    时间域为横向域，独立于 mode.txt；list 行用它展示时间线准星。
+    """
+    from src.workflow_action.timebook import load_time_book
+
+    tb = load_time_book(_output_dir(novel_dir, "time"))
+    if tb is None:
+        return "未设定"
+    latest = tb.latest_anchor()
+    if latest is not None:
+        bits = [b for b in (latest.chapter, latest.date, latest.lunar, latest.tod, latest.loc) if b]
+        return " ".join(bits)
+    if tb.initial is not None and not tb.initial.is_empty():
+        bits = [b for b in (tb.initial.date, tb.initial.lunar, tb.initial.loc) if b]
+        return "起点 " + " ".join(bits)
+    return "存在"
+
+
 def _run_list(args: argparse.Namespace) -> int:
     root = _novels_root()
     if not root.exists():
@@ -3217,6 +3284,7 @@ def _run_list(args: argparse.Namespace) -> int:
                 "latest_date": latest_date,
                 "latest_mtime": latest_mtime,
                 **metadata,
+                "time_status": _time_status_detail(novel_dir),
             }
         )
     if args.json:
@@ -3614,6 +3682,14 @@ def build_parser(*, emit_json_errors: bool = False) -> argparse.ArgumentParser:
     rubric = subparsers.add_parser("rubric", help="导出 WebNovelBench 8 维本地评测 rubric (离线)")
     rubric.add_argument("novel", help="小说名（rubric 为全局知识，novel 仅作容器）")
     rubric.set_defaults(func=_run_rubric)
+
+    time_cmd = subparsers.add_parser("time", help="时间域模块：TimeBook 管理 + 时间审计")
+    time_cmd.add_argument("novel", help="小说名")
+    _add_input_argument(time_cmd)
+    time_cmd.add_argument("--rebuild", action="store_true", help="从正文提取锚点并校准 TimeBook")
+    time_cmd.add_argument("--check", action="store_true", help="运行时间审计，产出 timeline_report.json")
+    time_cmd.add_argument("--status", action="store_true", help="打印 TimeBook 状态（默认动作）")
+    time_cmd.set_defaults(func=_run_time)
 
     resume = subparsers.add_parser("resume", help="按上次模式断点续跑")
     resume.add_argument("novel", help="小说名")

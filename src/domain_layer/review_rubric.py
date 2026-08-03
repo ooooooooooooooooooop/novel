@@ -180,21 +180,56 @@ REVIEW_RUBRIC: list[RubricDimension] = [
     },
 ]
 
+# 时间一致性维（wnb_09）—— 仅在存在 timeline_report.json 时挂载（P8 先置）。
+# 默认保持 8 维（len(REVIEW_RUBRIC)==8 契约不变），有报告才扩为 9 维。
+TIME_CONSISTENCY_DIMENSION: RubricDimension = {
+    "id": "wnb_09",
+    "name_cn": "时间一致性",
+    "name_en": "Temporal Coherence",
+    "description": "章节时间锚点、先知/时间线时效与季节历法是否符合设定，叙事时间是否连贯",
+    "evaluation_focus": ["章节时间锚单调性", "先知/时间线时效", "季节/历法规则", "事件时间有效性"],
+    "mapped_issue_types": ["timeline_error", "fact_conflict"],
+    "mapped_rule_ids": [
+        "iss_time_regress",
+        "iss_time_foreshadow_expired",
+        "iss_time_timeline_ended",
+        "iss_time_season",
+        "iss_hard_time",
+    ],
+    "evidence_sources": [
+        "time_audit.py:run_time_audit(det4/5/6)",
+        "time_audit.py:_detect_anchor_regression",
+        "time_audit.py:_detect_foreshadow_expiry",
+        "time_audit.py:_detect_season_violation",
+        "timebook.py:extract_time_anchors",
+    ],
+    "local_signal_strength": "moderate",
+    "notes": "FACTTRACK v2 代码检测；仅在存在 TimeBook/timeline_report 时生效（无报告不挂载此维）",
+}
+
 RUBRIC_SCHEMA_VERSION = 1
 
 
-def export_rubric() -> dict:
-    """导出完整 rubric 包（schema 头 + 8 维）."""
+def export_rubric(timeline_report: dict | None = None) -> dict:
+    """导出完整 rubric 包（schema 头 + 8 维，有 timeline_report 时 + 时间一致性维）.
+
+    Args:
+        timeline_report: audit / `novel time --check` 的 timeline_report.json 内容；
+            非 None 时挂载 wnb_09（时间一致性）维（P8 先置）。
+    """
+    dimensions = list(REVIEW_RUBRIC)
+    if timeline_report is not None:
+        dimensions.append(TIME_CONSISTENCY_DIMENSION)
     return {
         "schema_version": RUBRIC_SCHEMA_VERSION,
         "benchmark": "WebNovelBench",
         "benchmark_reference": "arXiv:2505.14818",
         "source": "local-domain-rules",
         "offline": True,
-        "dimensions": list(REVIEW_RUBRIC),
+        "dimensions": dimensions,
     }
 
 
-def render_rubric_json() -> str:
+def render_rubric_json(timeline_report: dict | None = None) -> str:
     """渲染 rubric 为 JSON 字符串（ensure_ascii=False + 2 缩进）."""
-    return json.dumps(export_rubric(), ensure_ascii=False, indent=2)
+    return json.dumps(export_rubric(timeline_report), ensure_ascii=False, indent=2)

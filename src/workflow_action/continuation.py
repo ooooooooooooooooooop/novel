@@ -67,6 +67,7 @@ class ContinueUnit:
         style_context: str = "",
         retrieval_context: str = "",
         timeline_context: str = "",
+        time_context: str = "",
         excerpt_context: str = "",
     ) -> str:
         """生成续写 prompt."""
@@ -83,6 +84,7 @@ class ContinueUnit:
             style_context,
             retrieval_context,
             timeline_context,
+            time_context,
             excerpt_context,
         )
 
@@ -139,6 +141,7 @@ class ContinueUnit:
         style_context: str,
         retrieval_context: str,
         timeline_context: str = "",
+        time_context: str = "",
         excerpt_context: str = "",
     ) -> str:
         char_ctx = "\n---\n".join(c.to_prompt_context() for c in characters)
@@ -181,6 +184,9 @@ class ContinueUnit:
         style_section = ""
         if style_context:
             style_section = f"\n\n【写作风格】\n{style_context}"
+        time_section = ""
+        if time_context:
+            time_section = f"\n\n【时间上下文】\n{time_context}"
         retrieval_section = ""
         if retrieval_context:
             retrieval_section = f"\n\n【相关事实检索】\n{retrieval_context}"
@@ -204,7 +210,7 @@ class ContinueUnit:
         return f"""你是一位叙事续写专家。请基于当前叙事状态，生成下一个 PlotUnit。
 
 【作品约束】
-{workspec_context}{platform_section}{genre_section}{style_section}{timeline_section}{excerpt_section}{retrieval_section}
+{workspec_context}{platform_section}{genre_section}{style_section}{time_section}{timeline_section}{excerpt_section}{retrieval_section}
 
 【当前叙事状态】
 {state.to_prompt_context()}

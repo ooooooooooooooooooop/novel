@@ -16,8 +16,10 @@
 - 事实时间有效性：`FactEntry.validity_interval`（ValidityInterval，None=始终有效），to_prompt_line 渲染 `(第三章~第五章)` 后缀；旧 state（无该字段）可反序列化
 - 写作风格：`novel style` 提炼 StyleProfile（量化分析 + LLM 质性提炼），compose/extend 注入续写 prompt；`--lint` 做 AI 味检查；风格库（`--name` 另存 / `--style` 跨小说引用）
 - 状态检索：以当前 NarrativeState 为 query，从 FactLedger/ForeshadowGraph 检索 top-k 相关条目注入 Continue prompt（【相关事实检索】段）；零依赖 TF-IDF/关键词（档 1）；`--retrieval on|off` 开关（默认 on，空语料/空 query 静默降级字节不变）
-- 统一入口：`novel` 命令管理 `novels/<小说名>/` 工作目录，并调用 audit / extend / compose / style / compliance / rubric staged CLI
-- 测试：1540 passed
+- 时间域：TimeBook 先验模型（`novels/<名>/output/time/time_book.json`），`novel time` 管理（--rebuild 锚提取 / --check 时间线报告 / --status）；FACTTRACK v2 检测 4/5/6（时间回退 / 先知逾期 / 季节历法违反）；extend/compose 的 Continue 以【时间上下文】段注入上章/本章/时代背景/时间规则；rubric 装配时间一致性维（8→9 维）
+- 零成本契约：无 TimeBook → 无注入、无检测、无产物，prompt 字节与旧版逐字节相同（回归测试锁死）
+- 统一入口：`novel` 命令管理 `novels/<小说名>/` 工作目录，并调用 audit / extend / compose / style / compliance / rubric / time staged CLI
+- 测试：1571 passed
 
 ## 怎么用（在 Codex 中）
 
@@ -123,6 +125,21 @@ novel rubric 某作
 - **单遍导出**（纯代码，无输入文件 / 无 response 阶段）：产出 `novels/某作/output/rubric/rubric.json`
 - 把 ReviewUnit domain rules + `web_fiction.py` 领域知识按 WebNovelBench 8 维（arXiv:2505.14818）映射，`offline:true`
 - 诚实标注：角色一致性 / 跨场景衔接 strong，意境 / 语境 moderate，修辞 weak（负向代理），感官 / 角色平衡 / 对白独特 none（LLM-judge 维，对象层无正文文本）
+- 若有 `output/time/timeline_report.json`，自动装配时间一致性维（wnb_09），8 维 → 9 维
+
+### Time 流（时间域：锚提取 / 时间线报告 / 状态查看）
+
+```bash
+novel time 某作 --input 某作.txt --rebuild   # 提取时间锚点，生成 time_book.json（无则创建，有则校准）
+novel time 某作 --input 某作.txt --check     # 产出 output/time/timeline_report.json
+novel time 某作 --status                     # 打印 TimeBook 状态（novel list 亦展示 time_status）
+```
+
+- **单遍执行**（纯代码，无 response 阶段）：`--rebuild` 是显式管理命令（split_by_chapters 切章 + 提取章节时间锚点）；`--check` 跑 build_timeline_report 写出时间线报告
+- TimeBook 存 `novels/某作/output/time/time_book.json`（全 Optional，schema_version / initial / anchors / era / timelines / rules）
+- 零成本契约：无 TimeBook 时 audit/extend 自动校准是 no-op、无【时间上下文】注入、无时间检测、无文件产出，prompt 字节不变
+- compose 从 `workspec.time`（date/lunar/loc）初始化 TimeBook 初稿（无该字段 / 已有 TimeBook 时零成本）
+- FACTTRACK v2 检测 4/5/6（anchor 时间回退 / 伏笔时间线逾期 / 季节历法违反）并入 run_time_audit，全 warning 非阻断
 
 ### Codex 提示词（直接复制使用）
 
@@ -138,6 +155,9 @@ novel rubric 某作
 提炼写作风格：
 执行以下循环直到脚本完成：1. 运行 novel style 示例小说丙 --input 示例小说丙.txt 2. 如果脚本打印 [WAITING]，读取它指定的 prompt 文件，按 prompt 要求生成 JSON 响应，保存到对应 response 文件 3. 重跑同一命令 4. 重复 2-3 直到脚本正常退出 5. 报告 novels/示例小说丙/output/style/style_profile.json 的 tone_labels、POV 和 stats 概要
 
+时间锚提取与时间线报告：
+执行以下循环直到脚本完成：1. 运行 novel time 某作 --input 某作.txt --rebuild 2. 如果脚本打印 [WAITING]，读取它指定的 prompt 文件，按 prompt 要求生成 JSON 响应，保存到对应 response 文件 3. 重跑同一命令 4. 重复 2-3 直到脚本正常退出 5. 报告 novels/某作/output/time/time_book.json 的 anchors 数量和 era 概要。若需时间线报告再加 --check，读 output/time/timeline_report.json 的 issues 数量
+
 把上面提示词中的小说名、输入文件路径替换为实际值即可。长文加 --range 1-50 --batch-size 5。
 
 查看与断点续跑：
@@ -152,6 +172,7 @@ novel resume 示例小说甲
 `WorkSpec`, `WorldModel`, `CharacterModel`, `NarrativeState`, `PlotUnit`, `FactLedger`, `ForeshadowGraph`, `ReviewIssue`
 
 - StyleProfile：写作风格档案（spec，非状态），随 `novel style` 产出，compose/extend 以「已确认先验」消费；`--name` 另存为命名库档案（`novels/_style_library/`），`--style` 跨小说引用
+- TimeBook：时间域先验模型（spec，非状态），随 `novel time --rebuild` / compose workspec.time 产出，extend/compose 以【时间上下文】注入消费；全字段 Optional，缺省零成本
 - PlotUnit 新增 `formula_node`：关联结构模板节点（如 climax），用于情绪推荐与钩子质量检查
 - WorkSpec 新增 `platform`：目标平台标识（如 web_novel_daily），用于平台约束注入
 

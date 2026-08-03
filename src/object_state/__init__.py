@@ -12,11 +12,13 @@ from .styleprofile import (
     StyleQuantitativeStats,
     StyleRisk,
 )
+from .timebook import EraContext, TimeAnchor, TimeBook, TimeInitial, TimelineSpec
 from .workspec import WorkSpec
 from .worldmodel import WorldModel
 
 __all__ = [
     "CharacterModel",
+    "EraContext",
     "FactEntry",
     "FactLedger",
     "ForeshadowEntry",
@@ -29,6 +31,10 @@ __all__ = [
     "StyleProfile",
     "StyleQuantitativeStats",
     "StyleRisk",
+    "TimeAnchor",
+    "TimeBook",
+    "TimeInitial",
+    "TimelineSpec",
     "ValidityInterval",
     "WorkSpec",
     "WorldModel",

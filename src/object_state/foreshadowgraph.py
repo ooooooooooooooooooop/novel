@@ -23,6 +23,11 @@ class ForeshadowEntry(BaseModel):
     expiry_risk: Optional[str] = Field(
         default=None, description="过期风险, 如'若5章内未回收则失效'"
     )
+    expires_at: Optional[str] = Field(
+        default=None,
+        description="先知时效/回收期限点(YYYY-MM 或 YYYY-MM-DD)；仍 active 且"
+        "当前叙事时间 >= 该点则判定逾期。None=不参与先知时效检测。",
+    )
 
     # 轻量引用
     linked_characters: list[str] = Field(
@@ -42,6 +47,13 @@ class ForeshadowEntry(BaseModel):
     ) -> str:
         if not value.strip():
             raise ValueError(f"{info.field_name} must be non-empty")
+        return value
+
+    @field_validator("expires_at")
+    @classmethod
+    def _opt_expiry_must_be_non_blank(cls, value: Optional[str]) -> Optional[str]:
+        if value is not None and not value.strip():
+            raise ValueError("expires_at must be non-empty when provided")
         return value
 
     @field_validator("linked_characters", "linked_facts", "linked_plotunits")

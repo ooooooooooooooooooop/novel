@@ -29,6 +29,7 @@ from src.workflow_action.rewrite import RewriteUnit
 from src.workflow_action.style import load_style_context
 from src.workflow_action.retrieval import load_retrieval_context
 from src.workflow_action.excerpt import load_recent_excerpts
+from src.workflow_action.timebook import build_time_context, load_time_book
 
 continuation_module = importlib.import_module("src.workflow_action.continuation")
 ContinueUnit = continuation_module.ContinueUnit
@@ -43,6 +44,17 @@ def _validate_no_regression(package) -> bool:
     for violation in violations:
         print(f"  - {violation}")
     return False
+
+
+def _extend_temporal_issues(objects: list) -> list:
+    """FACTTRACK 时间矛盾检测（挂进 extend 流）。
+
+    独立 helper 规避 chapter-wise 分支内 ReconcileUnit 函数级 import 的遮蔽。
+    无时间矛盾时返回空列表（当前语料零产出，不破测试）。
+    """
+    from src.workflow_action.reconcile import ReconcileUnit
+
+    return ReconcileUnit().check_temporal_contradictions(objects)
 
 
 def _read_response_text(path: Path) -> str:
@@ -205,6 +217,12 @@ def main() -> int:
     chapter_wise = args.chapter_wise or bool(args.chapter_range) or len(text) > 10_000
     CHAPTERS_PER_BATCH = args.batch_size
     print(f"Loaded text: {len(text)} chars")
+
+    # 时间域：rebuild 顺带校准既有 TimeBook 的章节时间锚
+    # （无 TimeBook 文件时零成本：不产生文件、无额外字节）
+    from src.workflow_action.timebook import refresh_time_book_anchors
+
+    refresh_time_book_anchors(output_dir, chunks)
 
     rebuild = RebuildUnit()
     cont = ContinueUnit()
@@ -425,6 +443,7 @@ def main() -> int:
                 style_context=load_style_context(output_dir, style_name=args.style or None),
                 retrieval_context=retrieval_context,
                 timeline_context=facts.to_timeline_context(include_header=False),
+                time_context=build_time_context(load_time_book(output_dir)),
                 excerpt_context=load_recent_excerpts(text),
             ),
             encoding="utf-8",
@@ -451,7 +470,8 @@ def main() -> int:
         # 合并代码预检 issues
         hard_issues = review._hard_rules(review_objects)
         domain_issues = review._domain_rules(review_objects)
-        issues = hard_issues + domain_issues + llm_issues
+        temporal_issues = _extend_temporal_issues(objects)
+        issues = hard_issues + domain_issues + temporal_issues + llm_issues
         route = review.resolve_route(issues, route)
     else:
         review_prompt_path.write_text(
@@ -525,7 +545,8 @@ def main() -> int:
             llm_issues, reminders, route = review.parse_response(response)
             hard_issues = review._hard_rules(review_objects)
             domain_issues = review._domain_rules(review_objects)
-            issues = hard_issues + domain_issues + llm_issues
+            temporal_issues = _extend_temporal_issues(objects)
+            issues = hard_issues + domain_issues + temporal_issues + llm_issues
             route = review.resolve_route(issues, route)
             print(f"Re-Review Route: {route}")
             print(f"Issues: {len(issues)} (blocking: {sum(1 for i in issues if i.is_blocking())})")

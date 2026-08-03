@@ -612,6 +612,32 @@ def main() -> int:
         )
         print(f"\nSaved: {output_dir}/audit_report.json")
 
+    # 时间域（横向域）：校准既有 TimeBook 锚点 + 产出 timeline_report.json（一等产物）
+    from src.workflow_action.time_audit import build_timeline_report
+    from src.workflow_action.timebook import (
+        extract_time_anchors,
+        load_time_book,
+        refresh_time_book_anchors,
+        resolve_time_dir,
+    )
+
+    extracted_anchors = extract_time_anchors(chunks)
+    refresh_time_book_anchors(output_dir, chunks)  # 无 TimeBook 时零成本，不产生文件
+    time_book = load_time_book(output_dir)  # 校准后重载；无 TimeBook → None
+    timeline_report = build_timeline_report(
+        objects,
+        time_book,
+        source_text_ref=str(text_path),
+        extracted_anchors=extracted_anchors,
+    )
+    timeline_path = resolve_time_dir(output_dir) / "timeline_report.json"
+    timeline_path.parent.mkdir(parents=True, exist_ok=True)
+    timeline_path.write_text(
+        json.dumps(timeline_report, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    print(f"\nSaved: {timeline_path} (detections: {timeline_report['issue_count']})")
+
     if audit_rewrite_response_path.exists():
         print(f"  Rewrite applied: {len(report.applied_fixes)} fixes")
     print(f"  Issues: {len(report.issues)} (blocking: {sum(1 for i in issues if i.is_blocking())})")

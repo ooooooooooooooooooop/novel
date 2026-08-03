@@ -36,6 +36,8 @@ from src.workflow_action.review import ReviewUnit
 from src.workflow_action.rewrite import RewriteUnit
 from src.workflow_action.style import load_style_context
 from src.workflow_action.retrieval import load_retrieval_context
+from src.workflow_action.timebook import build_time_context, load_time_book, save_time_book
+from src.object_state.timebook import TimeBook, TimeInitial
 
 
 def _validate_no_regression(package) -> bool:
@@ -284,6 +286,15 @@ def main() -> int:
         print(f"Error: {exc}")
         return 1
 
+    # 时间域：workspec.time 可选字段 → 初始化 TimeBook 初稿（无该字段 / 已有 TimeBook 时零成本）
+    if workspec.time is not None and load_time_book(output_dir) is None:
+        tb = TimeBook(initial=workspec.time)
+        save_time_book(output_dir, tb)
+        init_bits = " ".join(
+            b for b in (workspec.time.date, workspec.time.lunar, workspec.time.loc) if b
+        )
+        print(f"TimeBook initialized from workspec.time: {init_bits or '(empty initial)'}")
+
     # Step 2: Continue
     print("\n" + "=" * 50)
     print("Step 2: Continue (first PlotUnit)")
@@ -336,6 +347,7 @@ def main() -> int:
                 style_context=load_style_context(output_dir, style_name=args.style or None),
                 retrieval_context=retrieval_context,
                 timeline_context=facts.to_timeline_context(include_header=False),
+                time_context=build_time_context(load_time_book(output_dir)),
             ),
             encoding="utf-8",
         )

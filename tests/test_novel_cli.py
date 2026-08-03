@@ -1547,6 +1547,7 @@ def _valid_list_json_row_payload() -> dict:
         "final_result_path": None,
         "route_handoff_file": None,
         "route_handoff_path": None,
+        "time_status": "未设定",
     }
 
 

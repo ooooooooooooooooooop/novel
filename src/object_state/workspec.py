@@ -12,6 +12,8 @@ from pydantic import (
     field_validator,
 )
 
+from .timebook import TimeInitial
+
 
 class WorkSpec(BaseModel):
     """顶层作品规格。
@@ -42,6 +44,10 @@ class WorkSpec(BaseModel):
         description="目标字数或章节数",
     )
     constraints: list[str] = Field(default_factory=list, description="内容约束列表")
+    time: Optional[TimeInitial] = Field(
+        default=None,
+        description="时间域起点设定（可选；compose 用它初始化 TimeBook 初稿）",
+    )
     romance_weight: Optional[StrictFloat] = Field(
         default=None, ge=0.0, le=1.0, description="浪漫元素权重 0-1"
     )
