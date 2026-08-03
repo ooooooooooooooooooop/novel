@@ -28,6 +28,7 @@ from src.workflow_action.review import ReviewUnit
 from src.workflow_action.rewrite import RewriteUnit
 from src.workflow_action.style import load_style_context
 from src.workflow_action.retrieval import load_retrieval_context
+from src.workflow_action.excerpt import load_recent_excerpts
 
 continuation_module = importlib.import_module("src.workflow_action.continuation")
 ContinueUnit = continuation_module.ContinueUnit
@@ -423,6 +424,8 @@ def main() -> int:
                 genre=workspec.genre,
                 style_context=load_style_context(output_dir, style_name=args.style or None),
                 retrieval_context=retrieval_context,
+                timeline_context=facts.to_timeline_context(include_header=False),
+                excerpt_context=load_recent_excerpts(text),
             ),
             encoding="utf-8",
         )

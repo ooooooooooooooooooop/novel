@@ -335,6 +335,7 @@ def main() -> int:
                 genre=workspec.genre,
                 style_context=load_style_context(output_dir, style_name=args.style or None),
                 retrieval_context=retrieval_context,
+                timeline_context=facts.to_timeline_context(include_header=False),
             ),
             encoding="utf-8",
         )

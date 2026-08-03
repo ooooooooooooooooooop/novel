@@ -144,3 +144,41 @@ class FactLedger(BaseModel):
         for e in self.entries:
             lines.append(e.to_prompt_line())
         return "\n".join(lines)
+
+    def to_timeline_context(self, include_header: bool = True) -> str:
+        """渲染【已发生事件时间线】— 按叙事时间序排列的已确认事件.
+
+        零 LLM 纯代码：只取 confirmed 的 event/time_order/relation 事实，
+        按 timestamp / validity_interval.valid_from / 原序 排序。
+        空账本或无事件事实时返回 ""（静默降级，不产生注入字节）。
+        include_header=False 时跳过【已发生事件时间线】首行（双层段头修复：
+        消费方 continuation.py 独占外层段头，loader 只产正文）。
+        """
+        ordered = [
+            e
+            for e in self.entries
+            if e.confirmed and e.fact_type in ("event", "time_order", "relation")
+        ]
+        if not ordered:
+            return ""
+
+        def _sort_key(e: FactEntry):
+            if e.timestamp:
+                return (0, e.timestamp)
+            if e.validity_interval is not None and e.validity_interval.valid_from:
+                return (1, e.validity_interval.valid_from)
+            return (2, "")
+
+        ordered = sorted(ordered, key=_sort_key)
+        lines: list[str] = []
+        if include_header:
+            lines.append("【已发生事件时间线】")
+        for i, e in enumerate(ordered, 1):
+            suffix = (
+                e.validity_interval.to_prompt_suffix()
+                if e.validity_interval is not None
+                else ""
+            )
+            ts = f"({e.timestamp})" if e.timestamp else ""
+            lines.append(f"{i}. {e.statement}{suffix}{ts}")
+        return "\n".join(lines)

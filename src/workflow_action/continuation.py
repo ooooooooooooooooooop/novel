@@ -66,6 +66,8 @@ class ContinueUnit:
         genre: str | None = None,
         style_context: str = "",
         retrieval_context: str = "",
+        timeline_context: str = "",
+        excerpt_context: str = "",
     ) -> str:
         """生成续写 prompt."""
         return self._build_prompt(
@@ -80,6 +82,8 @@ class ContinueUnit:
             genre,
             style_context,
             retrieval_context,
+            timeline_context,
+            excerpt_context,
         )
 
     def parse_response(self, response: str) -> tuple[PlotUnit, NarrativeState, list[str], list[str]]:
@@ -134,6 +138,8 @@ class ContinueUnit:
         genre: str | None,
         style_context: str,
         retrieval_context: str,
+        timeline_context: str = "",
+        excerpt_context: str = "",
     ) -> str:
         char_ctx = "\n---\n".join(c.to_prompt_context() for c in characters)
         active_threads = foreshadows.get_active()
@@ -178,6 +184,12 @@ class ContinueUnit:
         retrieval_section = ""
         if retrieval_context:
             retrieval_section = f"\n\n【相关事实检索】\n{retrieval_context}"
+        timeline_section = ""
+        if timeline_context:
+            timeline_section = f"\n\n【已发生事件时间线】\n{timeline_context}"
+        excerpt_section = ""
+        if excerpt_context:
+            excerpt_section = f"\n\n【原文锚点与文风样例】\n{excerpt_context}"
         structure_section = ""
         if structure_template:
             nodes = get_structure_template(structure_template)
@@ -192,7 +204,7 @@ class ContinueUnit:
         return f"""你是一位叙事续写专家。请基于当前叙事状态，生成下一个 PlotUnit。
 
 【作品约束】
-{workspec_context}{platform_section}{genre_section}{style_section}{retrieval_section}
+{workspec_context}{platform_section}{genre_section}{style_section}{timeline_section}{excerpt_section}{retrieval_section}
 
 【当前叙事状态】
 {state.to_prompt_context()}
@@ -215,6 +227,7 @@ class ContinueUnit:
 4. 必须体现至少一个世界规则约束或代价
 5. 不能一次性解决所有悬念，但可以推进其中一个
 6. 情绪变化必须有依据，不能跳跃
+7. 忠于原文：不得引入与已发生事件（时间线）矛盾的事件；新线索必须能与既有事实自洽，不得凭空捏造与原文无关的设定
 
 【输出格式】
 严格输出 JSON:
