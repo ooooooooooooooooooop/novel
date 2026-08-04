@@ -72,7 +72,7 @@ novel style 某作 --input 某作.txt [--tone 克制] [--genre 都市]
 
 ```bash
 novel style 某作 --input 某作.txt          # 读已物化 response，合并产出 style_profile.json
-novel style 某作 --input 某作.txt --name 风格名   # 另存到 novels/_style_library/<风格名>.json 供跨小说复用
+novel style 某作 --input 某作.txt --name 风格名   # 另存到 style_library/<风格名>.json 供跨小说复用
 ```
 
 `style_profile.json` 应含 `"schema_version": 2`。

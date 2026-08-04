@@ -130,7 +130,7 @@ def main() -> int:
     parser.add_argument(
         "--style",
         default="",
-        help="引用风格库中的已有档案 <name>（novels/_style_library/<name>.json），注入续写 prompt",
+        help="引用风格库中的已有档案 <name>（style_library/<name>.json），注入续写 prompt",
     )
     parser.add_argument(
         "--retrieval",

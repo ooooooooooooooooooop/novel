@@ -1,0 +1,169 @@
+{
+  "profile_id": "style_001",
+  "source_text_ref": "input.txt",
+  "tone_labels": [
+    "克制"
+  ],
+  "genre_guess": "都市官商重生",
+  "narrative_pov": "第三人称有限（以主角为锚，偶借配角视角窥局）",
+  "pacing_description": "叙述密集，平均句长43字、长句过半，商战/政局推演用长句铺陈；对话与动作短句收束；章内由陈述段切到对话场景再切回陈述，节奏靠句式长短交替而非场景跳跃",
+  "sentence_habits": [
+    "默认长句，用逗号与分号撑起多层状语与从句，把因果、条件、转折压进一句（平均句长43字符，长句占比57%）",
+    "商战/政治叙述习惯分号并列多件事，一项一项铺开，常有'不是…而是…'转折",
+    "对话与内心独白多用独立短句，情绪或关键点用一句收束",
+    "四连及以上排比出现频率显著（量化329处），用于铺陈态势、列举权衡"
+  ],
+  "rhetorical_preferences": [
+    "商战/政局的术语与数字用词精确具体（金额、股份、市占率、人名、机关名），不空转",
+    "对话口语化、市井化，带地方腔与互怼（'狗日的'、'操'、'你个鸟'），用粗话调出人物关系",
+    "比喻少而实，落在具体物象上（蝼蚁、小媳妇、猫、婴儿），不堆叠新奇喻体",
+    "善用'以虚写实'：不直说人物算计，用'主角心想''在谁看来'引出背后盘算"
+  ],
+  "show_dont_tell_notes": [
+    "情绪多借身体反应与环境透出：掐灭烟、看表、盯着棋盘上的唾沫星子、微微蹙眉，很少直接写'他感到愤怒'",
+    "用动作与物件承载心事：烟抽了半包、手机揣回兜里、盯着朋友圈截图",
+    "借旁观者的议论侧面烘托主角地位（'议论时局唾沫横飞'），不直接炫耀",
+    "情感高潮处依然克制，用留白与一个轻动作收住，不煽情"
+  ],
+  "closed_loop_objects": [
+    "烟/香烟：贯穿全文，从初期的兜烟到后期的静坐抽烟，作为主角静心与疏离的道具",
+    "湖/江景：开篇车祸的城市场景与结尾某湖晨雾呼应，水景多次作为心绪背景",
+    "手机：从呼机年代到朋友圈截图，见证时代与主角的身份变迁",
+    "捷达/宝马车：开篇的代步与身份暗示，后期与某集团体量对照"
+  ],
+  "chapter_end_hook_notes": [
+    "章末常落在'新问题浮出'上：一个电话、一个消息、一个需要主角处理的变数，把悬念带到下一章",
+    "或用一句人物对话收尾，话里有话、引而不发",
+    "极少在章末强行制造戏剧冲突，多是不动声色的埋线"
+  ],
+  "taboo_words": [
+    "深吸一口气",
+    "心中暗想",
+    "嘴角勾起一抹",
+    "眼眶微红",
+    "一股…涌上心头",
+    "在这个喧嚣的时代",
+    "时间仿佛凝固"
+  ],
+  "style_references": [
+    "tone_kz_01",
+    "tone_wy_01",
+    "tone_hm_01",
+    "tone_sw_01"
+  ],
+  "stats": {
+    "total_chars": 4388789,
+    "sentence_count": 95766,
+    "avg_sentence_len": 43.27,
+    "short_sentence_ratio": 0.2255,
+    "long_sentence_ratio": 0.5693,
+    "dialogue_ratio": 0.294,
+    "weak_adverb_density_per_1000": 0.36,
+    "weak_adverb_counts": {
+      "轻轻": 604,
+      "微微": 563,
+      "淡淡": 243,
+      "隐隐": 60,
+      "缓缓": 57,
+      "悄悄": 37,
+      "低低": 1
+    },
+    "metaphor_repeats": [
+      {
+        "vehicle": "一",
+        "count": 6,
+        "sample_snippets": []
+      },
+      {
+        "vehicle": "猫",
+        "count": 4,
+        "sample_snippets": []
+      },
+      {
+        "vehicle": "婴儿",
+        "count": 4,
+        "sample_snippets": []
+      },
+      {
+        "vehicle": "小媳妇",
+        "count": 3,
+        "sample_snippets": []
+      },
+      {
+        "vehicle": "蝼蚁",
+        "count": 3,
+        "sample_snippets": []
+      }
+    ],
+    "explanatory_phrase_count": 35,
+    "shell_counts": {
+      "not_a_but_b": 116,
+      "parallel4": 329
+    },
+    "dialogue_tag_density_per_1000": 1.63,
+    "emotion_announcement_count": 4,
+    "dash_colon_density_per_1000": 3.32,
+    "connective_abuse_count": 42,
+    "colon_enumeration_count": 0
+  },
+  "ai_flavor_risks": [
+    {
+      "rule_id": "ai_metaphor_repeat",
+      "category": "ai_flavor",
+      "measure": "同一喻体重复（像/如/仿佛…一样 后名词 ≥3 次）",
+      "value": 5.0,
+      "threshold": 3.0,
+      "severity": "warning",
+      "description": "一个意象只服务一个场景；同一情绪换不同感官的具象物"
+    },
+    {
+      "rule_id": "ai_explanatory_voice",
+      "category": "ai_flavor",
+      "measure": "解释腔句式（他忽然明白/这意味着/他感到）",
+      "value": 35.0,
+      "threshold": 1.0,
+      "severity": "warning",
+      "description": "删'他忽然明白/这意味着'；改动作或矛盾呈现顿悟"
+    },
+    {
+      "rule_id": "ai_shell_not_a_but_b",
+      "category": "ai_flavor",
+      "measure": "'不是A而是B'空转壳句式",
+      "value": 116.0,
+      "threshold": 2.0,
+      "severity": "low",
+      "description": "真对比（两种感知/解释差异）保留；空转强调删除"
+    },
+    {
+      "rule_id": "ai_parallel_four",
+      "category": "ai_flavor",
+      "measure": "四连及以上排比（逗号/顿号分隔同构项）",
+      "value": 329.0,
+      "threshold": 1.0,
+      "severity": "low",
+      "description": "拆成具体句；台词内可豁免"
+    },
+    {
+      "rule_id": "ai_dash_colon_density",
+      "category": "ai_flavor",
+      "measure": "破折号+冒号密度（AI 约 2.7-3.2× 人类基线）",
+      "value": 3.32,
+      "threshold": 3.0,
+      "severity": "warning",
+      "description": "破折号降密度，每千字 ≤3；冒号+分号不要过于整齐的'一是…二是…三是'结构"
+    },
+    {
+      "rule_id": "ai_connective_abuse",
+      "category": "ai_flavor",
+      "measure": "段落/句首固定连接词（此外/同时/然而/综上所述等）",
+      "value": 42.0,
+      "threshold": 1.0,
+      "severity": "low",
+      "description": "删段落开头固定连接词，直接进入事件/画面；同一连接词连续出现即拆句"
+    }
+  ],
+  "confidence_gaps": [
+    "各阶段情爱/商战篇幅比例的精确分布需全本核验（采样显示商战权重更高）",
+    "人名中个别角色（如某配角与主角关系）的细节需从对象层核验"
+  ]
+}

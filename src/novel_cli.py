@@ -3662,7 +3662,7 @@ def build_parser(*, emit_json_errors: bool = False) -> argparse.ArgumentParser:
     style.add_argument("--tone", help="调性提示词（如 克制）")
     style.add_argument("--genre", help="类型提示词（如 仙侠）")
     style.add_argument("--lint", action="store_true", help="对全文做 AI 味 lint")
-    style.add_argument("--name", help="另存到风格库 novels/_style_library/<name>.json（可跨小说复用）")
+    style.add_argument("--name", help="另存到风格库 style_library/<name>.json（可跨小说复用）")
     style.add_argument("--style", help="引用风格库中的已有档案 <name>，跳过提炼")
     style.set_defaults(func=_run_style)
 

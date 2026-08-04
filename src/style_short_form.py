@@ -105,7 +105,7 @@ def main() -> int:
     parser.add_argument(
         "--name",
         default="",
-        help="将提炼出的档案另存到风格库 novels/_style_library/<name>.json（可跨小说复用）",
+        help="将提炼出的档案另存到风格库 style_library/<name>.json（可跨小说复用）",
     )
     parser.add_argument(
         "--style",

@@ -3,7 +3,7 @@
 StyleExtractUnit: 从小说章节采样提取质性风格（LLM，response-file 模式）。
 StyleLintUnit: 纯代码对全文做 AI 味 lint，产出 ReviewIssue。
 load_style_context: compose/extend 读取风格档案并渲染注入文本（支持风格库引用）。
-style_library_dir: 风格库目录 novels/_style_library。
+style_library_dir: 风格库目录 <仓库根>/style_library。
 """
 
 import json
@@ -24,7 +24,9 @@ from src.object_state.styleprofile import (
     StyleRisk,
 )
 
-# 风格库默认根目录（与 novel_cli 的 DEFAULT_NOVELS_ROOT 一致）
+# 风格库默认根目录（与 novel_cli 的 DEFAULT_NOVELS_ROOT 一致）。
+# 风格库是允许入库的综合积累，独立于私密的小说工作区（novels/）：
+# 目录固定为 novels 的父目录（仓库根）/ style_library。
 DEFAULT_NOVELS_ROOT = Path(__file__).resolve().parent.parent.parent / "novels"
 
 # StyleExtractUnit 需要但不直接 import 的常量（供 parse 校验）
@@ -364,20 +366,22 @@ class StyleLintUnit:
 
 
 def style_library_dir(novels_root: Path | None = None) -> Path:
-    """风格库目录: <novels_root>/_style_library.
+    """风格库目录: <仓库根>/style_library.
 
-    novels_root 未指定时用 NOVELS_ROOT 环境变量（与 novel_cli 一致），否则默认 <工程>/novels。
+    风格库固定于仓库根（novels 的父目录），独立于私密的小说工作区（novels/）。
+    novels_root 用于推导仓库根（novels_root.parent）；未指定时用
+    NOVELS_ROOT 环境变量（与 novel_cli 一致），否则默认 <工程>/novels。
     """
     if novels_root is not None:
         root = Path(novels_root)
     else:
         root_env = os.environ.get("NOVELS_ROOT")
         root = Path(root_env).resolve() if root_env else DEFAULT_NOVELS_ROOT
-    return root / "_style_library"
+    return root.parent / "style_library"
 
 
 def style_library_profile_path(name: str, novels_root: Path | None = None) -> Path:
-    """风格库档案路径: <novels_root>/_style_library/<name>.json."""
+    """风格库档案路径: <仓库根>/style_library/<name>.json."""
     if not name or name.strip() != name or "/" in name or "\\" in name:
         raise ValueError(f"invalid style library name: {name!r}")
     return style_library_dir(novels_root) / f"{name}.json"
@@ -386,7 +390,7 @@ def style_library_profile_path(name: str, novels_root: Path | None = None) -> Pa
 def load_style_context(output_dir: Path, style_name: str | None = None) -> str:
     """读取风格档案并渲染注入文本.
 
-    style_name 指定时读风格库 <novels_root>/_style_library/<name>.json；
+    style_name 指定时读风格库 <仓库根>/style_library/<name>.json；
     否则读规范位置 <output_dir 的上级>/style/style_profile.json。
 
     style 档案由 novel style 写到 <book>/output/style/。各消费模式的

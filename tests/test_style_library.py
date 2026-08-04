@@ -1,4 +1,4 @@
-"""Tests for the style library feature (novels/_style_library)."""
+"""Tests for the style library feature (repo-root style_library/)."""
 
 import json
 import os
@@ -67,7 +67,7 @@ def _write_library(novels_root: Path, name: str = "克制风") -> Path:
 
 def _run_style(input_path: Path, output_dir: Path, *extra_args) -> subprocess.CompletedProcess:
     env = os.environ.copy()
-    # 用 tests 里的孤立 novels 根，避免读真实仓库的 _style_library
+    # 用 tests 里的孤立 novels 根，避免读真实仓库的 style_library
     env["NOVELS_ROOT"] = str(input_path.parent / "novels")
     return subprocess.run(
         [
@@ -90,12 +90,13 @@ def _run_style(input_path: Path, output_dir: Path, *extra_args) -> subprocess.Co
 
 
 def test_style_library_dir_under_novels_root(tmp_path):
-    assert style_library_dir(tmp_path / "novels") == tmp_path / "novels" / "_style_library"
+    # 风格库固定在 novels 的父目录（仓库根）/style_library，独立于小说工作区
+    assert style_library_dir(tmp_path / "novels") == tmp_path / "style_library"
 
 
 def test_style_library_profile_path_validates_name(tmp_path):
     path = style_library_profile_path("克制风", tmp_path / "novels")
-    assert path == tmp_path / "novels" / "_style_library" / "克制风.json"
+    assert path == tmp_path / "style_library" / "克制风.json"
     for bad in ("", "a/b", "a\\b", " a"):
         with pytest.raises(ValueError):
             style_library_profile_path(bad, tmp_path / "novels")

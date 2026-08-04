@@ -23,7 +23,11 @@ input_short.txt
 input.txt
 .ai-memory/
 .taskflow/
-# 小说正文（原文+续写）一律不入 GitHub——GitHub 仅保留工具框架
-novels/*/chapters/
+# 具体小说信息（标题/正文/工作区/证据源）一律不入 GitHub——GitHub 仅保留工具框架与风格库积累
+novels/*/
+!novels/tier0-*-canary/
+# 真实小说 canary 输入（章节正文/证据源）不入库；仅保留 tier0 合成样本
+canary_inputs/*
+!canary_inputs/tier0_*
 # 本地私密备份（小说正文/证据源），仅存本机
 .private_backup/

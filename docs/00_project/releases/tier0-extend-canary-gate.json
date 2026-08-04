@@ -7,8 +7,8 @@
   "review_route": "pass",
   "next_workflow": "ContinueUnit",
   "violations": [],
-  "handoff_path": "[本地路径]\\novels\\tier0-extend-canary\\output\\extend\\route_handoff.json",
-  "package_path": "[本地路径]\\novels\\tier0-extend-canary\\output\\extend\\extend_rebuild_package.json",
+  "handoff_path": "novels/tier0-extend-canary/output/extend/route_handoff.json",
+  "package_path": "novels/tier0-extend-canary/output/extend/extend_rebuild_package.json",
   "package_present": true,
   "blocking_pending_count": 0,
   "blocking_pending_prompt_files": []

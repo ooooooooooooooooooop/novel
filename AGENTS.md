@@ -72,7 +72,8 @@ Completed at this stage:
    - `novel list` reads and validates `route_handoff.json` when present
    - `novel gate <name>` runs a read-only `OrchestrationGateUnit` check over `route_handoff.json`
    - Review `pass` / `rewrite` / `block` routes are packaged as structured `NextRoute` handoffs
-   - per-novel workspaces live under `novels/<小说�?/`
+- per-novel workspaces live under `novels/<小说名>/`
+- 隐私纪律：所有具体小说信息（标题/正文/角色/工作区/作者笔名）一律不入 GitHub（见 CLAUDE.md）；写作风格综合积累统一放仓库根 `style_library/<name>.json`
 
 Next focus:
 - integrate OutlineUnit as a prior into the long-form audit pipeline (B' slice) - complete

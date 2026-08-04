@@ -19,9 +19,9 @@
 - 时间域：TimeBook 先验模型（`novels/<名>/output/time/time_book.json`），`novel time` 管理（--rebuild 锚提取 / --check 时间线报告 / --status）；FACTTRACK v2 检测 4/5/6（时间回退 / 先知逾期 / 季节历法违反）；extend/compose 的 Continue 以【时间上下文】段注入上章/本章/时代背景/时间规则；rubric 装配时间一致性维（8→9 维）
 - 零成本契约：无 TimeBook → 无注入、无检测、无产物，prompt 字节与旧版逐字节相同（回归测试锁死）
 - 统一入口：`novel` 命令管理 `novels/<小说名>/` 工作目录，并调用 audit / extend / compose / style / compliance / rubric / time staged CLI
-- 章节正文目录：续写/创作的章节正文统一存 `novels/<小说名>/chapters/`（如 `chapters/chapter_1197.txt`），与 `output/` 系统产物分离；正文与原文一律不提交 GitHub（`novels/*/chapters/`、`input.txt` 已入 `.gitignore`），GitHub 仅保留工具框架（代码/测试/脚本/规则文档/运行配置）
+- 章节正文目录：续写/创作的章节正文统一存 `novels/<小说名>/chapters/`（如 `chapters/chapter_1197.txt`），与 `output/` 系统产物分离；小说工作区一律不提交 GitHub（`novels/*/` 已入 `.gitignore`，canary 证据目录 `novels/tier0-*-canary/` 反向放行），GitHub 仅保留工具框架（代码/测试/脚本/规则文档/运行配置/风格库积累）
 - 续写篇幅与原文参考：有原文时，原文按章拆分入 `chapters/chapter_01.txt` 起（保留章节标题行），续写从下一编号续（原文 23 章 → 续写从 `chapter_24` 起），目录内编号连续；续写章节篇幅对齐原文章均（参考值：《示例小说丁》约 6,500 字符/章），不得明显偏短；续写须参考原文语感、意象系统（杨柳/水/套装/信等）与事件细节，不能凭空脱离原文
-- 版权纪律：所有小说正文（原文、续写章节、`input.txt`、canary 输入源）一律不提交 GitHub；git 历史中如有正文，push 前须用 `git filter-branch --index-filter 'git rm --cached --ignore-unmatch <正文路径>'` 重写剔除；正文文件仅存于本地 `novels/<小说名>/chapters/`，供续写参考与使用
+- 隐私纪律：所有具体小说信息（标题、正文、角色、工作区名、作者笔名）一律不提交 GitHub；git 历史中如有此类内容，push 前须用 `git filter-repo --path-*` 完整重写历史剔除（本项目已按此重写并 force-push）；正文仅存本地 `novels/<小说名>/chapters/`；写作风格综合积累可入库，统一放仓库根 `style_library/<name>.json`（中性文件名，不含小说名/作者笔名/机器路径）
 - 测试：1612 passed
 
 ## 怎么用（在 Codex 中）
@@ -82,13 +82,13 @@ novel style 示例小说丙 --input 示例小说丙.txt --tone 克制 --genre �
 风格库（命名复用，跨小说）：
 
 ```bash
-novel style 示例小说丙 --input 示例小说丙.txt --name 克制风      # 另存到 novels/_style_library/克制风.json
+novel style 示例小说丙 --input 示例小说丙.txt --name 克制风      # 另存到 style_library/克制风.json
 novel style 示例小说丙 --style 克制风 --lint                 # 引用库档案做禁忌词 lint（跳过提炼）
 novel compose 新作 --style 克制风                        # 新小说注入库档案
 novel extend 续作 --style 克制风                         # 续写注入库档案
 ```
 
-- `--name NAME` 把提炼结果另存为命名档案到 `novels/_style_library/<name>.json`
+- `--name NAME` 把提炼结果另存为命名档案到 `style_library/<name>.json`
 - `--style NAME` 引用库中已有档案：style 流跳过提炼直接按禁忌词 lint；compose/extend 的 Continue 注入该档案
 - 未指定 `--style` 时 compose/extend 回落到小说自身的 `output/style/style_profile.json`
 
@@ -174,7 +174,7 @@ novel resume 示例小说甲
 
 `WorkSpec`, `WorldModel`, `CharacterModel`, `NarrativeState`, `PlotUnit`, `FactLedger`, `ForeshadowGraph`, `ReviewIssue`
 
-- StyleProfile：写作风格档案（spec，非状态），随 `novel style` 产出，compose/extend 以「已确认先验」消费；`--name` 另存为命名库档案（`novels/_style_library/`），`--style` 跨小说引用
+- StyleProfile：写作风格档案（spec，非状态），随 `novel style` 产出，compose/extend 以「已确认先验」消费；`--name` 另存为命名库档案（`style_library/`），`--style` 跨小说引用
 - TimeBook：时间域先验模型（spec，非状态），随 `novel time --rebuild` / compose workspec.time 产出，extend/compose 以【时间上下文】注入消费；全字段 Optional，缺省零成本
 - PlotUnit 新增 `formula_node`：关联结构模板节点（如 climax），用于情绪推荐与钩子质量检查
 - WorkSpec 新增 `platform`：目标平台标识（如 web_novel_daily），用于平台约束注入

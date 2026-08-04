@@ -1,0 +1,143 @@
+{
+  "profile_id": "style_001",
+  "source_text_ref": "input.txt",
+  "schema_version": 2,
+  "tone_labels": [
+    "克制"
+  ],
+  "genre_guess": "都市官商重生",
+  "narrative_pov": "第三人称有限（以主角为锚，偶借配角视角窥局）",
+  "pacing_description": "叙述密集，平均句长44字、长句过半（59%），商战/政局推演用长句铺陈；对话与动作短句收束；章内由陈述段切到对话场景再切回陈述，节奏靠句式长短交替而非场景跳跃",
+  "sentence_habits": [
+    "默认长句，用逗号与分号撑起多层状语与从句，把因果、条件、转折压进一句（平均句长44字符，长句占比59%）",
+    "商战/政治叙述习惯分号并列多件事，一项一项铺开，常有'不是…而是…'转折",
+    "对话与内心独白多用独立短句，情绪或关键点用一句收束",
+    "段落首偶用固定时间标记（第二天/傍晚）作叙事锚点"
+  ],
+  "rhetorical_preferences": [
+    "商战/政局的术语与数字用词精确具体（金额、股份、人名、机关名），不空转",
+    "对话口语化、市井化，带地方腔与互怼，用粗话调出人物关系",
+    "比喻少而实，落在具体物象上，不堆叠新奇喻体",
+    "善用'以虚写实'：不直说人物算计，用'主角心想''在谁看来'引出背后盘算"
+  ],
+  "show_dont_tell_notes": [
+    "情绪多借身体反应与环境透出：掐灭烟、看表、盯着朋友圈截图、微微蹙眉，很少直接写'他感到愤怒'",
+    "用动作与物件承载心事：烟抽了半包、手机揣回兜里、盯着微信朋友圈截图",
+    "借旁观者的议论侧面烘托主角地位，不直接炫耀",
+    "情感高潮处依然克制，用留白与一个轻动作收住，不煽情"
+  ],
+  "closed_loop_objects": [
+    "烟/香烟：贯穿全文，作为主角静心与疏离的道具（某配角在楼顶烟抽半包）",
+    "湖/江景：某湖晨雾呼应，水景多次作为心绪背景",
+    "手机：从呼机年代到朋友圈截图，见证时代与主角的身份变迁"
+  ],
+  "chapter_end_hook_notes": [
+    "章末常落在'新问题浮出'上：一个电话、一个消息、一个需要主角处理的变数，把悬念带到下一章",
+    "或用一句人物对话收尾，话里有话、引而不发",
+    "极少在章末强行制造戏剧冲突，多是不动声色的埋线"
+  ],
+  "environment_notes": [
+    "环境描写以白描为主，景物承担交代时空与烘托情绪功能（某湖晨雾、某镇夜色、某城海风），不作独立抒情段",
+    "景物密度低（约3/千字），点到即止，与环境情绪锚定（某配角之夜的沉郁用'夜色沉沉、水面黑着'托出）",
+    "转场常用景物变化过渡（晨雾散尽=情绪转折完成）"
+  ],
+  "scene_transition_notes": [
+    "章内以时间标记硬切（凌晨四点/天蒙蒙亮/挂了电话/今年过年），无痕转场不打断叙述",
+    "场景切换靠电话（各配角）与动作（披衣走到窗前、摸出手机）自然衔接，极少显式转场词",
+    "时间跳转用'三天后/过几天'轻带，不做场景标题"
+  ],
+  "psychology_notes": [
+    "心理密度中等，靠'心想/盘算/寻思'等内独白呈现，不直写'他感到'",
+    "内视角深度通过思辨铺陈（某配角之死的镜像对照、对前世的重审），间接内独白多于直接表白",
+    "心理转折用动作收束（握紧手机、没有作声、披衣站到窗前），show-don't-tell 克制"
+  ],
+  "rhythm_notes": [
+    "章内叙述/对话/动作配比约 6:3:1，叙述句占比高（约0.6），对话承担信息推进与人物塑造",
+    "事件推进靠电话与人物行动层层叠加（接电话→行动→新变数），章末落在新悬念",
+    "动作动词密度低但精准（披衣/摸出手机/端起热茶），节奏偏沉缓，与克制调性一致"
+  ],
+  "taboo_words": [
+    "深吸一口气",
+    "心中暗想",
+    "嘴角勾起一抹",
+    "眼眶微红",
+    "一股…涌上心头",
+    "在这个喧嚣的时代",
+    "时间仿佛凝固"
+  ],
+  "style_references": [
+    "tone_kz_01",
+    "tone_wy_01",
+    "tone_hm_01",
+    "tone_sw_01"
+  ],
+  "stats": {
+    "total_chars": 55031,
+    "sentence_count": 1180,
+    "avg_sentence_len": 44.11,
+    "short_sentence_ratio": 0.1949,
+    "long_sentence_ratio": 0.589,
+    "dialogue_ratio": 0.2373,
+    "weak_adverb_density_per_1000": 0.29,
+    "weak_adverb_counts": {
+      "轻轻": 8,
+      "微微": 7,
+      "隐隐": 1
+    },
+    "metaphor_repeats": [],
+    "explanatory_phrase_count": 0,
+    "shell_counts": {
+      "not_a_but_b": 1,
+      "parallel4": 1
+    },
+    "dialogue_tag_density_per_1000": 2.27,
+    "emotion_announcement_count": 0,
+    "dash_colon_density_per_1000": 4.0,
+    "connective_abuse_count": 2,
+    "colon_enumeration_count": 0,
+    "scenery_density_per_1000": 0.33,
+    "sensory_density_per_1000": 0.15,
+    "scenery_sentence_ratio": 0.011,
+    "scene_transition_count": 8,
+    "time_marker_density_per_1000": 0.53,
+    "psych_verb_density_per_1000": 0.73,
+    "psych_sentence_ratio": 0.0322,
+    "inner_monologue_sentence_ratio": 0.0153,
+    "action_verb_density_per_1000": 0.73,
+    "action_sentence_ratio": 0.0322,
+    "narration_sentence_ratio": 0.7093
+  },
+  "ai_flavor_risks": [
+    {
+      "rule_id": "ai_parallel_four",
+      "category": "ai_flavor",
+      "measure": "四连及以上排比（逗号/顿号分隔同构项）",
+      "value": 1.0,
+      "threshold": 1.0,
+      "severity": "low",
+      "description": "拆成具体句；台词内可豁免"
+    },
+    {
+      "rule_id": "ai_dash_colon_density",
+      "category": "ai_flavor",
+      "measure": "破折号+冒号密度（AI 约 2.7-3.2× 人类基线）",
+      "value": 4.0,
+      "threshold": 3.0,
+      "severity": "warning",
+      "description": "破折号降密度，每千字 ≤3；冒号+分号不要过于整齐的'一是…二是…三是'结构"
+    },
+    {
+      "rule_id": "ai_connective_abuse",
+      "category": "ai_flavor",
+      "measure": "段落/句首固定连接词（此外/同时/然而/综上所述等）",
+      "value": 2.0,
+      "threshold": 1.0,
+      "severity": "low",
+      "description": "删段落开头固定连接词，直接进入事件/画面；同一连接词连续出现即拆句"
+    }
+  ],
+  "confidence_gaps": [
+    "各阶段情爱/商战篇幅比例的精确分布需全本核验（采样显示商战权重更高）",
+    "部分细节（某配角与主角关系的具体走向）需从对象层核验"
+  ]
+}
