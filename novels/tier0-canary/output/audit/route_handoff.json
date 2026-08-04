@@ -5,7 +5,7 @@
     "reason": "review_completed"
   },
   "input_anchor": {
-    "review_target_ref": "[本地路径]\\novels\\tier0-canary\\output\\audit\\review_result.json"
+    "review_target_ref": "novels/tier0-canary/output/audit/review_result.json"
   },
   "output_anchor": {
     "state_ref": "s001"
@@ -43,7 +43,7 @@
     "route_reason": "review_completed",
     "review_route": "pass",
     "must_read_first": [
-      "[本地路径]\\novels\\tier0-canary\\output\\audit\\review_result.json"
+      "novels/tier0-canary/output/audit/review_result.json"
     ],
     "do_not_skip": [
       "honor ReviewIssue and ReviewReminder state"

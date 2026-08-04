@@ -23,11 +23,11 @@
   "final_artifact_sha256": {
     "novels/tier0-canary/output/audit/audit_report.json": "1e2e77dc076df902e6b5db415602f8a558bfd689b30d60bf268abaab85c767ba",
     "novels/tier0-canary/output/audit/review_result.json": "68c5ef984a81c292b9d9637d08fe2da911e51f0d4800a0f1aeb54b36eeba8fa6",
-    "novels/tier0-canary/output/audit/route_handoff.json": "7dd819d69fadc8d0f1f0ad11284e373ef322023fa6d2e071f6e1a1f40a83d5c9",
+    "novels/tier0-canary/output/audit/route_handoff.json": "5da8d2f17c9fe60228e88b705857c7cf8f35ad86688ad729847966d5472f9af7",
     "novels/tier0-canary/output/audit/rebuild_package.json": "112f4831dd7e77113ecceb5bb20fa55885488d04f01904201008f8aa36a7f4ad"
   },
   "gate_result_path": "docs/00_project/releases/tier0-canary-gate.json",
-  "gate_result_sha256": "5e6b342f6a8740987a031a5685193c74c403a5627005955f51bd70891a956aa7",
+  "gate_result_sha256": "bb2f5f17fa951a93d05e978180acd6d4bd72606898a1e560b46c544f25d6b5d0",
   "final_gate_ok": true,
   "final_review_route": "pass",
   "final_next_workflow": "ContinueUnit",
