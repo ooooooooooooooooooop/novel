@@ -11,7 +11,7 @@
    "final_next_workflow": "ContinueUnit",
    "blocking_pending_count": 0,
    "final_artifact_sha256": {
-    "novels/tier0-canary/output/audit/audit_report.json": "1e2e77dc076df902e6b5db415602f8a558bfd689b30d60bf268abaab85c767ba",
+    "novels/tier0-canary/output/audit/audit_report.json": "9693b5d24ae4cfba8693fdf7e21b9adab68b9d0ba5b434ea34e314e58ccbacad",
     "novels/tier0-canary/output/audit/review_result.json": "68c5ef984a81c292b9d9637d08fe2da911e51f0d4800a0f1aeb54b36eeba8fa6",
     "novels/tier0-canary/output/audit/route_handoff.json": "5da8d2f17c9fe60228e88b705857c7cf8f35ad86688ad729847966d5472f9af7",
     "novels/tier0-canary/output/audit/rebuild_package.json": "112f4831dd7e77113ecceb5bb20fa55885488d04f01904201008f8aa36a7f4ad"
@@ -26,7 +26,7 @@
    "blocking_pending_count": 0,
    "final_artifact_sha256": {
     "novels/tier0-extend-canary/output/extend/extend_result.json": "26ce5071a827b91b09029e357e68e603c695752df63884ef3b18a348042c8d3f",
-    "novels/tier0-extend-canary/output/extend/route_handoff.json": "10b5ee964426b56d6641ec48c201b62847add6188a456f12a66ca8e2f4b25cae"
+    "novels/tier0-extend-canary/output/extend/route_handoff.json": "49ffe93e748e5186d62bd3f6aed05b5cc14354d374f248f9dd7d0964187d8605"
    }
   },
   "compose": {
@@ -38,7 +38,7 @@
    "blocking_pending_count": 0,
    "final_artifact_sha256": {
     "novels/tier0-compose-canary/output/compose/compose_result.json": "d85567571afb5626937f6ae9a3e23c85e405784331bcc171b2cf65c25f48d407",
-    "novels/tier0-compose-canary/output/compose/route_handoff.json": "71e46a249429845a73f55abc2e0766ee8c7553054b550579549fc2672dc13a13"
+    "novels/tier0-compose-canary/output/compose/route_handoff.json": "1151c20ccd507c0a57a28d6810ac159ece740cfc000583e733dd592880e0b669"
    }
   }
  }
