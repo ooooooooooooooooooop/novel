@@ -25,3 +25,5 @@ input.txt
 .taskflow/
 # 小说正文（原文+续写）一律不入 GitHub——GitHub 仅保留工具框架
 novels/*/chapters/
+# 本地私密备份（小说正文/证据源），仅存本机
+.private_backup/
