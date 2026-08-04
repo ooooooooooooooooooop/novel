@@ -19,6 +19,7 @@
 - 时间域：TimeBook 先验模型（`novels/<名>/output/time/time_book.json`），`novel time` 管理（--rebuild 锚提取 / --check 时间线报告 / --status）；FACTTRACK v2 检测 4/5/6（时间回退 / 先知逾期 / 季节历法违反）；extend/compose 的 Continue 以【时间上下文】段注入上章/本章/时代背景/时间规则；rubric 装配时间一致性维（8→9 维）
 - 零成本契约：无 TimeBook → 无注入、无检测、无产物，prompt 字节与旧版逐字节相同（回归测试锁死）
 - 统一入口：`novel` 命令管理 `novels/<小说名>/` 工作目录，并调用 audit / extend / compose / style / compliance / rubric / time staged CLI
+- 章节正文目录：续写/创作的章节正文统一存 `novels/<小说名>/chapters/`（如 `chapters/chapter_1197.txt`），与 `output/` 系统产物分离——正文入库、产物不入库（`.gitignore` 只忽略 `output/`）
 - 测试：1612 passed
 
 ## 怎么用（在 Codex 中）
@@ -53,7 +54,7 @@ novel extend 示例小说乙 --input 示例小说乙.txt
 ```
 
 - 三次重跑（Rebuild → Continue → Review）
-- 产物：`novels/示例小说乙/output/extend_result.json`
+- 产物：`novels/示例小说乙/output/extend_result.json`；章节正文（PlotUnit 展开成文）统一写入 `novels/示例小说乙/chapters/`，命名 `chapter_<编号>.txt`
 
 ### Compose 流（从 WorkSpec 创作）
 
