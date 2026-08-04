@@ -270,6 +270,24 @@ def _season_note(date_str: Optional[str], loc: Optional[str], rules: list[str]) 
     return ""
 
 
+def _next_chapter_label(chapter: Optional[str]) -> Optional[str]:
+    """由最新锚点章节标识推下一章标识.
+
+    - 尾部数字递增: '第1章' -> '第2章'，'第10章' -> '第11章'
+    - 占位字母延续: '第N章' -> '第N+1章'
+    - 其余无数字标识（如 '序章'/'尾声'）返回 None，不渲染本章行
+    """
+    if not chapter:
+        return None
+    m = re.search(r"(\d+)(章)?$", chapter)
+    if m:
+        return f"{chapter[:m.start(1)]}{int(m.group(1)) + 1}{m.group(2) or ''}"
+    m = re.match(r"^(第)([A-Za-z])(章)$", chapter)
+    if m:
+        return f"{m.group(1)}{m.group(2)}+1{m.group(3)}"
+    return None
+
+
 def _format_prev_anchor(a: TimeAnchor) -> str:
     """上章行: '{chapter} {date}({lunar}){tod} {loc}'.
 
@@ -327,12 +345,7 @@ def build_time_context(tb: Optional[TimeBook]) -> str:
             lines.append("上章: " + prev)
     if tb.initial is not None and not tb.initial.is_empty():
         if latest is not None:
-            chapter_num = re.search(r"(\d+)", latest.chapter or "")
-            next_chapter = (
-                f"第{int(chapter_num.group(1)) + 1}章"
-                if chapter_num
-                else None
-            )
+            next_chapter = _next_chapter_label(latest.chapter)
         else:
             # 无锚点（compose 初跑 / extend 重建前）：以起点作为第1章
             next_chapter = "第1章"
