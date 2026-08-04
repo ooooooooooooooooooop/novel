@@ -23,3 +23,5 @@ input_short.txt
 input.txt
 .ai-memory/
 .taskflow/
+# 小说正文（原文+续写）一律不入 GitHub——GitHub 仅保留工具框架
+novels/*/chapters/

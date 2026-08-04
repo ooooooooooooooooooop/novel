@@ -19,9 +19,9 @@
 - 时间域：TimeBook 先验模型（`novels/<名>/output/time/time_book.json`），`novel time` 管理（--rebuild 锚提取 / --check 时间线报告 / --status）；FACTTRACK v2 检测 4/5/6（时间回退 / 先知逾期 / 季节历法违反）；extend/compose 的 Continue 以【时间上下文】段注入上章/本章/时代背景/时间规则；rubric 装配时间一致性维（8→9 维）
 - 零成本契约：无 TimeBook → 无注入、无检测、无产物，prompt 字节与旧版逐字节相同（回归测试锁死）
 - 统一入口：`novel` 命令管理 `novels/<小说名>/` 工作目录，并调用 audit / extend / compose / style / compliance / rubric / time staged CLI
-- 章节正文目录：续写/创作的章节正文统一存 `novels/<小说名>/chapters/`（如 `chapters/chapter_1197.txt`），与 `output/` 系统产物分离——正文入库、产物不入库（`.gitignore` 只忽略 `output/`）
+- 章节正文目录：续写/创作的章节正文统一存 `novels/<小说名>/chapters/`（如 `chapters/chapter_1197.txt`），与 `output/` 系统产物分离；正文与原文一律不提交 GitHub（`novels/*/chapters/`、`input.txt` 已入 `.gitignore`），GitHub 仅保留工具框架（代码/测试/脚本/规则文档/运行配置）
 - 续写篇幅与原文参考：有原文时，原文按章拆分入 `chapters/chapter_01.txt` 起（保留章节标题行），续写从下一编号续（原文 23 章 → 续写从 `chapter_24` 起），目录内编号连续；续写章节篇幅对齐原文章均（参考值：《示例小说丁》约 6,500 字符/章），不得明显偏短；续写须参考原文语感、意象系统（杨柳/水/套装/信等）与事件细节，不能凭空脱离原文
-- 版权纪律（续写）：续写项目的**原文一律不提交 git**——`input.txt`、`chapters/chapter_01~N`（原文拆分）、canary 输入源等均不 stage；只提交续写正文（`chapters/chapter_<续写编号>.txt`）与规则/解构说明文档
+- 版权纪律：所有小说正文（原文、续写章节、`input.txt`、canary 输入源）一律不提交 GitHub；git 历史中如有正文，push 前须用 `git filter-branch --index-filter 'git rm --cached --ignore-unmatch <正文路径>'` 重写剔除；正文文件仅存于本地 `novels/<小说名>/chapters/`，供续写参考与使用
 - 测试：1612 passed
 
 ## 怎么用（在 Codex 中）
