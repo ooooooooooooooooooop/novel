@@ -68,6 +68,31 @@ def _position_after(a: Optional[str], b: Optional[str]) -> Optional[bool]:
     return pa > pb
 
 
+_NEGATION_PARTICLES = ("不", "没", "未", "无", "非")
+
+
+def _strip_negations(statement: str) -> str:
+    """移除语句中的所有否定词，得到用于比较的归一化残串."""
+    for particle in _NEGATION_PARTICLES:
+        statement = statement.replace(particle, "")
+    return statement
+
+
+def _statements_contradict(a: str, b: str) -> bool:
+    """启发式判断两条事实陈述是否互相否定（一条是否定/反转另一条）.
+
+    将两条陈述剥离否定词后比较残串：残串相等且非平凡（>=2 字）时视为矛盾。
+    仅作跨章一致性提示，不阻断（调用方以 warning 呈现）。
+    """
+    a = a.strip()
+    b = b.strip()
+    if not a or not b or a == b:
+        return False
+    ra = _strip_negations(a)
+    rb = _strip_negations(b)
+    return ra == rb and len(ra) >= 2
+
+
 def _bounds_overlap(
     a_from: Optional[str],
     a_until: Optional[str],
@@ -362,23 +387,22 @@ class ReconcileUnit:
                     )
                 )
 
-        # 检测 3：事实陈述相似度冲突（简略版：检查 statement 子串包含关系）
+        # 检测 3：事实陈述否定矛盾（启发式：剥离否定词后残串相等视为互相否定）
         ledgers = [o for o in objects if isinstance(o, FactLedger)]
         for ledger in ledgers:
             statements = [e.statement for e in ledger.entries]
             for i, s1 in enumerate(statements):
                 for s2 in statements[i + 1:]:
-                    # 若两条事实互相矛盾（一条否定另一条）
-                    if f"不{s1}" in s2 or f"未{s1}" in s2 or f"没{s1}" in s2:
+                    if _statements_contradict(s1, s2):
                         issues.append(
                             ReviewIssue(
                                 issue_id=f"iss_cross_fact_{i}",
                                 issue_type="fact_conflict",
-                                severity="blocking",
+                                severity="warning",
                                 location="FactLedger",
                                 scope_of_impact="全局事实一致性",
                                 violated_rule="事实不得矛盾",
-                                description=f"事实冲突: '{s1}' vs '{s2}'",
+                                description=f"事实冲突(否定/反转): '{s1}' vs '{s2}'",
                             )
                         )
 

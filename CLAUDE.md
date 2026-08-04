@@ -19,7 +19,7 @@
 - 时间域：TimeBook 先验模型（`novels/<名>/output/time/time_book.json`），`novel time` 管理（--rebuild 锚提取 / --check 时间线报告 / --status）；FACTTRACK v2 检测 4/5/6（时间回退 / 先知逾期 / 季节历法违反）；extend/compose 的 Continue 以【时间上下文】段注入上章/本章/时代背景/时间规则；rubric 装配时间一致性维（8→9 维）
 - 零成本契约：无 TimeBook → 无注入、无检测、无产物，prompt 字节与旧版逐字节相同（回归测试锁死）
 - 统一入口：`novel` 命令管理 `novels/<小说名>/` 工作目录，并调用 audit / extend / compose / style / compliance / rubric / time staged CLI
-- 测试：1571 passed
+- 测试：1612 passed
 
 ## 怎么用（在 Codex 中）
 

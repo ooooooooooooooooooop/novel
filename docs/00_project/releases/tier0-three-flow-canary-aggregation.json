@@ -1,45 +1,45 @@
 {
-  "schema_version": 1,
-  "type": "tier0_three_flow_canary_aggregation",
-  "created_at_utc_note": "human-curated record; not machine-validated by novel-release-record (canary evidence generator binds workspace_path to novels/tier0-canary only)",
-  "flows": {
-    "audit": {
-      "gate_result_path": "docs/00_project/releases/tier0-canary-gate.json",
-      "gate_result_sha256": "de359775b9de9976c35c4df3e786d9bdfd31dba267838c8fe100eae8e340c6c1",
-      "final_gate_ok": true,
-      "final_review_route": "pass",
-      "final_next_workflow": "ContinueUnit",
-      "blocking_pending_count": 0,
-      "final_artifact_sha256": {
-        "novels/tier0-canary/output/audit/audit_report.json": "82f0742337674223a575847953e74c62c9b17b43f2ef8e1ab553c92204033909",
-        "novels/tier0-canary/output/audit/review_result.json": "005a22666974e7ff45118c3b5837038318646fa859c3076be3f6864e2b451bc5",
-        "novels/tier0-canary/output/audit/route_handoff.json": "ff5cf9dc31a1e8eb10db5757cd59a05818799cc3c7868b4b2f66a07fa5fdba1e",
-        "novels/tier0-canary/output/audit/rebuild_package.json": "61c2fe28725f6dd37d3a6da09580e7dc7bc46cd1d6f683d3fbc3fb3ca2c868a6"
-      }
-    },
-    "extend": {
-      "gate_result_path": "docs/00_project/releases/tier0-extend-canary-gate.json",
-      "gate_result_sha256": "9b9b69e6debed67ded7629973888073ccf1829517d6cd5b8a3870dfcdfa6160d",
-      "final_gate_ok": true,
-      "final_review_route": "pass",
-      "final_next_workflow": "ContinueUnit",
-      "blocking_pending_count": 0,
-      "final_artifact_sha256": {
-        "novels/tier0-extend-canary/output/extend/extend_result.json": "26ce5071a827b91b09029e357e68e603c695752df63884ef3b18a348042c8d3f",
-        "novels/tier0-extend-canary/output/extend/route_handoff.json": "cef93cf2ae6ec61f6f4c0151a5ccf103b0598b856cb4ede1a53d05043458df46"
-      }
-    },
-    "compose": {
-      "gate_result_path": "docs/00_project/releases/tier0-compose-canary-gate.json",
-      "gate_result_sha256": "64d342dfeeead0ad2e8e00b1c42042abe24db529f11e44ef3e95783a7411c211",
-      "final_gate_ok": true,
-      "final_review_route": "pass",
-      "final_next_workflow": "ContinueUnit",
-      "blocking_pending_count": 0,
-      "final_artifact_sha256": {
-        "novels/tier0-compose-canary/output/compose/compose_result.json": "d85567571afb5626937f6ae9a3e23c85e405784331bcc171b2cf65c25f48d407",
-        "novels/tier0-compose-canary/output/compose/route_handoff.json": "cccf114b978015156bbc89a2faa21fc71f6b7f22dc6bfa270bc61a9867994cae"
-      }
-    }
+ "schema_version": 1,
+ "type": "tier0_three_flow_canary_aggregation",
+ "created_at_utc_note": "human-curated record; not machine-validated by novel-release-record (canary evidence generator binds workspace_path to novels/tier0-canary only)",
+ "flows": {
+  "audit": {
+   "gate_result_path": "docs/00_project/releases/tier0-canary-gate.json",
+   "gate_result_sha256": "5e6b342f6a8740987a031a5685193c74c403a5627005955f51bd70891a956aa7",
+   "final_gate_ok": true,
+   "final_review_route": "pass",
+   "final_next_workflow": "ContinueUnit",
+   "blocking_pending_count": 0,
+   "final_artifact_sha256": {
+    "novels/tier0-canary/output/audit/audit_report.json": "1e2e77dc076df902e6b5db415602f8a558bfd689b30d60bf268abaab85c767ba",
+    "novels/tier0-canary/output/audit/review_result.json": "68c5ef984a81c292b9d9637d08fe2da911e51f0d4800a0f1aeb54b36eeba8fa6",
+    "novels/tier0-canary/output/audit/route_handoff.json": "7dd819d69fadc8d0f1f0ad11284e373ef322023fa6d2e071f6e1a1f40a83d5c9",
+    "novels/tier0-canary/output/audit/rebuild_package.json": "112f4831dd7e77113ecceb5bb20fa55885488d04f01904201008f8aa36a7f4ad"
+   }
+  },
+  "extend": {
+   "gate_result_path": "docs/00_project/releases/tier0-extend-canary-gate.json",
+   "gate_result_sha256": "c00b8dd6822d9dde76354ad3bee676bd8e66561105d7d5bef8d49a47d5f48dc9",
+   "final_gate_ok": true,
+   "final_review_route": "pass",
+   "final_next_workflow": "ContinueUnit",
+   "blocking_pending_count": 0,
+   "final_artifact_sha256": {
+    "novels/tier0-extend-canary/output/extend/extend_result.json": "26ce5071a827b91b09029e357e68e603c695752df63884ef3b18a348042c8d3f",
+    "novels/tier0-extend-canary/output/extend/route_handoff.json": "10b5ee964426b56d6641ec48c201b62847add6188a456f12a66ca8e2f4b25cae"
+   }
+  },
+  "compose": {
+   "gate_result_path": "docs/00_project/releases/tier0-compose-canary-gate.json",
+   "gate_result_sha256": "e599d92d6e85997ab2ce5ebdd13cbb9cbbef93fa34998bc5bc3a0e500e00bef2",
+   "final_gate_ok": true,
+   "final_review_route": "pass",
+   "final_next_workflow": "ContinueUnit",
+   "blocking_pending_count": 0,
+   "final_artifact_sha256": {
+    "novels/tier0-compose-canary/output/compose/compose_result.json": "d85567571afb5626937f6ae9a3e23c85e405784331bcc171b2cf65c25f48d407",
+    "novels/tier0-compose-canary/output/compose/route_handoff.json": "71e46a249429845a73f55abc2e0766ee8c7553054b550579549fc2672dc13a13"
+   }
   }
+ }
 }

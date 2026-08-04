@@ -333,3 +333,60 @@ def test_reconcile_extend_scenario():
     chars = [o for o in objects if isinstance(o, CharacterModel)]
     assert len(chars) == 1
     assert chars[0].outer_goal == "突破"
+
+
+def test_reconcile_fact_negation_contradiction_detected():
+    """跨章事实中一条否定另一条时检出 fact_conflict."""
+    from src.workflow_action.reconcile import ReconcileUnit
+
+    ledger = FactLedger(
+        entries=[
+            FactEntry(fact_id="f1", statement="主角在长安", fact_type="event"),
+            FactEntry(fact_id="f2", statement="主角不在长安", fact_type="event"),
+        ]
+    )
+
+    unit = ReconcileUnit()
+    issues = unit.check_cross_chapter_consistency([ledger])
+
+    assert len(issues) == 1
+    assert issues[0].issue_type == "fact_conflict"
+    assert "主角在长安" in issues[0].description
+    assert "主角不在长安" in issues[0].description
+
+
+def test_reconcile_fact_negation_severity_is_warning():
+    """否定矛盾是启发式提示，必须为 warning（不阻断 Reconcile）。"""
+    from src.workflow_action.reconcile import ReconcileUnit
+
+    ledger = FactLedger(
+        entries=[
+            FactEntry(fact_id="f1", statement="他不认识她", fact_type="event"),
+            FactEntry(fact_id="f2", statement="他认识她", fact_type="event"),
+        ]
+    )
+
+    unit = ReconcileUnit()
+    issues = unit.check_cross_chapter_consistency([ledger])
+
+    assert len(issues) == 1
+    assert issues[0].severity == "warning"
+
+
+def test_reconcile_fact_similar_statements_not_flagged():
+    """相近但不构成否定的陈述不应误报矛盾。"""
+    from src.workflow_action.reconcile import ReconcileUnit
+
+    ledger = FactLedger(
+        entries=[
+            FactEntry(fact_id="f1", statement="主角在长安", fact_type="event"),
+            FactEntry(fact_id="f2", statement="主角在洛阳", fact_type="event"),
+            FactEntry(fact_id="f3", statement="主角在长安", fact_type="event"),
+        ]
+    )
+
+    unit = ReconcileUnit()
+    issues = unit.check_cross_chapter_consistency([ledger])
+
+    # f1 与 f3 完全相同：非矛盾（且 dedup 后同串不重复计）
+    assert all(i.issue_type != "fact_conflict" for i in issues)

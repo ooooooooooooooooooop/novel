@@ -12,12 +12,12 @@ This is a phase boundary, not a permanent repository boundary.
 Tier 0 production evidence:
 
 - production tier: `local staged CLI v0` (operator-in-the-loop, no DirectAPI)
-- release record: `docs/00_project/releases/tier0-release.json` (passes the single combined validation command at its frozen historical baseline 1540; the current full-pytest baseline is 1571)
+- release record: `docs/00_project/releases/tier0-release.json` (passes the single combined validation command at the current full-pytest baseline 1612)
 - canary evidence: `docs/00_project/releases/tier0-canary-evidence.json`
 - saved canary gate result: `docs/00_project/releases/tier0-canary-gate.json`
-- immutable checkpoint: git tag `v0.1.0-tier0` → commit `b8738060689af137f544303cf64d5fd37f225a8c`
+- immutable checkpoint: git tag `v0.1.1-tier0`
 
-Three-flow hardening evidence (2026-07-29, inside the v0.1.0-tier0 boundary, no new tag):
+Three-flow hardening evidence (2026-07-29, re-certified under `v0.1.1-tier0` on 2026-08-04):
 
 - extend and compose canaries each passed `novel gate`; per-flow gate results: `tier0-extend-canary-gate.json`, `tier0-compose-canary-gate.json`
 - three-flow aggregation evidence: `docs/00_project/releases/tier0-three-flow-canary-aggregation.json`
@@ -105,7 +105,7 @@ Do not optimize for:
 - Slice 3 (`compose_short_form`): code complete, default WorkSpec validated, end-to-end PASS
 - LLM layer split: workflow units expose `build_prompt()` and `parse_response()`; scripts do not call LLMs internally
 - Long-form multi-arc stress test: PASS
-- No-regression tests: 1571 tests passing
+- No-regression tests: 1612 tests passing
 - End-to-end Audit / Extend / Compose validation: PASS
 
 If you are asked to write code, the existing infrastructure is:

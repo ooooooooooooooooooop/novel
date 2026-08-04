@@ -27,9 +27,11 @@ from src.object_state.audit_report import AuditReport
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-EXPECTED_BASELINE = 1571
+EXPECTED_BASELINE = 1612
 EXAMPLE_PATH = "docs/00_project/tier0_release_record.example.json"
 CANARY_EVIDENCE_EXAMPLE_PATH = "docs/00_project/tier0_canary_evidence.example.json"
+COMMITTED_RELEASE_RECORD_PATH = "docs/00_project/releases/tier0-release.json"
+COMMITTED_CANARY_EVIDENCE_PATH = "docs/00_project/releases/tier0-canary-evidence.json"
 FULL_PYTEST_COMMAND = (
     "python -m pytest -q --basetemp .pytest-tmp-current-tier0-release-evidence-full "
     "-p no:cacheprovider"
@@ -1263,6 +1265,48 @@ def test_tier0_release_record_cli_accepts_combined_production_validation(tmp_pat
 
     assert result.returncode == 0, result.stdout + result.stderr
     assert f"Tier 0 release record PASS: {record_path}" in result.stdout
+
+
+def test_committed_release_record_combined_validation():
+    """对实际提交的发布记录跑单一合并校验，让证据链自我监督.
+
+    依赖实际提交的 canary 产物（Step 6 恢复）与新 tag（Step 7 打标）；
+    在旧记录/旧证据修复前预期失败（过渡态），修复后必须转绿。
+    """
+    assert (PROJECT_ROOT / COMMITTED_RELEASE_RECORD_PATH).exists()
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "src.boundary_control.release_record",
+            COMMITTED_RELEASE_RECORD_PATH,
+            "--expected-baseline",
+            str(EXPECTED_BASELINE),
+            "--record-path",
+            COMMITTED_RELEASE_RECORD_PATH,
+            "--require-evidence-files",
+            "--evidence-root",
+            ".",
+            "--require-git-checkpoint",
+            "--repo-root",
+            ".",
+            "--canary-evidence",
+            COMMITTED_CANARY_EVIDENCE_PATH,
+            "--require-canary-artifacts",
+            "--canary-artifact-root",
+            ".",
+        ],
+        cwd=PROJECT_ROOT,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert (
+        f"Tier 0 release record PASS: {COMMITTED_RELEASE_RECORD_PATH}"
+        in result.stdout
+    )
 
 
 def test_tier0_canary_evidence_cli_generates_from_workspace_artifacts(tmp_path):

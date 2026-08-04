@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "type": "tier0_canary_evidence",
-  "release_id": "tier0-canary-20260728",
+  "release_id": "tier0-canary-20260804",
   "canary_result": "pass",
   "canary_commands": [
     "novel audit tier0-canary --input canary_input.txt",
@@ -27,7 +27,7 @@
     "novels/tier0-canary/output/audit/rebuild_package.json": "112f4831dd7e77113ecceb5bb20fa55885488d04f01904201008f8aa36a7f4ad"
   },
   "gate_result_path": "docs/00_project/releases/tier0-canary-gate.json",
-  "gate_result_sha256": "a1e6002012db75db4a7b71534a64a8076e0febd1446b3d2822ad89ae29445049",
+  "gate_result_sha256": "5e6b342f6a8740987a031a5685193c74c403a5627005955f51bd70891a956aa7",
   "final_gate_ok": true,
   "final_review_route": "pass",
   "final_next_workflow": "ContinueUnit",

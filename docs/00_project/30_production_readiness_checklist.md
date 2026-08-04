@@ -7,10 +7,10 @@ Current production tier: local staged CLI v0.
 Tier 0 was declared production-ready on 2026-07-28.
 
 - release record: `docs/00_project/releases/tier0-release.json`
-- immutable checkpoint: git tag `v0.1.0-tier0` → commit `b8738060689af137f544303cf64d5fd37f225a8c`
+- immutable checkpoint: git tag `v0.1.1-tier0`
 - canary evidence: `docs/00_project/releases/tier0-canary-evidence.json`
 - saved canary gate result: `docs/00_project/releases/tier0-canary-gate.json`
-- the single combined validation command passes with expected baseline 1571
+- the single combined validation command passes with expected baseline 1612
 
 Three-flow daily-production hardening completed on 2026-07-29 (planning: `docs/00_project/34_tier0_daily_production_hardening_plan.md`), extending the audit-only Tier 0 verdict to all three flows (`audit` / `extend` / `compose`):
 
@@ -18,7 +18,7 @@ Three-flow daily-production hardening completed on 2026-07-29 (planning: `docs/0
 - three-flow aggregation evidence (human-curated): `docs/00_project/releases/tier0-three-flow-canary-aggregation.json`
 - operator runbook for all three flows: `docs/00_project/35_operator_runbook.md`
 - one-command regression gate: `python scripts/tier0_canary_regression.py` (exit 0 ⇒ three-flow baseline not regressed)
-- hardening stays inside the `v0.1.0-tier0` Tier 0 boundary; no new immutable checkpoint, no tier upgrade
+- production-readiness re-certified on 2026-08-04 under a new immutable checkpoint `v0.1.1-tier0` (hardening stays inside the Tier 0 boundary; no tier upgrade)
 
 The current acceptable production use is internal operator-in-the-loop production:
 
@@ -37,7 +37,7 @@ Tier 0 is ready only when all of these are true:
 - the runtime is still `local staged CLI v0`
 - one operator controls response materialization
 - the release candidate has a clean full pytest run
-- the release candidate records `1571 tests passing`
+- the release candidate records `1612 tests passing`
 - `novel gate --require-approval` is an opt-in human-approval gate; the default `novel gate` contract is unchanged
 - a release tag or equivalent immutable checkpoint exists
 - known limitations are documented in this file and the current status page

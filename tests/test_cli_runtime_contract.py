@@ -11,7 +11,7 @@ import pytest
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-EXPECTED_TEST_BASELINE = "1571"
+EXPECTED_TEST_BASELINE = "1612"
 
 
 def run_script(*args: str) -> subprocess.CompletedProcess[str]:
@@ -21,6 +21,22 @@ def run_script(*args: str) -> subprocess.CompletedProcess[str]:
         capture_output=True,
         text=True,
     )
+
+
+def test_collected_test_baseline_matches_contract():
+    """收集的测试数必须等于文档契约基线（防漂移）. 依赖 --collect-only 不执行测试，无递归风险."""
+    result = subprocess.run(
+        [sys.executable, "-m", "pytest", "tests/", "--collect-only", "-q"],
+        cwd=PROJECT_ROOT,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    match = re.search(r"(\d+) tests collected", result.stdout)
+    assert match, f"could not parse collect count: {result.stdout!r}"
+    assert match.group(1) == EXPECTED_TEST_BASELINE
 
 
 def test_audit_output_dir_waiting_isolated(tmp_path):

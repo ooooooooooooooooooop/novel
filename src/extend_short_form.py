@@ -435,7 +435,7 @@ def main() -> int:
                 characters=characters,
                 facts=facts,
                 foreshadows=foreshadows,
-                workspec_context="",  # 可选: 从 objects 中提取 WorkSpec
+                workspec_context=workspec.to_prompt_context(),
                 frame_context=frame_context,
                 structure_template=structure_template_name,
                 platform=workspec.platform,

@@ -1,0 +1,160 @@
+{
+  "source_text_ref": "[本地路径]\\novels\\tier0-canary\\input.txt",
+  "route": "pass",
+  "workspec": {
+    "genre": "仙侠",
+    "subgenre": "宗门成长",
+    "audience": "青年读者",
+    "theme": "代价",
+    "tone": "克制",
+    "pacing": "前快中稳后爆",
+    "structure_template": null,
+    "platform": null,
+    "length_target": 50000,
+    "constraints": [
+      "主角不无敌",
+      "禁术使用留下痕迹"
+    ],
+    "romance_weight": 0.2,
+    "mystery_weight": 0.4,
+    "action_weight": 0.4
+  },
+  "worldmodel": {
+    "world_facts": [
+      "宗门以灵根定资质",
+      "青云宗三年一度大比"
+    ],
+    "social_structure": "宗门-王城-世家三方制衡",
+    "power_system": "灵根等级制",
+    "resource_system": "灵石与功法",
+    "geography": "东荒大陆",
+    "factions": [
+      "青云宗"
+    ],
+    "time_rules": [
+      "宗门大比三年一次"
+    ],
+    "prohibitions": [
+      "王城内禁止斗法"
+    ],
+    "consequence_logic": [
+      "禁术使用留下可追踪痕迹"
+    ]
+  },
+  "characters": [
+    {
+      "character_id": "c001",
+      "name": "林青",
+      "identity": "被逐出宗门的少女",
+      "outer_goal": "重返宗门并揭露陷害真相",
+      "inner_need": "证明自己值得被信任",
+      "fear": "再次被抛弃",
+      "flaw": "冲动",
+      "strength": "意志坚定",
+      "secret": null,
+      "stance": "中立",
+      "arc_stage": null,
+      "self_image": null,
+      "knowledge_state": [
+        "令牌在她手中"
+      ],
+      "misinformation": [],
+      "relations": {}
+    }
+  ],
+  "narrative_state": {
+    "state_id": "s001",
+    "current_time": "宗门大比前夜",
+    "current_location": "青云宗山脚",
+    "active_characters": [
+      "c001"
+    ],
+    "current_situation": "主角被逐出宗门，准备潜入大比现场",
+    "primary_goal": "揭露陷害真相",
+    "active_conflicts": [
+      "与宗门执法长老的冲突"
+    ],
+    "emotional_temperature": "压抑",
+    "public_information": [
+      "宗门大比即将开始"
+    ],
+    "hidden_information": [
+      "令牌在主角手中"
+    ],
+    "active_suspense_items": [
+      "令牌真正的来历"
+    ],
+    "current_goals": [
+      "重返宗门"
+    ],
+    "linked_open_threads": [
+      "t001"
+    ],
+    "current_facts_in_scope": [
+      "f001"
+    ]
+  },
+  "fact_ledger": {
+    "entries": [
+      {
+        "fact_id": "f001",
+        "statement": "令牌归c001所有",
+        "fact_type": "object",
+        "involved_entities": [
+          "c001",
+          "令牌"
+        ],
+        "source_plotunit": null,
+        "confirmed": true,
+        "timestamp": null
+      }
+    ]
+  },
+  "foreshadow_graph": {
+    "entries": [
+      {
+        "thread_id": "t001",
+        "setup_point": "第一章末尾神秘人影",
+        "content": "主角身世之谜",
+        "visibility_level": "implicit",
+        "expected_payoff": "大比现场揭晓",
+        "current_status": "active",
+        "expiry_risk": null,
+        "linked_characters": [
+          "c001"
+        ],
+        "linked_facts": [
+          "f001"
+        ],
+        "linked_plotunits": []
+      }
+    ]
+  },
+  "outline_used": false,
+  "outline_arcs_count": 0,
+  "issues": [
+    {
+      "issue_id": "iss_hard_foreshadow_t001",
+      "issue_type": "promise_loss",
+      "severity": "warning",
+      "location": "ForeshadowGraph t001",
+      "scope_of_impact": "承诺追踪",
+      "violated_rule": "active 伏笔必须有 PlotUnit 引用",
+      "description": "伏笔 '主角身世之谜' (setup: 第一章末尾神秘人影) 处于 active 状态，但没有 PlotUnit 引用它",
+      "suggested_fix": "在后续 PlotUnit 中回收此伏笔，或标记为 abandoned",
+      "resolution_status": "open",
+      "plotunit_ref": null,
+      "affected_threads": [],
+      "supporting_facts": [],
+      "contradictory_facts": []
+    }
+  ],
+  "reminders": [],
+  "confidence_gaps": [
+    "令牌具体来历尚不明确",
+    "塞令牌的人身份未确认"
+  ],
+  "rewrite_applied": false,
+  "applied_fixes": [],
+  "original_route": null
+}

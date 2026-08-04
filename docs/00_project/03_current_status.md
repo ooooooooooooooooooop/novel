@@ -14,12 +14,12 @@ The repository is currently **end_to_end_validated** and **Tier 0 production rea
 
 Tier 0 (local staged CLI v0, operator-in-the-loop) was validated on 2026-07-28:
 
-- full pytest baseline: 1571 tests passing
+- full pytest baseline: 1612 tests passing
 - audit canary (`tier0-canary`) passed `novel gate`: `ok=true`, `review_route=pass`, `next_workflow=ContinueUnit`, `blocking_pending_count=0`
 - canary evidence: `docs/00_project/releases/tier0-canary-evidence.json`
 - saved canary gate result: `docs/00_project/releases/tier0-canary-gate.json`
 - release record: `docs/00_project/releases/tier0-release.json` (passing the single combined validation command)
-- immutable checkpoint: git tag `v0.1.0-tier0` → commit `b8738060689af137f544303cf64d5fd37f225a8c`
+- immutable checkpoint: git tag `v0.1.1-tier0`
 
 Three-flow daily-production hardening was completed on 2026-07-29 (see `docs/00_project/34_tier0_daily_production_hardening_plan.md`):
 
@@ -30,7 +30,7 @@ Three-flow daily-production hardening was completed on 2026-07-29 (see `docs/00_
 - per-flow gate results: `tier0-extend-canary-gate.json`, `tier0-compose-canary-gate.json` (audit gate already pinned)
 - canonical canary response sources now checked in under `canary_inputs/` so the three canary workspaces are reproducible
 - workspace hygiene: `.gitignore` ignores `.pytest-tmp-*/`; canary `output/` artifacts are force-added as immutable evidence (they are referenced by file sha256)
-- no new immutable checkpoint: hardening stays inside the `v0.1.0-tier0` Tier 0 boundary; no tier upgrade is implied
+- production-readiness re-certified on 2026-08-04 under a new immutable checkpoint: git tag `v0.1.1-tier0` (hardening stays inside the Tier 0 boundary; no tier upgrade is implied)
 
 It now has both:
 
@@ -116,7 +116,7 @@ Tier 0 production readiness has been reached and verified:
 
 - production tier confirmed as `local staged CLI v0` (operator-in-the-loop, no DirectAPI)
 - release record path: `docs/00_project/releases/tier0-release.json`
-- immutable checkpoint: git tag `v0.1.0-tier0` → commit `b8738060689af137f544303cf64d5fd37f225a8c`
+- immutable checkpoint: git tag `v0.1.1-tier0`
 - canary workspace: `novels/tier0-canary/` (audit canary, `gate` ok=true / pass / ContinueUnit / blocking=0)
 - known limitations are documented in `docs/00_project/30_production_readiness_checklist.md`
 
@@ -215,7 +215,7 @@ The artifact set is complete and the first running slices are end-to-end validat
 
 Current baseline:
 
-- `pytest -q`: 1571 tests passing
+- `pytest -q`: 1612 tests passing
 - long-form multi-arc stress test: PASS
 - end-to-end Audit / Extend / Compose validation: PASS
 
@@ -315,7 +315,7 @@ Current next decision:
   - Track 3 CharacterModel evidence-leakback checks
   - generative_indicia detection checks
   - Review hard rules extension checks
-  - total validation baseline: 1571 tests passing
+  - total validation baseline: 1612 tests passing
 - **Slice L1: Long-form chapter-level infra** - Complete
   - `src/boundary_control/chunking.py` splits text by chapters
   - `src/boundary_control/report_formatter.py` formats audit reports

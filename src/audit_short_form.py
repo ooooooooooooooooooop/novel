@@ -670,10 +670,9 @@ def main() -> int:
 
     if route == "pass":
         print("\nAudit complete: PASS")
-    else:
-        print(f"\nAudit complete: {route.upper()}")
-
-    return 0
+        return 0
+    print(f"\nAudit complete: {route.upper()}")
+    return 1
 
 
 if __name__ == "__main__":

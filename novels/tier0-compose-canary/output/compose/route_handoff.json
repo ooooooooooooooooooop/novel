@@ -1,0 +1,69 @@
+{
+  "handoff_header": {
+    "source": "ReviewUnit",
+    "target": "ContinueUnit",
+    "reason": "review_completed"
+  },
+  "input_anchor": {
+    "review_target_ref": "[本地路径]\\novels\\tier0-compose-canary\\output\\compose\\compose_result.json"
+  },
+  "output_anchor": {
+    "state_ref": "s002"
+  },
+  "change_set": [
+    {
+      "action": "review",
+      "route": "pass",
+      "issue_count": 2,
+      "reminder_count": 0
+    }
+  ],
+  "open_items": [
+    {
+      "issue_id": "iss_hard_empty_fg",
+      "issue_type": "promise_loss",
+      "severity": "warning",
+      "location": "ForeshadowGraph",
+      "scope_of_impact": "承诺追踪",
+      "violated_rule": "ForeshadowGraph 不得为空",
+      "description": "ForeshadowGraph 为空 — 无伏笔/承诺被追踪",
+      "suggested_fix": null,
+      "resolution_status": "open",
+      "plotunit_ref": null,
+      "affected_threads": [],
+      "supporting_facts": [],
+      "contradictory_facts": [],
+      "type": "ReviewIssue",
+      "status": "open"
+    },
+    {
+      "issue_id": "iss_hook_pu_001",
+      "issue_type": "weak_progression",
+      "severity": "warning",
+      "location": "PlotUnit pu_001",
+      "scope_of_impact": "当前推进单元",
+      "violated_rule": "hook 合法性",
+      "description": "hook 'cliffhanger：一封来历不明的挑战书出现在主角案前' 对层级 'scene' 不合法",
+      "suggested_fix": null,
+      "resolution_status": "open",
+      "plotunit_ref": null,
+      "affected_threads": [],
+      "supporting_facts": [],
+      "contradictory_facts": [],
+      "type": "ReviewIssue",
+      "status": "open"
+    }
+  ],
+  "confidence_and_gaps": {},
+  "next_route": {
+    "recommended_workflow": "ContinueUnit",
+    "route_reason": "review_completed",
+    "review_route": "pass",
+    "must_read_first": [
+      "[本地路径]\\novels\\tier0-compose-canary\\output\\compose\\compose_result.json"
+    ],
+    "do_not_skip": [
+      "honor ReviewIssue and ReviewReminder state"
+    ]
+  }
+}

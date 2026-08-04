@@ -1,0 +1,69 @@
+{
+  "handoff_header": {
+    "source": "ReviewUnit",
+    "target": "ContinueUnit",
+    "reason": "review_completed"
+  },
+  "input_anchor": {
+    "review_target_ref": "[本地路径]\\novels\\tier0-extend-canary\\output\\extend\\extend_result.json"
+  },
+  "output_anchor": {
+    "state_ref": "s002"
+  },
+  "change_set": [
+    {
+      "action": "review",
+      "route": "pass",
+      "issue_count": 2,
+      "reminder_count": 0
+    }
+  ],
+  "open_items": [
+    {
+      "issue_id": "iss_hard_foreshadow_t001",
+      "issue_type": "promise_loss",
+      "severity": "warning",
+      "location": "ForeshadowGraph t001",
+      "scope_of_impact": "承诺追踪",
+      "violated_rule": "active 伏笔必须有 PlotUnit 引用",
+      "description": "伏笔 '主角身世之谜' (setup: 第一章末尾神秘人影) 处于 active 状态，但没有 PlotUnit 引用它",
+      "suggested_fix": "在后续 PlotUnit 中回收此伏笔，或标记为 abandoned",
+      "resolution_status": "open",
+      "plotunit_ref": null,
+      "affected_threads": [],
+      "supporting_facts": [],
+      "contradictory_facts": [],
+      "type": "ReviewIssue",
+      "status": "open"
+    },
+    {
+      "issue_id": "iss_hook_pu_002",
+      "issue_type": "weak_progression",
+      "severity": "warning",
+      "location": "PlotUnit pu_002",
+      "scope_of_impact": "当前推进单元",
+      "violated_rule": "hook 合法性",
+      "description": "hook 'reveal：阵法为何对她形同虚设？令牌背后另有来历' 对层级 'scene' 不合法",
+      "suggested_fix": null,
+      "resolution_status": "open",
+      "plotunit_ref": null,
+      "affected_threads": [],
+      "supporting_facts": [],
+      "contradictory_facts": [],
+      "type": "ReviewIssue",
+      "status": "open"
+    }
+  ],
+  "confidence_and_gaps": {},
+  "next_route": {
+    "recommended_workflow": "ContinueUnit",
+    "route_reason": "review_completed",
+    "review_route": "pass",
+    "must_read_first": [
+      "[本地路径]\\novels\\tier0-extend-canary\\output\\extend\\extend_result.json"
+    ],
+    "do_not_skip": [
+      "honor ReviewIssue and ReviewReminder state"
+    ]
+  }
+}

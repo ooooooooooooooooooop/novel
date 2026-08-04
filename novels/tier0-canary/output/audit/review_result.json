@@ -1,0 +1,21 @@
+{
+  "issues": [
+    {
+      "issue_id": "iss_hard_foreshadow_t001",
+      "issue_type": "promise_loss",
+      "severity": "warning",
+      "location": "ForeshadowGraph t001",
+      "scope_of_impact": "承诺追踪",
+      "violated_rule": "active 伏笔必须有 PlotUnit 引用",
+      "description": "伏笔 '主角身世之谜' (setup: 第一章末尾神秘人影) 处于 active 状态，但没有 PlotUnit 引用它",
+      "suggested_fix": "在后续 PlotUnit 中回收此伏笔，或标记为 abandoned",
+      "resolution_status": "open",
+      "plotunit_ref": null,
+      "affected_threads": [],
+      "supporting_facts": [],
+      "contradictory_facts": []
+    }
+  ],
+  "reminders": [],
+  "route": "pass"
+}
