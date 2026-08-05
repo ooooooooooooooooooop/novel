@@ -26,8 +26,16 @@ def test_valid_chapter_end_hook():
     assert validate_plotunit_hook("cliffhanger", "chapter_end") is True
 
 
-def test_invalid_chapter_end_hook():
-    assert validate_plotunit_hook("invalid", "chapter_end") is False
+def test_hook_type_mismatched_level_is_invalid():
+    # 显式类型名不属于该层级 → 非法
+    assert validate_plotunit_hook("cliffhanger", "scene") is False
+
+
+def test_freetext_hook_not_rejected_for_level():
+    # PlotUnit.hook 是自由文本钩子内容（LLM 生成的句子），
+    # 不应因不等于类型枚举而被判"对层级不合法"（旧实现系统性误报的根源）
+    assert validate_plotunit_hook("功法最后一页的封印内侧落着一个名字", "scene") is True
+    assert validate_plotunit_hook("", "scene") is True  # 无 hook 不验证
 
 
 def test_valid_catharsis_emotional_shift():

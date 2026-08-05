@@ -1,6 +1,7 @@
 """ReviewUnit — 审查工作流."""
 
 import json
+import re
 from collections import defaultdict
 
 from src.domain_layer.rules import (
@@ -165,6 +166,53 @@ def _pu_info_text(pu: PlotUnit) -> str:
             + list(pu.consequences),
         )
     )
+
+
+_FORESHADOW_STOPWORDS = frozenset(
+    (
+        "的", "了", "是", "说", "在", "有", "和", "与", "就", "都", "也",
+        "不", "没", "会", "要", "能", "把", "被", "让", "那", "这",
+        "他", "她", "你", "我", "们", "一个", "什么", "怎么", "为什么",
+        "它", "上", "下", "里", "时", "后", "前", "再", "又", "还", "只",
+    )
+)
+
+
+def _foreshadow_keywords(content: str, max_keywords: int = 4) -> list[str]:
+    """从伏笔内容提取核心关键词（2-6 字中文片段，排除停用词），供内容级引用匹配."""
+    segments = re.findall(r"[一-鿿]{2,}", content or "")
+    keywords: list[str] = []
+    seen: set[str] = set()
+    for seg in segments:
+        for length in range(6, 1, -1):
+            for i in range(len(seg) - length + 1):
+                word = seg[i : i + length]
+                if word in seen:
+                    continue
+                if any(stop in word for stop in _FORESHADOW_STOPWORDS):
+                    continue
+                seen.add(word)
+                keywords.append(word)
+    return keywords[:max_keywords]
+
+
+def _foreshadow_referenced(
+    entry,
+    plotunit_ids: set[str],
+    pu_texts: list[str],
+) -> bool:
+    """判断 active 伏笔是否被任一 PlotUnit 引用.
+
+    优先看显式 linked_plotunits；否则做内容级匹配——任一 PlotUnit 的信息文本
+    包含伏笔内容的核心关键词即视为被引用（避免只看 id 链接导致漏判）。
+    """
+    linked = set(entry.linked_plotunits or [])
+    if linked.intersection(plotunit_ids):
+        return True
+    keywords = _foreshadow_keywords(entry.content)
+    if not keywords:
+        return False
+    return any(any(kw in text for kw in keywords) for text in pu_texts)
 
 
 class ReviewUnit:
@@ -391,25 +439,27 @@ class ReviewUnit:
                         )
 
         # 规则6: active 状态的 ForeshadowEntry 必须至少被一个 PlotUnit 引用
+        # （显式 linked_plotunits id，或任一 PlotUnit 信息文本提及伏笔核心内容）
         plotunit_ids = {pu.unit_id for pu in plotunits}
+        pu_texts = [_pu_info_text(pu) for pu in plotunits]
 
         for fg in foreshadows:
             for entry in fg.get_active():
-                linked = set(entry.linked_plotunits or [])
-                if not linked.intersection(plotunit_ids):
-                    issues.append(
-                        ReviewIssue(
-                            issue_id=f"iss_hard_foreshadow_{entry.thread_id}",
-                            issue_type="promise_loss",
-                            severity="warning",
-                            location=f"ForeshadowGraph {entry.thread_id}",
-                            scope_of_impact="承诺追踪",
-                            violated_rule="active 伏笔必须有 PlotUnit 引用",
-                            description=(
-                                f"伏笔 '{entry.content}' (setup: {entry.setup_point}) "
-                                "处于 active 状态，但没有 PlotUnit 引用它"
-                            ),
-                            suggested_fix="在后续 PlotUnit 中回收此伏笔，或标记为 abandoned",
+                if _foreshadow_referenced(entry, plotunit_ids, pu_texts):
+                    continue
+                issues.append(
+                    ReviewIssue(
+                        issue_id=f"iss_hard_foreshadow_{entry.thread_id}",
+                        issue_type="promise_loss",
+                        severity="warning",
+                        location=f"ForeshadowGraph {entry.thread_id}",
+                        scope_of_impact="承诺追踪",
+                        violated_rule="active 伏笔必须有 PlotUnit 引用",
+                        description=(
+                            f"伏笔 '{entry.content}' (setup: {entry.setup_point}) "
+                            "处于 active 状态，但未被任何 PlotUnit 显式引用或推进"
+                        ),
+                        suggested_fix="在后续 PlotUnit 中回收此伏笔，或标记为 abandoned",
                         )
                     )
 
