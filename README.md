@@ -1,287 +1,212 @@
-# Automatic Novel Narrative System
+# Automatic Novel Narrative System · 自动小说叙事系统
 
-## Project
+An automatic novel narrative system that parses narrative structure, maintains narrative state, plans story progression, and reviews generated results.
 
-This repository is building the foundation of an automatic novel narrative system.
+一个自动小说叙事系统：解析叙事结构、维护叙事状态、规划故事推进、审查生成结果。
 
-The long-term goal is a system that can:
+> **Tier 0 production-ready** — local staged CLI, operator-in-the-loop · **1773 tests passing** · checkpoint tag `v0.1.1-tier0`
 
-- parse narrative structure
-- maintain narrative state
-- plan story progression
-- review generated results
-- support rebuilding, continuation, rewriting, and later implementation work
+---
 
-## Current Phase
+## Project / 项目简介
 
-The repository is now **Tier 0 production ready — three-flow daily-production hardened** — end-to-end validated, Codex-native orchestration.
+The long-term goal is a system that can parse narrative structure, maintain narrative state, plan story progression, review generated results, and support rebuilding, continuation, rewriting, and later implementation work.
 
-All three implementation slices are code-complete and validated:
-`audit_short_form`, `extend_short_form`, and `compose_short_form`.
+长期目标是让系统能够：解析叙事结构、维护叙事状态、规划故事推进、审查生成结果，并支持重建（Rebuild）、续写（Continue）、改写（Rewrite）及后续的落地实现工作。
 
-Tier 0 (local staged CLI v0, operator-in-the-loop) was declared production-ready on 2026-07-28:
+The repository contains both a complete design layer (`docs/`) and a running implementation layer (`src/`). This is a current-state description, not a permanent restriction on later phases.
 
-- production tier: `local staged CLI v0`
-- full pytest baseline: 1773 tests passing
-- release record: `docs/00_project/releases/tier0-release.json` — passing the single combined validation command
-- canary evidence: `docs/00_project/releases/tier0-canary-evidence.json`
-- saved canary gate result: `docs/00_project/releases/tier0-canary-gate.json`
+仓库同时包含完整的设计层（`docs/`）和可运行的实现层（`src/`）。这是当前状态的描述，而非对后续阶段的永久限制。
+
+## Current Status / 当前状态
+
+The repository is **Tier 0 production-ready — three-flow daily-production hardened**. All three implementation slices are code-complete and validated end-to-end:
+
+仓库已达 **Tier 0 生产就绪 —— 三条流水线日常生产硬化**。三个实现切片全部代码完成并通过端到端验证：
+
+- **Audit / 审核** (`audit_short_form`): Rebuild + Review pipeline — 从已有文本重建对象状态并审查
+- **Extend / 续写** (`extend_short_form`): Rebuild + Continue + Review pipeline — 从已有文本续写
+- **Compose / 创作** (`compose_short_form`): WorkSpec + Initialize + Continue + Review pipeline — 从创作规格写新作
+
+Tier 0 生产就绪判定（2026-07-28 宣布）：
+
+- production tier: `local staged CLI v0`（本地分阶段 CLI v0）
+- full pytest baseline: 1773 tests passing（完整回归基线 1773 个测试通过）
+- release record: `docs/00_project/releases/tier0-release.json`
 - immutable checkpoint: git tag `v0.1.1-tier0`
-- audit canary `novel gate tier0-canary --json`: `ok=true`, `review_route=pass`, `next_workflow=ContinueUnit`, `blocking_pending_count=0`
-
-Three-flow daily-production hardening (2026-07-29) extended the Tier 0 verdict from audit-only to all three flows:
-
-- extend and compose canaries each ran a real staged Codex loop and passed `novel gate` with the same four standards; per-flow gate results at `tier0-extend-canary-gate.json` / `tier0-compose-canary-gate.json`; aggregation evidence at `tier0-three-flow-canary-aggregation.json`
-- operator runbook: `docs/00_project/35_operator_runbook.md`
+- extend / compose canaries 均通过 `novel gate` 同四标准；聚合证据在 `docs/00_project/releases/tier0-three-flow-canary-aggregation.json`
 - one-command regression gate: `python scripts/tier0_canary_regression.py`
-- hardening planning: `docs/00_project/34_tier0_daily_production_hardening_plan.md`
 
-> **Evidence caveat**: the extend/compose canary workspaces as committed lack `extend_rebuild_package.json` / `compose_state.json`, so `novel gate` on them currently reports `ContinueUnit requires a serialization package` and `python scripts/tier0_canary_regression.py` reports FAIL for extend/compose (the audit canary still passes). This predates the A-E hardening (the `31fc12a` gate contract); regenerating that evidence is a pending operator task. See Known Limitations in `docs/00_project/30_production_readiness_checklist.md`.
+Tier 0 边界仍然生效：
 
-Tier 0 boundaries that remain in force:
+- DirectAPI 供应商调用未实现；闭环全自动仍未放开
+- Tier 0 不是公开产品形态；release record 不替代 release tag / 不可变 checkpoint
+- response 文件必须由操作者或 Codex 落地，脚本不自动调用模型
 
-- DirectAPI provider calling is not implemented
-- closed-loop automation remains disallowed
-- Tier 0 is not a public product surface
-- release record does not replace a release tag or immutable checkpoint
-- response files must be materialized by the operator or Codex; no automatic model call is performed
+## Features / 功能特性
 
-Current checkpoint judgment:
+- **三流完成**：audit（审核）、extend（续写）、compose（创作）
+- **领域层**：genre formula、hook taxonomy、情绪弧模板、结构节点-情绪映射、关键节点钩子质量要求、平台约束、genre 规则
+- **长程编排**：NarrativeFrameUnit 维护 book/arc/chapter/scene 层级
+- **增量续写**：`--resume` 模式从保存状态继续，自动推进 scene cursor
+- **长文章节级处理**：`chunking` 切章节、`reconcile` 跨章合并、`audit_report` 生成报告；支持 `--range`、`--batch-size`、`--max-chapters`、input hash 校验
+- **结构概览**：OutlineUnit `--outline-only`；30+ 章长文 audit / extend 自动作为 Rebuild 结构先验
+- **结构一致性**：Reconcile 用 outline 检查角色与 genre 一致性；`check_temporal_contradictions` 做时间矛盾检测（死亡后仍活跃 / 过期事实仍被持有 / 时间感知否定）
+- **信息凭证一致性**：六通道谱系（亲历/转述/书面/公开/推断/记忆）+ P1-P4 凭证约束；`iss_info_*` 弱信号（转述产亲历细节 / 转述时效 / 知识域翻转）
+- **事实时间有效性**：`FactEntry.validity_interval`，`to_prompt_line` 渲染 `(第三章~第五章)` 后缀；旧 state 可反序列化
+- **写作风格**：`novel style` 提炼 StyleProfile（量化分析 + LLM 质性提炼），compose/extend 注入续写 prompt；`--lint` 做 AI 味检查；风格库 `--name` 另存 / `--style` 跨小说引用
+- **状态检索**：以当前 NarrativeState 为 query，从 FactLedger/ForeshadowGraph 检索 top-k 相关条目注入 Continue prompt；零依赖 TF-IDF/关键词；`--retrieval on|off`（默认 on，空语料/空 query 静默降级字节不变）
+- **时间域**：TimeBook 先验模型 + `novel time` 管理（--rebuild 锚提取 / --check 时间线报告 / --status）；FACTTRACK v2 检测时间回退 / 先知逾期 / 季节历法违反；Continue 以【时间上下文】段注入
+- **零成本契约**：无 TimeBook → 无注入、无检测、无产物，prompt 字节与旧版逐字节相同（回归测试锁死）
+- **统一入口**：`novel` 命令管理 `novels/<小说名>/` 工作目录，并调用 audit / extend / compose / style / compliance / rubric / time staged CLI
+- **内容合规**：`novel compliance` 单遍扫描，产出合规报告（风险等级/位置锚点/严重级/替换建议）
+- **离线评测**：`novel rubric` 导出 WebNovelBench 8 维本地 rubric（装配时间一致性后 9 维）
 
-- foundation gate status: `pass`
-- transition-planning sufficiency: `pass`
-- implementation-planning sufficiency: `pass`
-- implementation status: `end_to_end_validated`
-- orchestration mode: staged prompt, Codex response, rerun
-- current next step: use the unified `novel` entry for multi-novel staged runs
-
-Current work has completed:
-
-- bounded implementation slices: all three complete and validated
-- LLM layer split: workflow units expose `build_prompt()` and `parse_response()`
-- long-form multi-arc stress test: PASS
-- executable no-regression tests: 1773 tests passing
-- end-to-end Audit / Extend / Compose validation: PASS
-## Implementation Status
-
-- **Slice 1: `audit_short_form`** - Complete
-  - Rebuild + Review pipeline
-  - 8 core object models (Pydantic v2)
-  - 4-layer JSON serialization
-  - Handoff packet structure
-  - Entry script: `src/audit_short_form.py`
-  - End-to-end validation: PASS
-- **Slice 2: `extend_short_form`** - Complete
-  - Rebuild + Continue + Review pipeline
-  - Entry script: `src/extend_short_form.py`
-  - Long-form state inheritance validation: PASS
-  - End-to-end validation: PASS
-- **Slice 3: `compose_short_form`** - Complete
-  - WorkSpec + Initialize + Continue + Review pipeline
-  - Entry script: `src/compose_short_form.py`
-  - Default WorkSpec validation: PASS
-  - End-to-end validation: PASS
-- **Domain layer** - Complete (Phase B)
-  - Genre formulas, hook taxonomy, emotional arc templates
-  - Structure node -> emotion mapping (B1)
-  - Platform constraints (B2)
-  - Hook effectiveness + genre rules (B3)
-- **Incremental continuation** - Complete (Slice D1)
-  - `extend_short_form.py` supports `--resume` to skip Rebuild and continue from saved state
-  - `compose_short_form.py` supports `--resume` to skip Initialize and continue from saved state
-  - Frame cursor auto-advances to next scene after each successful Continue
-  - Frame state persisted to `output/extend_frames.json` and `output/compose_frames.json`
-- **LLM layer split** - Complete
-  - `RebuildUnit`, `ContinueUnit`, and `ReviewUnit` no longer receive an `llm` parameter
-  - each unit exposes `build_prompt()` and `parse_response()`
-  - scripts no longer call an LLM internally
-  - `src/llm_interface.py` remains as a backup interface layer
-  - DirectAPI has a provider-agnostic interface contract, pending response-slot discovery, and staged response runner; provider calls remain unimplemented
-  - OrchestrationGateUnit exists as a minimal executable route gate, not an
-    automatic closed-loop runner
-- **Deployment shape** - Adopted for v0
-  - local Codex-native staged CLI is the current usable runtime surface
-  - all flow outputs should be isolated with `--output-dir`
-  - DirectAPI, UI, and fully automatic closed-loop model calls remain deferred
-- **Validation status**
-  - `pytest tests/ -q`: 1773 tests passing
-  - long-form multi-arc Audit / Extend stress test: PASS
-  - end-to-end Audit / Extend / Compose workflow validation: PASS
-
-## Usage
-
-The preferred entry point is `novel`, a thin wrapper around the existing Codex-native staged workflows. It creates `novels/<name>/`, copies the input into that workspace, writes intermediate files under `novels/<name>/output/<mode>/`, and then calls the underlying short-form script.
-
-Install locally if needed:
+## Install / 安装
 
 ```bash
 pip install -e .
 ```
 
-Audit existing text:
+## Usage / 使用
+
+The preferred entry point is `novel`, a thin wrapper around the Codex-native staged workflows. It creates `novels/<name>/`, copies the input into that workspace, writes intermediate files under `novels/<name>/output/<mode>/`, and calls the underlying short-form script.
+
+首选入口是 `novel` —— 围绕 Codex 分阶段工作流的统一封装。它在 `novels/<小说名>/` 下创建工作区、复制输入、在 `output/<mode>/` 写中间文件，并调用底层脚本。章节正文统一写入 `novels/<小说名>/chapters/`。
+
+**Codex 分阶段循环**（所有有 response 阶段的命令通用）：
+
+1. 运行 `novel <mode> <小说名> [参数]`
+2. 若打印 `[WAITING]`，读取它指定的 prompt 文件，按提示生成 JSON 响应
+3. 保存到对应的 response 文件，重跑同一命令
+4. 重复直到脚本正常退出，报告产物路径与 route / issues 概要
+
+### Audit 审核已有文本
 
 ```bash
 novel audit 示例小说甲 --input 示例小说甲.txt
+novel audit 示例小说甲 --input 示例小说甲.txt --range 1-50 --batch-size 5   # 长文分章
+novel audit 示例小说甲 --outline-only                                        # 仅结构概览
 ```
 
-Extend existing text:
+### Extend 续写已有文本
 
 ```bash
 novel extend 示例小说乙 --input 示例小说乙.txt
 ```
 
-Compose from WorkSpec or the default WorkSpec:
+- 三次重跑（Rebuild → Continue → Review）；章节正文写入 `novels/示例小说乙/chapters/chapter_<编号>.txt`
+- 续写从原文章节后一编号续起，篇幅对齐原文章均，参考原文语感与意象系统
+
+### Compose 从 WorkSpec 创作
 
 ```bash
 novel compose 仙侠新作
 novel compose 仙侠新作 --workspec workspec.json
 ```
 
-List and resume:
+### Style 写作风格提炼
+
+```bash
+novel style 示例小说丙 --input 示例小说丙.txt                    # 提炼 → 自动入库
+novel style 示例小说丙 --input 示例小说丙.txt --name 克制风       # 另存为命名档案
+novel style 示例小说丙 --style 克制风 --lint                  # 引用库档案做禁忌词 lint
+novel style 某作 --style-search "人物:衬托"                     # 检索风格库档案
+```
+
+### Compliance 内容合规扫描
+
+```bash
+novel compliance 某作 --input 某作.txt --platform 通用
+novel compliance 某作 --input 某作.txt --sensitive off      # 关闭词库扫描
+novel compliance 某作 --input 某作.txt --lexicon custom.json # 合并自定义词库
+```
+
+### Rubric 离线评测 rubric 导出
+
+```bash
+novel rubric 某作
+```
+
+### Time 时间域管理
+
+```bash
+novel time 某作 --input 某作.txt --rebuild   # 提取时间锚点，生成 time_book.json
+novel time 某作 --input 某作.txt --check     # 产出时间线报告
+novel time 某作 --status                     # 打印 TimeBook 状态
+```
+
+### 任务查看与断点续跑
 
 ```bash
 novel list
-novel list --json
-novel pending <name>
-novel pending <name> --json
-novel pending <name> --newer-than <timestamp> --json
-novel pending <name> --slot-id <slot_id> --json
-novel pending <name> --slot-id <slot_id> --prompt-hash <hash> --json
-novel pending <name> --require-automation-ready --json
-novel respond <name> --response-file response.json
-novel respond <name> --response-file response.json --slot-id <slot_id>
-novel respond <name> --response-file response.json --prompt-hash <hash>
-novel respond <name> --response-file response.json --json
-novel gate <name>
-novel gate <name> --json
 novel resume 示例小说甲
+novel pending <name> --json      # 只读列出待处理 prompt/response 槽位
+novel respond <name> --response-file response.json   # 落地已有响应文件
+novel gate <name> --json         # 只读编排门卫判定
 ```
 
-Long-form options (audit / extend):
+### 常用开关
 
 ```bash
-novel audit 示例小说甲 --input 示例小说甲.txt --range 1-50 --batch-size 5 --max-chapters 200
-novel audit 示例小说甲 --outline-only      # structure-overview only
+novel compose 新作 --retrieval off   # 关闭状态检索注入（默认 on）
+novel --help && novel audit --help   # 查看各子命令帮助
+pytest tests/ -q                     # 跑完整回归测试
 ```
 
-- `--range A-B`: restrict to chapter range [A, B]
-- `--batch-size N`: process N chapters per Rebuild batch
-- `--max-chapters N`: hard cap on chapters per run
-- `--outline-only`: produce OutlineUnit overview, skip detailed Rebuild
-- chapter-wise audit / extend automatically run an outline stage when processing 30+ chapters; staged files are `outline_prompt.txt`, `outline_response.txt`, and `outline_result.json`
-- input / WorkSpec hash is recorded in the mode output directory; mismatch on rerun is an error
+## Core Objects / 核心对象
 
-Codex staged loop:
+- `WorkSpec` — 创作规格（genre/theme/tone/platform/时间）
+- `WorldModel` — 世界模型
+- `CharacterModel` — 角色模型
+- `NarrativeState` — 叙事状态
+- `PlotUnit` — 情节单元（含 `formula_node` 结构节点关联）
+- `FactLedger` — 事实账本（含 `validity_interval` 时间有效性）
+- `ForeshadowGraph` — 伏笔图
+- `ReviewIssue` — 审查问题
+- `StyleProfile` — 写作风格档案（spec，非状态；`--name` 存风格库）
+- `TimeBook` — 时间域先验模型（spec，非状态；全字段 Optional，缺省零成本）
 
-1. Run `novel <mode> <name> [parameters]`.
-2. If the script prints `[WAITING]`, read the prompt file it names.
-3. Generate the required JSON response and save it to the matching response file.
-4. Re-run the same `novel` command until it exits with a final result.
-5. Use `route_handoff.json` when a downstream orchestrator needs the structured Review route handoff.
-6. `novel list` validates `route_handoff.json` against the final result when it is present; add `--json` for machine-readable task status rows with `schema_version=1`, `command=list`, structured route fields, pending-slot fields, `latest_mtime`, `pending_slot_id`, pending prompt hash / byte / mtime metadata, and the same automation-readiness metadata used by `novel pending --json`.
-7. Run `novel pending <name>` when you need a read-only list of pending prompt/response slots; add `--json` for machine-readable output with `selection_method`, `slot_id`, pending prompt hash, positive pending prompt bytes, and automation-readiness metadata; pending slot prompt hashes and byte counts must match current prompt files, pending slot prompt mtime must match current prompt files, pending/list JSON prompt evidence must match current prompt files, pending response paths must not already exist, and all_pending entries must match current pending discovery; pass `--newer-than <finite-timestamp>` to filter stale prompts, pass `--slot-id <slot_id>` to verify one pending slot without writing a response, add `--prompt-hash <hash>` to preflight the expected prompt content hash before a provider call, and add `--require-automation-ready` when automation needs a non-zero exit unless exactly one verified staged slot is ready.
-8. Run `novel respond <name> --response-file <path>` to materialize an existing raw response file into a pending staged slot; use `--slot-id <slot_id>` or `--prompt <prompt_file>` when multiple slots are pending, the write is bound to the verified prompt hash, `--prompt-hash <hash>` additionally requires a caller-provided expected hash, and `--json` emits machine-readable write metadata including `selection_method`, `slot_id`, prompt / response hashes, prompt / response byte counts, and the staged response materialization contract. `response_source_hash` / `response_source_bytes` are computed from the same source bytes that were decoded for the staged write; staged response writes preserve decoded UTF-8 bytes without platform newline translation; before JSON success is emitted, the prompt must still match the verified prompt hash, the staged `response_hash` must match the text just written, `response_source` must not match staged `prompt_path` or `response_path`, respond JSON file evidence must match current files, respond JSON source text must match staged response file, respond JSON response text must be non-empty, respond JSON response_source mtime must not be older than prompt_path, respond JSON response_path mtime must not be older than prompt_path, response bytes must be at least response characters, response source bytes must not be less than staged response bytes, and response source bytes / staged response bytes / response characters must be positive response materialization counts.
-9. Run `novel gate <name>` when you need a read-only orchestration gate verdict for the saved workspace; add `--json` for machine-readable output.
-10. For subcommands that accept `--json`, argument and runtime failures are emitted as JSON with `ok=false`, `error_stage`, `error_type`, and `error`; `error_stage` is `argument` before argparse succeeds and `runtime` after parsed execution begins; `error_type` must be an exception class identifier; runtime failures include a supported parsed `command`; commands with a novel argument require parsed `novel`, while `list` errors require `novel=null`; object-shaped payloads include `schema_version=1`, object-shaped success payloads include `ok=true` and `command`, and `list --json` remains a top-level array of versioned rows with `command=list`.
-10. Report the final artifact path and route summary.
+## Core Judgments / 核心判断
 
-Helpful commands:
+- State first, text second. 状态先行，文本其后。
+- Facts must be separated from inference. 事实必须与推断分离。
+- A `PlotUnit` is only valid if it causes meaningful state change. `PlotUnit` 只有在引发有意义的状态变化时才有效。
+- `Review` is the routing hub of the operational workflows. `Review` 是运营工作流的路由枢纽。
+- Formal `Rewrite` should be issue-driven, not feeling-driven. 正式 `Rewrite` 应由问题驱动，而非感觉驱动。
 
-```bash
-novel --help
-novel audit --help
-novel extend --help
-novel compose --help
-novel pending --help
-novel respond --help
-novel gate --help
-pytest tests/ -q
-```
+## Workflow Map / 工作流
 
-Response files are the resume points. If a response file is missing, the script prints `[WAITING]` and exits normally; re-run the same script after saving the response.
-Existing prompt and response files are preserved as staged evidence; the file-exchange interface fails instead of overwriting them.
-Prompt files must use the `<valid-slot>_prompt.txt` naming contract and point to the matching same-directory `<slot>_response.txt`; slot ids are ASCII slugs using letters, digits, `_`, and `-`, and cannot be blank, path-like, whitespace-padded, or end with staged prompt/response suffixes.
-Pending-slot discovery rejects empty prompt files instead of listing them as work for automation.
-The `[AGENT_ACTION]` block includes `schema_version`, `slot_id`, `prompt_hash`, and positive `prompt_bytes`; action payload generation validates before returning; pass the hash back through `novel respond --prompt-hash` when you need an explicit write guard.
-Automation clients can parse this block with `parse_file_exchange_action_block()`, which requires non-empty text output and rejects unknown fields, unsupported schema versions, and blank prompt/response path metadata through the same `FileExchangeAction` structure checks used when printing the block.
-Before accepting a response file, the file-exchange interface rechecks that the prompt still matches that hash.
-Automation adapters may use `StagedResponseRunner.call_single_pending()` only when there is exactly one pending slot, or `call_pending_slot()` when the caller supplies an explicit `slot_id`; pending discovery output_dir must be absolute, pending slot paths must be absolute, pending response paths must not already exist, and both runner paths bind the write to the discovered prompt hash and require response slot paths to be absolute before provider calls or response writes. They also require the interface name snapshot to stay stable during the provider call. Use the corresponding result-returning methods when an adapter needs `StagedResponseResult` audit metadata for the prompt hash, response hash, byte counts, slot id, and interface name; `interface_name` must not contain whitespace, and result paths must be absolute; the result object validates that metadata against the current staged files, `to_payload()` emits versioned metadata without response text and records that only staged response materialization occurred, and `from_payload()` rejects unknown fields, old payloads missing that materialization contract, non-string or blank path/file metadata, relative result paths, and any payload claiming a provider call or closed-loop advance before revalidating file evidence.
-Shared automation contract constants, exact field-order declarations, metadata builders, metadata fragment extractors, in-payload metadata validators, pending metadata exact-field validation, and materialization metadata exact-field validation live in `src/boundary_control/automation_contracts.py`; CLI JSON self-validates those fragments before emit, staged response result payloads reuse the same helpers, and future UI/provider adapters must use those helpers instead of duplicating contract strings, slicing fragments ad hoc, composing validation steps, or assembling those payload fragments by hand.
-That module is metadata-only: it must not import filesystem, provider, route, handoff, or runner dependencies.
-The CLI pending JSON payload also self-validates its exact pending fields, string keys, workspace novel names, `output_dir` must be absolute, pending slot entry fields, expected prompt hashes, positive pending prompt bytes, pending slot prompt hashes and byte counts must match current prompt files, pending slot prompt mtime must match current prompt files, pending/list JSON prompt evidence must match current prompt files, pending response paths must not already exist, all_pending entries must match current pending discovery, expected prompt hash binding, selection method contract, pending preflight requires slot_id selection, freshness timestamps, route_artifact_mtime must match current route artifacts, prompt_mtime must be newer than effective freshness cutoff, effective freshness cutoff, and `pending_count` versus pending entries before emit.
-The CLI respond JSON payload also self-validates its exact respond fields, string keys, content hashes, expected prompt hashes, expected prompt hash binding, selection method contract, freshness timestamps, route_artifact_mtime must match current route artifacts, prompt_mtime must be newer than effective freshness cutoff, effective freshness cutoff, byte/character counts, response_bytes must be at least response_chars, response_source_bytes must not be less than response_bytes, prompt-hash verification flag, `response_source` must not match staged `prompt_path` or `response_path`, respond JSON file evidence must match current files, respond JSON source text must match staged response file, respond JSON response text must be non-empty, respond JSON response_source mtime must not be older than prompt_path, respond JSON response_path mtime must not be older than prompt_path, and materialization metadata before emit. Response materialization audit flags `provider_call_performed` and `closed_loop_advanced` must be exact `false`; numeric stand-ins such as `0` are not accepted.
-The CLI gate JSON payload also self-validates exact gate fields, string keys, violation lists, blocking pending prompt file lists, blocking prompt files must be staged prompt filenames, gate package file must match mode, gate JSON artifact existence must match current files, gate JSON route handoff content must match current handoff file, gate JSON verdict fields must match current gate verdict, ContinueUnit pass requires package_present, and `blocking_pending_count` before emit. With `novel gate --require-approval`, the CLI emits an independent self-validating approval gate JSON contract — the same 13 standard gate fields as a verbatim prefix plus four approval fields (`approval_required`, `critical_issue_ids`, `approval_decision`, `approval_ok`); the default `novel gate` output is unchanged.
-The CLI list JSON row payload also self-validates exact list row fields, string keys, finite non-negative `latest_mtime`, latest_mtime must match current workspace files, list JSON detail must match status and route evidence, list row pending prompt mtime, pending_prompt_mtime must be newer than current route artifacts, list row pending prompt bytes, pending/list JSON prompt evidence must match current prompt files, pending response paths must not already exist, list waiting rows must match current pending discovery, list JSON artifact existence must match current files, list JSON final result route content must match current result file, list JSON route handoff content must match current handoff file, list JSON gate verdict fields must match current gate verdict, pending metadata / count consistency, and gate blocking metadata before emit while keeping the top-level list output as an array.
-`novel pending --json` exposes `automation_contract_version`, `automation_contract`, `automation_ready`, `automation_ready_reason`, `automation_blockers`, `allowed_automation_action`, `provider_calls_implemented`, and `closed_loop_allowed`. Pending automation contract/action/reason labels must be non-empty strings, and `automation_blockers` must be a list of non-empty strings. `automation_ready=true` only authorizes the caller to prepare the same staged response materialization path; provider calls remain unimplemented and closed-loop workflow advancement remains disallowed. `--require-automation-ready --json` turns not-ready metadata into an `ok=false` runtime result while preserving the same evidence and blockers.
+- `Rebuild` — reconstruct object state from existing text / 从已有文本重建对象状态
+- `Review` — judge validity, classify failures, route next action / 判定有效性、分类失败、路由下一动作
+- `Continue` — generate the next valid progression / 从当前状态生成下一个有效推进
+- `Rewrite` — apply minimal repair based on formal issues / 基于正式问题做最小修复
 
-## Core Objects
+## Privacy & Repository Discipline / 隐私与仓库纪律
 
-- `WorkSpec`
-- `WorldModel`
-- `CharacterModel`
-- `NarrativeState`
-- `PlotUnit`
-- `FactLedger`
-- `ForeshadowGraph`
-- `ReviewIssue`
+All concrete novel information — titles, prose, characters, workspace names, author pen names — stays **out of this repository**. GitHub holds only the tooling framework (code, tests, scripts, rule docs, run configs, and the neutral style-library accumulation).
 
-## Core Judgments
+所有具体小说信息（标题、正文、角色、工作区名、作者笔名）一律不进入本仓库。GitHub 仅保留工具框架（代码、测试、脚本、规则文档、运行配置、中性命名的风格库积累）。
 
-- State first, text second.
-- Facts must be separated from inference.
-- A `PlotUnit` is only valid if it causes meaningful state change.
-- `Review` is the routing hub of the operational workflows.
-- Formal `Rewrite` should be issue-driven, not feeling-driven.
+- Novel workspaces live locally under `novels/<name>/` and are gitignored（`novels/*/` 已入 `.gitignore`，canary 证据目录反向放行）；正文仅存本地
+- Writing-style accumulation may be committed as neutral files under `style_library/<name>.json`（不含小说名/作者笔名/机器路径）
+- If novel-specific content ever lands in git history, rewrite the history with `git filter-repo` before pushing（本项目已按此执行并 force-push）
 
-## Workflow Map
+## Read First / 新手指引
 
-- `Rebuild`: reconstruct object state from existing text
-- `Review`: judge validity, classify failures, and route next action
-- `Continue`: generate the next valid progression from current state
-- `Rewrite`: apply minimal repair based on formal issues
-
-## Read First
-
-If you are a newly opened agent, read in this order:
+New to the repository? Read in this order:
 
 1. `AGENTS.md`
 2. `docs/00_project/02_agent_quickstart.md`
 3. `docs/00_project/03_current_status.md`
-4. `docs/00_project/06_foundation_checkpoint.md`
-5. `docs/00_project/07_phase_transition_memo.md`
-6. `docs/00_project/08_foundation_phase_gate.md`
-7. `docs/00_project/09_preimplementation_boundary_lock.md`
-8. `docs/00_project/10_transition_planning.md`
-9. `docs/00_project/11_implementation_planning_entry_pack.md`
-10. `docs/00_project/12_serialization_candidate_note.md`
-11. `docs/00_project/13_handoff_schema_candidate_note.md`
-12. `docs/00_project/14_runtime_orchestration_boundary_note.md`
-13. `docs/00_project/15_no_regression_verification_checklist.md`
-14. `docs/00_project/16_implementation_planning.md`
-15. `docs/00_project/17_implementation_unit_map.md`
-16. `docs/00_project/18_serialization_responsibility_map.md`
-17. `docs/00_project/19_workflow_handoff_responsibility_map.md`
-18. `docs/00_project/20_orchestration_gate_map.md`
-19. `docs/00_project/21_no_regression_acceptance_test_list.md`
-20. `docs/00_project/27_deployment_shape_decision.md`
-21. `docs/00_project/04_agent_operating_model.md`
-22. `docs/00_project/05_narrative_agent_harness.md`
-23. `docs/00_project/00_project_brief.md`
-24. `docs/00_project/01_scope_and_boundaries.md`
-25. `docs/07_decisions/03_workflow_order_decisions.md`
-26. `docs/07_decisions/08_context_packaging_decisions.md`
-27. `docs/07_decisions/09_review_reminder_decisions.md`
-28. `docs/07_decisions/10_ownership_matrix_decisions.md`
-29. `docs/07_decisions/11_reviewreminder_escalation_matrix.md`
-30. `docs/07_decisions/12_concurrent_reminder_routing_decisions.md`
-31. `docs/07_decisions/13_factledger_admission_thresholds.md`
-32. `docs/00_project/28_directapi_boundary_note.md`
-33. `docs/00_project/29_automation_readiness_boundary.md`
-34. `docs/00_project/30_production_readiness_checklist.md`
-35. `docs/00_project/31_tier0_canary_runbook.md`
-36. `docs/00_project/32_tier0_release_record_contract.md`
+4. `docs/00_project/30_production_readiness_checklist.md`
+5. `docs/00_project/31_tier0_canary_runbook.md`
+6. `docs/00_project/32_tier0_release_record_contract.md`
 
-## Current Repository Shape
+## Tests / 测试
 
-The repository now contains both a complete design layer and a running implementation layer.
-That is a current-state description, not a permanent restriction on later phases.
+```bash
+pytest tests/ -q
+```
+
+Baseline: **1773 tests passing**（Windows 下测试请带 `PYTHONIOENCODING=utf-8`）。
