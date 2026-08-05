@@ -13,6 +13,7 @@
 - 长文章节级处理：`chunking` 切章节、`reconcile` 跨章合并、`audit_report` 生成报告；audit/extend 入口支持 `--range`、`--batch-size`、`--max-chapters`、input hash 校验
 - 结构概览：OutlineUnit 提供 `--outline-only` 模式，并已接入长文 audit / extend 主管线（30+ 章时作为 Rebuild 结构先验）
 - 结构一致性：audit Reconcile 阶段使用 outline 检查角色与 genre 一致性；`check_temporal_contradictions` 做时间矛盾检测（死亡后仍活跃 / 过期事实仍被持有 / 时间感知否定）
+- 信息凭证一致性：`09_information_warrant_rules.md` 定义"角色凭什么知道"（通道/时效/来源）；`info_warrant_knowledge.py` 存六通道谱系（亲历/转述/书面/公开/推断/记忆）+ P1-P4 凭证约束；review 弱信号检测 iss_info_channel（转述产亲历细节）/ iss_info_relay（转述时效）/ iss_info_scope（知识域翻转），与 `05_information_release_rules.md`（该不该知道）正交互补
 - 事实时间有效性：`FactEntry.validity_interval`（ValidityInterval，None=始终有效），to_prompt_line 渲染 `(第三章~第五章)` 后缀；旧 state（无该字段）可反序列化
 - 写作风格：`novel style` 提炼 StyleProfile（量化分析 + LLM 质性提炼），compose/extend 注入续写 prompt；`--lint` 做 AI 味检查；风格库（`--name` 另存 / `--style` 跨小说引用）
 - 状态检索：以当前 NarrativeState 为 query，从 FactLedger/ForeshadowGraph 检索 top-k 相关条目注入 Continue prompt（【相关事实检索】段）；零依赖 TF-IDF/关键词（档 1）；`--retrieval on|off` 开关（默认 on，空语料/空 query 静默降级字节不变）
@@ -22,7 +23,7 @@
 - 章节正文目录：续写/创作的章节正文统一存 `novels/<小说名>/chapters/`（如 `chapters/chapter_1197.txt`），与 `output/` 系统产物分离；小说工作区一律不提交 GitHub（`novels/*/` 已入 `.gitignore`，canary 证据目录 `novels/tier0-*-canary/` 反向放行），GitHub 仅保留工具框架（代码/测试/脚本/规则文档/运行配置/风格库积累）
 - 续写篇幅与原文参考：有原文时，原文按章拆分入 `chapters/chapter_01.txt` 起（保留章节标题行），续写从下一编号续（原文 23 章 → 续写从 `chapter_24` 起），目录内编号连续；续写章节篇幅对齐原文章均（参考值：《示例小说丁》约 6,500 字符/章），不得明显偏短；续写须参考原文语感、意象系统（杨柳/水/套装/信等）与事件细节，不能凭空脱离原文
 - 隐私纪律：所有具体小说信息（标题、正文、角色、工作区名、作者笔名）一律不提交 GitHub；git 历史中如有此类内容，push 前须用 `git filter-repo --path-*` 完整重写历史剔除（本项目已按此重写并 force-push）；正文仅存本地 `novels/<小说名>/chapters/`；写作风格综合积累可入库，统一放仓库根 `style_library/<name>.json`（中性文件名，不含小说名/作者笔名/机器路径）
-- 测试：1681 passed
+- 测试：1696 passed
 
 ## 怎么用（在 Codex 中）
 

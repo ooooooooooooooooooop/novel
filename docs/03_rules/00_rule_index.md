@@ -51,6 +51,7 @@
 - `03_rules/06_foreshadow_rules.md`
 - `03_rules/07_review_rules.md`
 - `03_rules/08_failure_types.md`
+- `03_rules/09_information_warrant_rules.md`
 
 ---
 
@@ -197,6 +198,24 @@
 
 ---
 
+## 3.9 `09_information_warrant_rules.md`
+### 作用
+定义"某个角色凭什么知道某信息"（信息凭证：通道/时效/来源），与 `05_information_release_rules.md`（信息分配）正交互补。
+
+### 主要回答
+- 这个亲历细节有没有亲历通道供给（P1）
+- 这条旧消息有没有被当当下状态用（P2）
+- 这次"知道"能不能回溯到一条合法通道（P3）
+- 角色的知识域是否与其身份匹配、有没有翻转（P4）
+
+### 核心服务对象
+- `CharacterModel`（knowledge_state）
+- `PlotUnit`
+- `FactLedger`
+- `NarrativeState`
+
+---
+
 ## 4. 规则层的三大类别
 
 为了方便后续使用，建议把规则层分成三类。
@@ -228,6 +247,7 @@
 - `05_information_release_rules.md`
 - `06_foreshadow_rules.md`
 - `07_review_rules.md`
+- `09_information_warrant_rules.md`
 
 ### 特点
 - 直接服务审查与修复
@@ -267,6 +287,7 @@
 - `02_world_legality_rules.md`
 - `04_timeline_rules.md`
 - `05_information_release_rules.md`
+- `09_information_warrant_rules.md`
 
 ### 第三步：角色与关系检查
 再判断角色行为和关系变化是否成立。
@@ -297,12 +318,13 @@
 2. 当前推进是否违反世界规则  
 3. 当前推进是否违反时间顺序  
 4. 当前推进是否发生信息越界  
-5. 当前角色行为是否符合模型  
-6. 当前关系变化是否有桥接  
-7. 当前承诺是否得到推进或被正确管理  
-8. 当前是否需要生成 `ReviewIssue`  
-9. 当前问题属于哪种失败类型  
-10. 当前问题的修复优先级是什么  
+5. 当前信息凭证是否成立（角色凭什么知道）  
+6. 当前角色行为是否符合模型  
+7. 当前关系变化是否有桥接  
+8. 当前承诺是否得到推进或被正确管理  
+9. 当前是否需要生成 `ReviewIssue`  
+10. 当前问题属于哪种失败类型  
+11. 当前问题的修复优先级是什么  
 
 ---
 
@@ -317,6 +339,7 @@
 03_character_consistency_rules
 04_timeline_rules
 05_information_release_rules
+09_information_warrant_rules
 06_foreshadow_rules
     ↓
 07_review_rules
@@ -327,7 +350,7 @@
 ### 含义
 
 - `01` 决定有没有“推进”
-- `02` 到 `06` 决定“推进是否成立”
+- `02` 到 `06` 决定“推进是否成立”（含 `09` 信息凭证：凭什么知道）
 - `07` 决定“如何汇总审查结果”
 - `08` 决定“把失败叫什么”
 
@@ -395,7 +418,7 @@
 - 世界 → `02`
 - 角色 → `03`
 - 时间 → `04`
-- 信息 → `05`
+- 信息 → `05` / `09`（05 管"该不该知道"，09 管"凭什么知道"）
 - 伏笔 → `06`
 
 ---
@@ -429,7 +452,8 @@
 - 世界是否合法
 - 角色是否失真
 - 时间是否冲突
-- 信息是否越界
+- 信息是否越界（分配：05）
+- 信息凭证是否成立（通道/时效/来源：09）
 - 承诺是否遗失
 - 回收是否突兀
 - 问题如何建单
@@ -466,9 +490,10 @@
 3. `03_character_consistency_rules.md`
 4. `04_timeline_rules.md`
 5. `05_information_release_rules.md`
-6. `06_foreshadow_rules.md`
-7. `07_review_rules.md`
-8. `08_failure_types.md`
+6. `09_information_warrant_rules.md`
+7. `06_foreshadow_rules.md`
+8. `07_review_rules.md`
+9. `08_failure_types.md`
 
 ---
 

@@ -11,6 +11,11 @@ from src.domain_layer.rules import (
     validate_node_emotion,
     validate_plotunit_hook,
 )
+from src.domain_layer.info_warrant_knowledge import (
+    FIRSTHAND_DETAIL_MARKERS,
+    RELAY_MARKERS,
+    UNKNOWN_NEGATION_MARKERS,
+)
 from src.domain_layer.style_knowledge import (
     EMOTION_ANNOUNCEMENT_PHRASES,
     EXPLANATORY_PHRASES,
@@ -33,6 +38,27 @@ _AGENCY_TRIGGERS: frozenset[str] = frozenset({
     "出手", "收手", "立誓", "投靠", "反叛", "认罪", "放过", "杀掉",
     "救下", "改投", "投降", "屈服", "反击",
 })
+
+# v3: 信息凭证检查（iss_info_*）——
+# 亲历前提豁免词：命中表示该处已补上"确实有人到过场"的亲历前提，
+# 转述+亲历细节共现不再视为凭证断裂（诚实区分"事故"与"已补前提"）。
+_FIRSTHAND_WITNESS_MARKERS: frozenset[str] = frozenset({
+    "亲眼", "亲耳", "亲口", "亲眼所见", "远远看过", "去看过", "见过一面",
+    "到场", "见过", "当面", "在面前", "当场",
+})
+
+
+def _pu_info_text(pu: PlotUnit) -> str:
+    """拼接 PlotUnit 的信息承载字段，供 iss_info_* 弱信号检测."""
+    return " ".join(
+        filter(
+            None,
+            [pu.goal, pu.conflict]
+            + list(pu.released_information)
+            + [pu.hook or "", pu.emotional_shift or ""]
+            + list(pu.consequences),
+        )
+    )
 
 
 class ReviewUnit:
@@ -555,6 +581,110 @@ class ReviewUnit:
                             f"PlotUnit {pu.unit_id} 字段含直给型标记 {hits}。"
                             f"提示该处可能'直给'了（他感到/涌起一股）。"
                             f"散文型气质应改白描/衬托：以动作、身体反应、他人反应呈现。"
+                        ),
+                    )
+                )
+
+        # ---- v3: 信息凭证检查（iss_info_channel_*）----
+        # CharacterModel.knowledge_state 是平铺字符串（知道什么），不携带通道/时效。
+        # 此处做对象层弱信号：同一单元"亲历细节词 + 未知/未接触否定词"共现，
+        # 提示该处亲历细节可能越过了信息通道（P1 亲历凭证）。诚实标注代理性，
+        # 真正判断在 LLM（区分"已补亲历前提" vs "通道断裂"）。
+        for pu in plotunits:
+            info_text = _pu_info_text(pu)
+            if not info_text:
+                continue
+            firsthand_hits = [
+                m for m in FIRSTHAND_DETAIL_MARKERS if m in info_text
+            ]
+            unknown_hits = [
+                m for m in UNKNOWN_NEGATION_MARKERS if m in info_text
+            ]
+            if firsthand_hits and unknown_hits:
+                issues.append(
+                    ReviewIssue(
+                        issue_id=f"iss_info_channel_{pu.unit_id}",
+                        issue_type="weak_progression",
+                        severity="warning",
+                        location=f"PlotUnit {pu.unit_id}",
+                        scope_of_impact="信息凭证一致性",
+                        violated_rule="亲历型细节须有亲历感知通道供给（P1）",
+                        description=(
+                            f"PlotUnit {pu.unit_id} 信息字段含亲历细节标记 {firsthand_hits}"
+                            f"与未知/未接触标记 {unknown_hits} 共现。"
+                            f"提示该处可能'亲历细节越过信息通道'"
+                            f"（例：未摸实位置却知道人瘦了）。"
+                            f"请确认是否存在亲历前提——补观察者 / 降细节级 / 删细节。"
+                        ),
+                    )
+                )
+
+        # ---- v3: 转述通道产出亲历细节（iss_info_relay_*）----
+        # 信息经转述流入（电话/捎话/汇报）时，产出亲历型细节且无亲历前提豁免词
+        # → 提示转述通道产出了转述者未亲历的细节（P3 渠道凭证 / P2 时效）。
+        for pu in plotunits:
+            info_text = _pu_info_text(pu)
+            if not info_text:
+                continue
+            if any(m in info_text for m in _FIRSTHAND_WITNESS_MARKERS):
+                continue  # 已补亲历前提（如"远远看过"），不算断裂
+            relay_hits = [m for m in RELAY_MARKERS if m in info_text]
+            firsthand_hits = [
+                m for m in FIRSTHAND_DETAIL_MARKERS if m in info_text
+            ]
+            if relay_hits and firsthand_hits:
+                issues.append(
+                    ReviewIssue(
+                        issue_id=f"iss_info_relay_{pu.unit_id}",
+                        issue_type="weak_progression",
+                        severity="warning",
+                        location=f"PlotUnit {pu.unit_id}",
+                        scope_of_impact="信息凭证一致性",
+                        violated_rule="转述通道不可产出转述者未亲历的细节（P3/P2）",
+                        description=(
+                            f"PlotUnit {pu.unit_id} 信息经转述通道（{relay_hits}）流入，"
+                            f"却产出亲历型细节（{firsthand_hits}）且无亲历前提标记。"
+                            f"提示转述可能越出信息通道，或旧消息被当当下状态。"
+                            f"请确认转述者（或其代理）是否亲历过该细节。"
+                        ),
+                    )
+                )
+
+        # ---- v3: 知识域翻转（iss_info_scope_*）----
+        # CharacterModel.knowledge_state 含明确"未知/未接触"断言，但该角色参与的
+        # PlotUnit 产出亲历细节 → 提示前文断言未知、后文却依赖细节（P4 容量凭证）。
+        for cm in (o for o in objects if isinstance(o, CharacterModel)):
+            neg_claims = [
+                k
+                for k in cm.knowledge_state
+                if any(m in k for m in UNKNOWN_NEGATION_MARKERS)
+            ]
+            if not neg_claims:
+                continue
+            for pu in plotunits:
+                if cm.character_id not in pu.participants:
+                    continue
+                info_text = _pu_info_text(pu)
+                if not info_text:
+                    continue
+                firsthand_hits = [
+                    m for m in FIRSTHAND_DETAIL_MARKERS if m in info_text
+                ]
+                if not firsthand_hits:
+                    continue
+                issues.append(
+                    ReviewIssue(
+                        issue_id=f"iss_info_scope_{cm.character_id}_{pu.unit_id}",
+                        issue_type="weak_progression",
+                        severity="warning",
+                        location=f"PlotUnit {pu.unit_id}",
+                        scope_of_impact="信息凭证一致性",
+                        violated_rule="角色知识域与其身份匹配，知情状态不得翻转（P4）",
+                        description=(
+                            f"角色 '{cm.character_id}' 的知识域断言未知"
+                            f"（{neg_claims[:2]}），却参与产出亲历细节的单元"
+                            f"（{firsthand_hits}）。提示知识域可能翻转——"
+                            f"前文'不知道'，此处却依赖细节。请确认是否引入了新信息通道。"
                         ),
                     )
                 )
