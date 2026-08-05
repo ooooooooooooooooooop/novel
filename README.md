@@ -199,9 +199,10 @@ New to the repository? Read in this order:
 1. `AGENTS.md`
 2. `docs/00_project/02_agent_quickstart.md`
 3. `docs/00_project/03_current_status.md`
-4. `docs/00_project/30_production_readiness_checklist.md`
-5. `docs/00_project/31_tier0_canary_runbook.md`
-6. `docs/00_project/32_tier0_release_record_contract.md`
+4. `docs/00_project/29_automation_readiness_boundary.md`
+5. `docs/00_project/30_production_readiness_checklist.md`
+6. `docs/00_project/31_tier0_canary_runbook.md`
+7. `docs/00_project/32_tier0_release_record_contract.md`
 
 ## Tests / 测试
 

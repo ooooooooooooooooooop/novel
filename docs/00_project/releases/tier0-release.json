@@ -5,7 +5,7 @@
   "release_id": "tier0-canary-20260804",
   "created_at_utc": "2026-08-04T03:56:36Z",
   "release_tag_or_checkpoint": "v0.1.1-tier0",
-  "git_commit": "45aac03c1e3deadf6aa6a8839ce32d78a10064a7",
+  "git_commit": "da893a98469c166d660d574c7959b7e033dc5538",
   "baseline_tests_passing": 1773,
   "full_pytest_command": "python -m pytest -q --basetemp .pytest-tmp-current-tier0-release-evidence-full -p no:cacheprovider",
   "full_pytest_result": "1773 passed",
