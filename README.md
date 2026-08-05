@@ -94,6 +94,7 @@ novel audit 示例小说甲 --outline-only                                      
 
 ```bash
 novel extend 示例小说乙 --input 示例小说乙.txt
+novel extend 示例小说乙 --input 示例小说乙.txt --nsfw on   # 允许成人向（默认 off 正常向）
 ```
 
 - 三次重跑（Rebuild → Continue → Review）；章节正文写入 `novels/示例小说乙/chapters/chapter_<编号>.txt`
@@ -104,6 +105,7 @@ novel extend 示例小说乙 --input 示例小说乙.txt
 ```bash
 novel compose 仙侠新作
 novel compose 仙侠新作 --workspec workspec.json
+novel compose 仙侠新作 --nsfw on    # 允许成人向（默认 off 正常向）
 ```
 
 ### Style 写作风格提炼
