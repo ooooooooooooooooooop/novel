@@ -81,3 +81,32 @@ PYTHONIOENCODING=utf-8 .venv/Scripts/python.exe -m pytest tests/ -q
 - ✅ 审查误报修复（1792 passed，已提交）
 
 > 注：本地 `novels/`（小说工作区）不入库，换机后不随 clone 带来；如需继续某部作品创作，需在新电脑重建工作区并重新跑流程。
+
+---
+
+## 六、跨会话积累的项目要点（换机后 Claude 应知道的背景）
+
+> 提炼自本地记忆积累，凡 `CLAUDE.md` 已覆盖的不重复；这部分帮助新电脑的 Claude 不用重新摸索项目的历史决策与已知坑。
+
+### 环境与 Windows 坑
+- venv：Python 3.11.9，pytest 9.1.1，pydantic 2.13.4；**必用** `.venv/Scripts/python -m pytest tests/ -q` 且带 `PYTHONIOENCODING=utf-8`（控制台默认 cp936/GBK）
+- 新测试若用 `subprocess.run(text=True)` 捕获中文输出，必须写 `encoding="utf-8"`，否则 GBK 控制台 `UnicodeDecodeError`
+
+### 结构性盲点清单（加模块前查，避免重复调研）
+2026-08 对外部同类项目审查的结论：本项目「结构化状态 + 分阶段 CLI」架构在学术上正确（对应 FACTTRACK/StoryWriter/DOME/CreAgentive 范式），盲点主要是缺"查询"和"字面层"能力。
+
+- **7 个结构性盲点**：①系统原本不产出正文（后已用 prose 成文补齐）②状态只有压缩结论无检索（已补 retrieval）③平台约束无内容合规（已补 compliance）④`--lint` AI 味检测无外部基准校准 ⑤无读者/留存反馈回路（追读率只在平台后台）⑥评测无人类校准（WebNovelBench 需 percentile-vs-human，单 LLM judge ρ≈0.4-0.6 弱）⑦编辑人机回环（已补 approval-gate）
+- **论文锚点**：FACTTRACK 2407.16347、BookWorm 2410.10372、MemBench 2506.21605、CreAgentive 2509.26461（2500+ 章）、WebNovelBench 2505.14818（中文网文黄金标准）、LongWriter 2408.07055
+- **参考结论**：加"查询/字面层"类模块时先查此清单
+
+### 已实现但易忽略的功能（换机后别以为没有）
+- `novel gate --require-approval`：编辑人机回环——severity=critical 的 ReviewIssue 必须操作者人工 approve/reject（`approval_decision.json`）才推进；**全 approve 跳转 ContinueUnit，blocking issue 严格不可审批**（`src/boundary_control/approval_gate.py`）
+- `novel time` 时间域（--rebuild/--check/--status）、`novel style --style` 风格库跨小说引用、`novel compliance` 合规单遍扫描、`--retrieval` 状态检索
+
+### 基线迁移纪律（踩过坑）
+- 测试数变化时同步**两处常量**：`tests/test_cli_runtime_contract.py::EXPECTED_TEST_BASELINE` **和** `tests/test_release_record.py::EXPECTED_BASELINE`（曾漏改后一处导致 21 个 release_record 测试全挂）
+- 6 个文档被 `test_deployment_docs_are_consistent` 锁一致（README/AGENTS/brief/scope/quickstart/status 的 "tests passing" 数字）；改动用字节级替换、避开损坏文档
+
+### 编码/mojibake 教训
+- 修 GBK 乱码文档**不要**用 gb18030 整篇重编码（会把合法 UTF-8 文件误判损坏，0xe3 字节破坏 UTF-8 结构）；正确做法是字节级替换目标子串后验证仍合法 UTF-8
+- 本会话已用 `git filter-repo --blob-callback`（无损 GBK 往返 + gb18030 还原 PUA）彻底修复历史乱码，历史扫描 0 乱码 0 PUA；仅设计文档残留少量 U+FFFD（原始字节被 `?` 吃掉，不可逆）

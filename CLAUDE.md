@@ -21,6 +21,7 @@
 - 零成本契约：无 TimeBook → 无注入、无检测、无产物，prompt 字节与旧版逐字节相同（回归测试锁死）
 - 内容分级（NSFW 开关）：贯通创作与审核一套语义——compose/extend `--nsfw on|off`（默认 off 正常向：off 时 Continue prompt 注入【内容分级】禁成人内容硬规则，on 时注入成人向授权）；compliance `--nsfw on|off`（默认 off：on 时跳过「涉黄」分类扫描，其余分类仍扫）；build_prompt 的 nsfw_context 缺省空串零成本不注入
 - 统一入口：`novel` 命令管理 `novels/<小说名>/` 工作目录，并调用 audit / extend / compose / style / compliance / rubric / time staged CLI
+- 编辑人机回环：`novel gate --require-approval` 让 severity=critical 的 ReviewIssue 必须操作者人工 approve/reject（`approval_decision.json`）才推进；全 approve 跳转 ContinueUnit、blocking issue 严格不可审批（`src/boundary_control/approval_gate.py`）
 - 章节正文目录：续写/创作的章节正文统一存 `novels/<小说名>/chapters/`（如 `chapters/chapter_1197.txt`），与 `output/` 系统产物分离；小说工作区一律不提交 GitHub（`novels/*/` 已入 `.gitignore`，canary 证据目录 `novels/tier0-*-canary/` 反向放行），GitHub 仅保留工具框架（代码/测试/脚本/规则文档/运行配置/风格库积累）
 - 续写篇幅与原文参考：有原文时，原文按章拆分入 `chapters/chapter_01.txt` 起（保留章节标题行），续写从下一编号续（原文 23 章 → 续写从 `chapter_24` 起），目录内编号连续；续写章节篇幅对齐原文章均（参考值：《示例小说丁》约 6,500 字符/章），不得明显偏短；续写须参考原文语感、意象系统（杨柳/水/套装/信等）与事件细节，不能凭空脱离原文
 - 隐私纪律：所有具体小说信息（标题、正文、角色、工作区名、作者笔名）一律不提交 GitHub；git 历史中如有此类内容，push 前须用 `git filter-repo --path-*` 完整重写历史剔除（本项目已按此重写并 force-push）；正文仅存本地 `novels/<小说名>/chapters/`；写作风格综合积累可入库，统一放仓库根 `style_library/<name>.json`（中性文件名，不含小说名/作者笔名/机器路径）
