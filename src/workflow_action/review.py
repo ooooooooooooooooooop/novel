@@ -13,9 +13,11 @@ from src.domain_layer.rules import (
 )
 from src.domain_layer.info_warrant_knowledge import (
     FIRSTHAND_DETAIL_MARKERS,
+    INFO_GAP_FORMS,
     RELAY_MARKERS,
     UNKNOWN_NEGATION_MARKERS,
 )
+from src.domain_layer.info_warrant_rules import build_info_warrant_guidance
 from src.domain_layer.style_knowledge import (
     EMOTION_ANNOUNCEMENT_PHRASES,
     EXPLANATORY_PHRASES,
@@ -30,6 +32,7 @@ from src.object_state import (
     ReviewIssue,
     ReviewReminder,
     WorkSpec,
+    WorldModel,
 )
 
 # v3: 决策依据检查的"决策动作触发词"（出现在 goal/conflict 才检查回溯性）
@@ -46,6 +49,109 @@ _FIRSTHAND_WITNESS_MARKERS: frozenset[str] = frozenset({
     "亲眼", "亲耳", "亲口", "亲眼所见", "远远看过", "去看过", "见过一面",
     "到场", "见过", "当面", "在面前", "当场",
 })
+
+# B 档（08_failure_types 弱信号）：8 个失败类型的触发词表（对象层代理信号）。
+# 命中仅是"可能"，正式判断由 review prompt 的 LLM 承担；词表按语义分组，
+# 与文档定义的失败类型一一对应，语义细节见各规则注释。
+_MOTIVATION_JUMP_MARKERS: frozenset[str] = frozenset({
+    # 态度/立场突然转向，缺决策依据 → motivation_gap
+    "突然信任", "突然坦白", "突然合作", "突然原谅", "突然投靠", "突然归顺",
+    "放下戒备", "吐露心声", "开始信任", "接受道歉", "欣然同意", "一口答应",
+})
+
+_RELATIONSHIP_JUMP_MARKERS: frozenset[str] = frozenset({
+    # 关系性质跃迁，缺桥接 → relationship_jump
+    "宿敌和解", "托付秘密", "确认关系", "结为同盟", "生死之交", "化敌为友",
+    "放下仇恨", "义结金兰", "以身相许", "冰释前嫌", "握手言和", "推心置腹",
+})
+
+_HIGH_RISK_MARKERS: frozenset[str] = frozenset({
+    # 高风险/越界行为，缺代价 → missing_cost
+    "越阶", "越级", "动用禁术", "强行突破", "强行越界", "违逆", "违背禁令",
+    "闯禁区", "以命相搏", "透支", "燃烧寿元", "孤注一掷",
+})
+
+_COST_MARKERS: frozenset[str] = frozenset({
+    "代价", "付出", "损失", "惩罚", "反噬", "反扑", "耗尽", "重伤", "折寿",
+    "受罚", "牺牲", "失去", "付出代价",
+})
+
+_PAYOFF_MARKERS: frozenset[str] = frozenset({
+    # 揭晓/反转触发词 → abrupt_payoff
+    "真相大白", "终于明白", "恍然大悟", "水落石出", "揭晓", "真相是",
+    "原来如此", "真凶", "谜底",
+})
+
+
+# B 档：失败类型字典（源自 docs/03_rules/08_failure_types.md §10 默认严重度 /
+# §11 阻断倾向），注入审查 prompt 供 LLM 对齐 issue_type 词汇。
+FAILURE_TYPE_LEXICON: tuple[tuple[str, str, str], ...] = (
+    ("fact_conflict", "high/critical", "默认阻断"),
+    ("world_violation", "high/critical", "默认阻断"),
+    ("timeline_error", "high/critical", "默认阻断"),
+    ("character_distortion", "high", "条件性阻断"),
+    ("information_leak", "high", "条件性阻断"),
+    ("abrupt_payoff", "medium/high", "条件性阻断"),
+    ("motivation_gap", "medium/high", "通常不阻断"),
+    ("relationship_jump", "medium/high", "通常不阻断"),
+    ("weak_progression", "medium", "通常不阻断"),
+    ("missing_cost", "medium/high", "通常不阻断"),
+    ("promise_loss", "medium/high", "通常不阻断"),
+    ("missing_consequence", "medium", "通常不阻断"),
+    ("duplication_of_threads", "medium", "通常不阻断"),
+    ("redundancy", "low/medium", "通常不阻断"),
+    ("style_drift", "low/medium", "通常不阻断"),
+    ("generative_indicia", "low/medium", "通常不阻断"),
+)
+
+
+def _failure_type_lexicon_text() -> str:
+    """渲染【失败类型字典】段（LLM 对齐 issue_type 词汇用）。"""
+    lines = ["【失败类型字典】"]
+    for issue_type, severity, blocking in FAILURE_TYPE_LEXICON:
+        lines.append(f"- {issue_type}（默认 {severity}，{blocking}）")
+    return "\n".join(lines)
+
+
+def _info_warrant_guidance_text() -> str:
+    """渲染【信息凭证约束】段（09_information_warrant_rules 审查 prompt 注入）.
+
+    覆盖通道谱系 + 聚焦三分 + 四条凭证约束 + 信息差距形态（合法/非法 4+4）。
+    """
+    sections = [build_info_warrant_guidance()]
+    gap_lines = ["【信息差距形态】"]
+    for gap in INFO_GAP_FORMS:
+        kind = "合法" if gap["kind"] == "legal" else "非法"
+        gap_lines.append(
+            f"- [{kind}] {gap['name']}（{gap['relation']}）: {gap['driver']}"
+            f" — 检测: {gap['detection']}"
+        )
+    sections.append("\n".join(gap_lines))
+    return "\n\n".join(sections)
+
+
+def _bigram_jaccard(a: str, b: str) -> float:
+    """字符 2-gram Jaccard 相似度（中文字符 2-gram 交集 / 并集）。"""
+    if not a or not b:
+        return 0.0
+    ga = set(zip(a, a[1:]))
+    gb = set(zip(b, b[1:]))
+    if not ga or not gb:
+        return 0.0
+    return len(ga & gb) / len(ga | gb)
+
+
+def _text_related(text: str, content: str, min_bigrams: int = 2) -> bool:
+    """弱相关判定：两段文本共享 ≥ min_bigrams 个字符 2-gram 即视为相关.
+
+    用于 abrupt_payoff 判定"释放信息是否与活跃伏笔有铺垫交集"。
+    要求 ≥2 个共享 bigram 是为了过滤'的/是/一'等高频虚字造成的过敏。
+    """
+    if not text or not content:
+        return False
+    gt = set(zip(text, text[1:]))
+    gc = set(zip(content, content[1:]))
+    return len(gt & gc) >= min_bigrams
 
 
 def _pu_info_text(pu: PlotUnit) -> str:
@@ -689,6 +795,267 @@ class ReviewUnit:
                     )
                 )
 
+        # ---- B 档：8 个失败类型弱信号（全部 warning/low 非阻断）----
+        # 对象层无正文，命中仅是"可能"，正式阻断判断由 review prompt 的 LLM 承担。
+        # 代理信号说明写进 description，避免把代理当实证。
+        states = {ns.state_id: ns for ns in objects if isinstance(ns, NarrativeState)}
+        foreshadows = [o for o in objects if isinstance(o, ForeshadowGraph)]
+        worlds = [o for o in objects if isinstance(o, WorldModel)]
+
+        # iss_leak_* → information_leak
+        # 硬信号：同一信息同时出现在 public_information 与 hidden_information。
+        for ns in states.values():
+            overlap = sorted(set(ns.public_information) & set(ns.hidden_information))
+            if not overlap:
+                continue
+            issues.append(
+                ReviewIssue(
+                    issue_id=f"iss_leak_{ns.state_id}",
+                    issue_type="information_leak",
+                    severity="warning",
+                    location=f"NarrativeState {ns.state_id}",
+                    scope_of_impact="信息分配一致性",
+                    violated_rule="同一信息不应既公开又隐藏（信息分配自洽）",
+                    description=(
+                        f"NarrativeState {ns.state_id} 中 {overlap} 同时出现在"
+                        f" public_information 与 hidden_information。提示信息分配层矛盾——"
+                        f"请确认该信息对读者/角色到底是否已知。"
+                    ),
+                )
+            )
+        # 弱信号：角色知识域断言"不知X"，但 X 出现在其参与的 PlotUnit 释放信息。
+        for cm in (o for o in objects if isinstance(o, CharacterModel)):
+            neg_claims = [
+                k
+                for k in cm.knowledge_state
+                if any(m in k for m in UNKNOWN_NEGATION_MARKERS)
+            ]
+            if not neg_claims:
+                continue
+            for pu in plotunits:
+                if cm.character_id not in pu.participants:
+                    continue
+                info_text = _pu_info_text(pu)
+                leaked = []
+                for claim in neg_claims:
+                    for neg in UNKNOWN_NEGATION_MARKERS:
+                        if neg not in claim:
+                            continue
+                        subject = claim.replace(neg, "").strip("，,。 ")
+                        # 实体关键词匹配：subject 内任意字符 2-gram 出现在释放信息
+                        # → 提示该主题被当作已知释放（整串包含太脆，放宽到 2-gram）。
+                        if subject and any(
+                            info_text.find(subject[i:i + 2]) >= 0
+                            for i in range(len(subject) - 1)
+                        ):
+                            leaked.append(subject)
+                            break
+                if not leaked:
+                    continue
+                issues.append(
+                    ReviewIssue(
+                        issue_id=f"iss_leak_{cm.character_id}_{pu.unit_id}",
+                        issue_type="information_leak",
+                        severity="warning",
+                        location=f"PlotUnit {pu.unit_id}",
+                        scope_of_impact="信息凭证一致性",
+                        violated_rule="断言未知的信息不得作为已知释放（信息泄露）",
+                        description=(
+                            f"角色 '{cm.character_id}' 知识域断言未知"
+                            f"（{neg_claims[:2]}），但本单元释放信息涉及 {leaked}。"
+                            f"提示该信息可能被当作已知泄露给了不该知情的对象——"
+                            f"请确认知情分布是否违反信息凭证。"
+                        ),
+                    )
+                )
+
+        # iss_motivation_* → motivation_gap
+        # 含态度跃迁词但无决策依据词 → "方向可理解但缺桥"。
+        for pu in plotunits:
+            text = _pu_info_text(pu)
+            if not any(m in text for m in _MOTIVATION_JUMP_MARKERS):
+                continue
+            if any(m in text for m in DECISION_GROUNDING_MARKERS):
+                continue
+            issues.append(
+                ReviewIssue(
+                    issue_id=f"iss_motivation_{pu.unit_id}",
+                    issue_type="motivation_gap",
+                    severity="warning",
+                    location=f"PlotUnit {pu.unit_id}",
+                    scope_of_impact="角色决策连贯性",
+                    violated_rule="态度/立场转向须有决策依据或桥接（动机自洽）",
+                    description=(
+                        f"PlotUnit {pu.unit_id} 出现态度跃迁词"
+                        f"（{[m for m in _MOTIVATION_JUMP_MARKERS if m in text]}）"
+                        f"但无决策依据词。提示转向可理解但缺桥——"
+                        f"请确认该角色为何在此刻改变立场。"
+                    ),
+                )
+            )
+
+        # iss_cost_* → missing_cost
+        # 世界有规则/后果逻辑 且 含高风险行为词 但后果无代价词 → 缺代价。
+        if any(w.prohibitions or w.consequence_logic for w in worlds):
+            for pu in plotunits:
+                text = _pu_info_text(pu)
+                if not any(m in text for m in _HIGH_RISK_MARKERS):
+                    continue
+                if any(m in text for m in _COST_MARKERS):
+                    continue
+                issues.append(
+                    ReviewIssue(
+                        issue_id=f"iss_cost_{pu.unit_id}",
+                        issue_type="missing_cost",
+                        severity="warning",
+                        location=f"PlotUnit {pu.unit_id}",
+                        scope_of_impact="世界规则可信度",
+                        violated_rule="高风险/越界行为须付出可见代价（世界代价机制）",
+                        description=(
+                            f"PlotUnit {pu.unit_id} 含高风险行为词"
+                            f"（{[m for m in _HIGH_RISK_MARKERS if m in text]}），"
+                            f"但后果清单无代价词。提示高风险行为缺代价——"
+                            f"请确认该行为是否真的免费，还是代价未显式化。"
+                        ),
+                    )
+                )
+
+        # iss_consequence_* → missing_consequence
+        # 释放了新信息但输入/输出局势完全未变 → 揭露无后果。
+        for pu in plotunits:
+            if not pu.released_information:
+                continue
+            in_state = states.get(pu.input_state_ref)
+            out_state = states.get(pu.output_state_ref)
+            if in_state is None or out_state is None:
+                continue
+            if in_state.current_situation != out_state.current_situation:
+                continue
+            issues.append(
+                ReviewIssue(
+                    issue_id=f"iss_consequence_{pu.unit_id}",
+                    issue_type="missing_consequence",
+                    severity="warning",
+                    location=f"PlotUnit {pu.unit_id}",
+                    scope_of_impact="推进有效性",
+                    violated_rule="释放新信息后局势应发生可感知变化（推进自洽）",
+                    description=(
+                        f"PlotUnit {pu.unit_id} 释放了 {len(pu.released_information)} 条新信息"
+                        f"但输入/输出 NarrativeState 的 current_situation 完全未变。"
+                        f"提示揭露无后果——请确认该信息是否真的改变了局势。"
+                    ),
+                )
+            )
+
+        # iss_reljump_* → relationship_jump
+        # 含关系跃迁词但无决策依据 → 关系移动缺桥。
+        for pu in plotunits:
+            text = _pu_info_text(pu)
+            if not any(m in text for m in _RELATIONSHIP_JUMP_MARKERS):
+                continue
+            if any(m in text for m in DECISION_GROUNDING_MARKERS):
+                continue
+            issues.append(
+                ReviewIssue(
+                    issue_id=f"iss_reljump_{pu.unit_id}",
+                    issue_type="relationship_jump",
+                    severity="warning",
+                    location=f"PlotUnit {pu.unit_id}",
+                    scope_of_impact="关系连续性",
+                    violated_rule="关系性质跃迁须有桥接或代价（关系自洽）",
+                    description=(
+                        f"PlotUnit {pu.unit_id} 出现关系跃迁词"
+                        f"（{[m for m in _RELATIONSHIP_JUMP_MARKERS if m in text]}）"
+                        f"但无决策依据。提示关系移动缺桥——"
+                        f"请确认这次关系变化是否凭空发生。"
+                    ),
+                )
+            )
+
+        # iss_redundancy_* → redundancy
+        # 相邻 PlotUnit 的 conflict 或 hook 完全重复（goal 重复由 iss_genind3 管）。
+        for i in range(len(plotunits) - 1):
+            pu_a, pu_b = plotunits[i], plotunits[i + 1]
+            repeated = []
+            if pu_a.conflict == pu_b.conflict:
+                repeated.append("conflict")
+            if pu_a.hook and pu_a.hook == pu_b.hook:
+                repeated.append("hook")
+            if not repeated:
+                continue
+            issues.append(
+                ReviewIssue(
+                    issue_id=f"iss_redundancy_{pu_b.unit_id}",
+                    issue_type="redundancy",
+                    severity="low",
+                    location=f"PlotUnit {pu_b.unit_id}",
+                    scope_of_impact="结构效率",
+                    violated_rule="相邻推进单元不应重复同一切口（冗余）",
+                    description=(
+                        f"PlotUnit {pu_b.unit_id} 与 {pu_a.unit_id} 的"
+                        f" {'/'.join(repeated)} 完全重复。提示两步推进可能是同一动作的重复——"
+                        f"请确认该单元是否可合并或删除而无损。"
+                    ),
+                )
+            )
+
+        # iss_abrupt_* → abrupt_payoff
+        # 释放信息含揭晓词但无活跃伏笔与其有铺垫交集 → 突兀揭晓。
+        active_threads = [
+            e for fg in foreshadows for e in fg.entries
+            if e.current_status == "active"
+        ]
+        for pu in plotunits:
+            rel_text = " ".join(pu.released_information)
+            if not rel_text:
+                continue
+            if not any(m in rel_text for m in _PAYOFF_MARKERS):
+                continue
+            if any(_text_related(rel_text, e.content) for e in active_threads):
+                continue
+            issues.append(
+                ReviewIssue(
+                    issue_id=f"iss_abrupt_{pu.unit_id}",
+                    issue_type="abrupt_payoff",
+                    severity="warning",
+                    location=f"PlotUnit {pu.unit_id}",
+                    scope_of_impact="承诺兑现",
+                    violated_rule="揭晓/反转应挂在前置伏笔之上（承诺连贯）",
+                    description=(
+                        f"PlotUnit {pu.unit_id} 释放信息含揭晓词"
+                        f"（{[m for m in _PAYOFF_MARKERS if m in rel_text]}）"
+                        f"但没有活跃伏笔与其有明显铺垫交集。提示揭晓可能突兀——"
+                        f"请确认该真相是否早已埋设。"
+                    ),
+                )
+            )
+
+        # iss_dupthread_* → duplication_of_threads
+        # 两条活跃伏笔 content 字符 2-gram Jaccard ≥ 0.5 → 线程重复。
+        if len(active_threads) >= 2:
+            for i in range(len(active_threads)):
+                for j in range(i + 1, len(active_threads)):
+                    a, b = active_threads[i], active_threads[j]
+                    sim = _bigram_jaccard(a.content, b.content)
+                    if sim < 0.5:
+                        continue
+                    issues.append(
+                        ReviewIssue(
+                            issue_id=f"iss_dupthread_{a.thread_id}_{b.thread_id}",
+                            issue_type="duplication_of_threads",
+                            severity="warning",
+                            location=f"ForeshadowGraph {a.thread_id} / {b.thread_id}",
+                            scope_of_impact="承诺清晰度",
+                            violated_rule="活跃承诺线程不应高度重复（线索去重）",
+                            description=(
+                                f"活跃伏笔 '{a.thread_id}' 与 '{b.thread_id}' 内容"
+                                f" 2-gram 相似度 {sim:.2f} ≥ 0.5。提示两条线程可能是"
+                                f"同一承诺的分裂——请确认是否应合并或明确区分。"
+                            ),
+                        )
+                    )
+                    break
+
         return issues
 
     def _build_prompt(
@@ -718,6 +1085,12 @@ class ReviewUnit:
                 for issue in domain_issues
             )
 
+        # B 档：失败类型字典（08_failure_types §10 默认严重度 + §11 阻断倾向）
+        lexicon_section = "\n" + _failure_type_lexicon_text()
+
+        # D 档：信息凭证指导（09_information_warrant_rules 审查 prompt 注入）
+        warrant_section = "\n" + _info_warrant_guidance_text()
+
         object_summary = "\n---\n".join(obj_ctx)
 
         return f"""你是一位叙事审查专家。请对以下叙事对象层进行审查。
@@ -733,6 +1106,9 @@ class ReviewUnit:
 3. 世界合法性: WorldModel 规则是否被尊重? 是否有无代价的违规行为?
 4. 承诺追踪: ForeshadowGraph 是否活跃? 是否有承诺被遗忘?
 5. 状态有效性: NarrativeState 是否可运行? 时间/地点/冲突是否清晰?
+{lexicon_section}
+
+{warrant_section}
 
 【Track 1 约束】
 - 只审查硬事实, 不审查推断

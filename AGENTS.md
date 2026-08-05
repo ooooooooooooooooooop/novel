@@ -12,7 +12,7 @@ This is a phase boundary, not a permanent repository boundary.
 Tier 0 production evidence:
 
 - production tier: `local staged CLI v0` (operator-in-the-loop, no DirectAPI)
-- release record: `docs/00_project/releases/tier0-release.json` (passes the single combined validation command at the current full-pytest baseline 1696)
+- release record: `docs/00_project/releases/tier0-release.json` (passes the single combined validation command at the current full-pytest baseline 1773)
 - canary evidence: `docs/00_project/releases/tier0-canary-evidence.json`
 - saved canary gate result: `docs/00_project/releases/tier0-canary-gate.json`
 - immutable checkpoint: git tag `v0.1.1-tier0`
@@ -23,6 +23,7 @@ Three-flow hardening evidence (2026-07-29, re-certified under `v0.1.1-tier0` on 
 - three-flow aggregation evidence: `docs/00_project/releases/tier0-three-flow-canary-aggregation.json`
 - operator runbook: `docs/00_project/35_operator_runbook.md`; hardening plan: `docs/00_project/34_tier0_daily_production_hardening_plan.md`
 - regression gate: `python scripts/tier0_canary_regression.py` (exit 0 ⇒ three-flow baseline not regressed)
+- **evidence caveat (extend/compose)**: the extend/compose canary workspaces as committed lack `extend_rebuild_package.json` / `compose_state.json`, so `novel gate` on them reports `ContinueUnit requires a serialization package` and `python scripts/tier0_canary_regression.py` currently reports FAIL for extend/compose (audit canary passes). This predates the A-E hardening (`31fc12a` gate contract); regenerating that evidence is a pending operator task — see Known Limitations in `docs/00_project/30_production_readiness_checklist.md`.
 
 Tier 0 boundaries that remain in force:
 
@@ -106,7 +107,7 @@ Do not optimize for:
 - Slice 3 (`compose_short_form`): code complete, default WorkSpec validated, end-to-end PASS
 - LLM layer split: workflow units expose `build_prompt()` and `parse_response()`; scripts do not call LLMs internally
 - Long-form multi-arc stress test: PASS
-- No-regression tests: 1696 tests passing
+- No-regression tests: 1773 tests passing
 - End-to-end Audit / Extend / Compose validation: PASS
 
 If you are asked to write code, the existing infrastructure is:

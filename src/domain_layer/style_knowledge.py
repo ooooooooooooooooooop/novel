@@ -268,8 +268,6 @@ EXPLANATORY_PHRASES: list[str] = [
 
 SHELL_NOT_A_BUT_B_RE: str = r"不是[^。！？；\n]{1,15}而是[^。！？；\n]{1,15}"
 
-PARALLEL_ITEM_SEP: str = "[，、,；；]"
-
 # 显性连接词滥用（段落开头固定词）
 CONNECTIVE_ABUSE_OPENERS: list[str] = [
     "此外",
@@ -304,17 +302,6 @@ DIALOGUE_TAG_OVERUSE: list[str] = [
     "低声道",
     "开口道",
 ]
-
-# --- 作家文风锚点（供 LLM 提炼参考） ---
-
-AUTHOR_STYLE_ANCHORS: dict[str, str] = {
-    "金庸": "白描+史笔，大段绵密铺陈，招式与人物性格对应，语言端庄大气",
-    "古龙": "短句、分行与留白，'长句如大河一泻而来，突然以短句相接如剑断水'",
-    "猫腻": "文青气质，文字细腻有温度，思想内涵强",
-    "烽火戏诸侯": "高逼格文青，掉书袋，金句频出，群像刻画血肉丰满",
-    "priest": "行文流畅语言精练，幽默与深刻并存，感情线克制",
-    "老舍": "京味白话、口语化、幽默感，白描精准，'大白话写力量'",
-}
 
 # =====================================================================
 # 写作手法世界观（v3）：创作要素 × 手法谱系
@@ -588,6 +575,3 @@ TEMPERAMENT_BUCKETS: list[TemperamentBucket] = [
         ],
     },
 ]
-
-# 全部气质桶名（校验 temperament_fit 指向用）
-TEMPERAMENT_NAMES: list[str] = [bucket["name"] for bucket in TEMPERAMENT_BUCKETS]

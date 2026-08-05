@@ -28,6 +28,7 @@ ReviewIssueType = Literal[
     "timeline_error",
     "abrupt_payoff",
     "redundancy",
+    "duplication_of_threads",
 ]
 ReminderFamily = Literal[
     "missing_consequence",

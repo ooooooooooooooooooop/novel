@@ -47,11 +47,6 @@ def get_platform_constraints(platform_id: str) -> dict:
     return PLATFORM_SNAPSHOTS.get(platform_id, {})
 
 
-def list_platforms() -> list[str]:
-    """返回所有可用平台标识."""
-    return list(PLATFORM_SNAPSHOTS.keys())
-
-
 def get_recommended_emotions(formula_node: str) -> list[str]:
     """获取指定结构节点推荐的情绪列表."""
     return NODE_EMOTION_MAP.get(formula_node, [])

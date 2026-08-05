@@ -606,9 +606,17 @@
 
 容易在 `CharacterModel`、`NarrativeState`、`PlotUnit`、`FactLedger` 之间重复或漂移。
 
-### 11.2 知情状态的主存位置
+### 11.2 知情状态的主存位置（已收束，2026-08-05）
 
-`CharacterModel.knowledge_state` 与 `FactLedger.known_by` 的边界还需要持续实验。
+`CharacterModel.knowledge_state` 与 `FactLedger.known_by`、`NarrativeState.private_information_map` 三处职责已定责（对应全量缺口修复 C 档 schema 补齐）：
+
+- `FactEntry.known_by`：**事实层**"谁知晓该事实"——单条已确认事实的知情者（信息凭证 P3 来源产物）
+- `NarrativeState.private_information_map`：**叙事层**"秘密的知情分布"——秘密→知情角色映射（`05_information_release_rules.md` 信息分配）
+- `CharacterModel.knowledge_state`：**角色层**"该角色知道什么"——角色知识域快照（`09_information_warrant_rules.md` 信息凭证）
+
+三者正交互补，不重叠存储同一事实；角色行为是否越界的判断仍以 `knowledge_state` 为准。三个字段全 Optional 带默认值，旧档案反序列化不受影响（零成本契约）。
+
+`watch`：三处分工在连续续写实验中是否稳定，仍需观察。
 
 ### 11.3 局势事实是否应入账本
 

@@ -38,6 +38,7 @@ from src.domain_layer.style_rules import build_temperament_guidance
 from src.workflow_action.style import load_style_context
 from src.workflow_action.retrieval import load_retrieval_context
 from src.workflow_action.timebook import build_time_context, load_time_book, save_time_book
+from src.workflow_action import prose as prose_action
 from src.object_state.timebook import TimeBook, TimeInitial
 
 
@@ -68,7 +69,10 @@ Compose 流（从 WorkSpec 创作）：
   7. Codex 生成 JSON 响应，保存到 output/compose_rewrite_response.txt。
   8. 重跑脚本，生成 output/compose_rereview_prompt.txt 后退出。
   9. Codex 生成 JSON 响应，保存到 output/compose_rereview_response.txt。
-  10. 再次重跑脚本，输出最终结果。
+  10. 再次重跑脚本，生成 output/prose_prompt.txt 后退出。
+  11. Codex 生成纯文本章节正文，保存到 output/prose_response.txt。
+  12. 再次重跑脚本，正文落盘到 chapters/chapter_<N>.txt，输出最终结果。
+  （--no-prose 跳过 10-12，保持旧版纯结构产物。）
 
 Resume 模式：
   1. 从 output/compose_state.json 加载上次保存的对象状态。
@@ -201,6 +205,11 @@ def main() -> int:
         default="on",
         choices=["on", "off"],
         help="状态检索注入开关（默认 on；off 时与旧版 prompt 字节一致）",
+    )
+    parser.add_argument(
+        "--no-prose",
+        action="store_true",
+        help="跳过章节正文落盘（只产出 PlotUnit 结构；默认自动成文落盘 chapters/）",
     )
     args = parser.parse_args()
 
@@ -509,6 +518,44 @@ def main() -> int:
     if route != "pass":
         print(f"\nCompose blocked: route={route}; candidate state not saved")
         return 1
+
+    # Step 6: Prose（章节正文成文落盘；--no-prose 跳过）
+    if not args.no_prose:
+        prose_prompt_path = output_dir / "prose_prompt.txt"
+        prose_response_path = output_dir / "prose_response.txt"
+        if not prose_response_path.exists():
+            style_context = load_style_context(
+                output_dir, style_name=args.style or None
+            )
+            if not style_context:
+                temperament = args.temperament or (workspec.temperament or "")
+                if temperament:
+                    style_context = build_temperament_guidance(temperament)
+            prose_prompt_path.write_text(
+                prose_action.build_prompt(
+                    plotunit,
+                    new_state,
+                    workspec_context=workspec.to_prompt_context(),
+                    style_context=style_context,
+                    timeline_context=facts.to_timeline_context(include_header=False),
+                    time_context=build_time_context(load_time_book(output_dir)),
+                ),
+                encoding="utf-8",
+            )
+            print(f"\n[STEP: PROSE] Prompt saved: {prose_prompt_path}")
+            print(f"[WAITING] Generate response to: {prose_response_path}")
+            print("[RESUME] Re-run this script after saving response")
+            return 0
+        chapter_text = prose_action.parse_response(
+            _read_response_text(prose_response_path)
+        )
+        chapters_dir = output_dir.parent.parent / "chapters"
+        chapters_dir.mkdir(parents=True, exist_ok=True)
+        chapter_file = prose_action.chapter_path(
+            chapters_dir, prose_action.next_chapter_number(chapters_dir)
+        )
+        chapter_file.write_text(chapter_text, encoding="utf-8")
+        print(f"Saved chapter: {chapter_file}")
 
     final_objects = objects + [plotunit, new_state]
     final_package = serializer.build_package(*final_objects)

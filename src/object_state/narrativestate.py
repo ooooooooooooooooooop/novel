@@ -40,6 +40,14 @@ class NarrativeState(BaseModel):
     hidden_information: list[str] = Field(
         default_factory=list, description="当前隐藏信息(读者不知但系统追踪)"
     )
+    private_information_map: dict[str, list[str]] = Field(
+        default_factory=dict,
+        description="秘密→知情角色ID列表（叙事层信息分配：谁知晓某秘密）。"
+        "与 FactEntry.known_by（事实层）和 CharacterModel.knowledge_state（角色层）分工互补",
+    )
+    open_questions: list[str] = Field(
+        default_factory=list, description="当前未回答的开放问题（结构性悬念）"
+    )
 
     # 悬念
     active_suspense_items: list[str] = Field(
@@ -75,6 +83,7 @@ class NarrativeState(BaseModel):
         "current_goals",
         "linked_open_threads",
         "current_facts_in_scope",
+        "open_questions",
     )
     @classmethod
     def _list_items_must_be_non_blank(
@@ -82,6 +91,20 @@ class NarrativeState(BaseModel):
     ) -> list[str]:
         if any(not value.strip() for value in values):
             raise ValueError(f"{info.field_name} entries must be non-empty")
+        return values
+
+    @field_validator("private_information_map")
+    @classmethod
+    def _private_info_map_entries_must_be_non_blank(
+        cls, values: dict[str, list[str]], info: ValidationInfo
+    ) -> dict[str, list[str]]:
+        for secret, knowers in values.items():
+            if not secret.strip():
+                raise ValueError("private_information_map keys must be non-empty")
+            if any(not k.strip() for k in knowers):
+                raise ValueError(
+                    "private_information_map values must be lists of non-empty strings"
+                )
         return values
 
     def to_prompt_context(self) -> str:
@@ -104,6 +127,14 @@ class NarrativeState(BaseModel):
             lines.append(f"公开信息: {'; '.join(self.public_information)}")
         if self.hidden_information:
             lines.append(f"隐藏信息: {'; '.join(self.hidden_information)}")
+        if self.private_information_map:
+            secret_lines = "；".join(
+                f"{secret}→{','.join(knowers)}"
+                for secret, knowers in self.private_information_map.items()
+            )
+            lines.append(f"秘密知情分布: {secret_lines}")
+        if self.open_questions:
+            lines.append(f"开放问题: {'; '.join(self.open_questions)}")
         if self.active_suspense_items:
             lines.append(f"未关闭悬念: {'; '.join(self.active_suspense_items)}")
         return "\n".join(lines)

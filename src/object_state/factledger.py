@@ -68,6 +68,13 @@ class FactEntry(BaseModel):
     validity_interval: Optional[ValidityInterval] = Field(
         default=None, description="有效时间区间, None=始终有效"
     )
+    known_by: list[str] = Field(
+        default_factory=list,
+        description="事实知情角色ID（事实层信息凭证 P3：谁知晓该事实）",
+    )
+    chronological_order: Optional[str] = Field(
+        default=None, description="时间顺序标记, 如'发生于令牌转移之前'"
+    )
 
     @field_validator("fact_id", "statement")
     @classmethod
@@ -85,7 +92,7 @@ class FactEntry(BaseModel):
             raise ValueError("source_plotunit must be non-empty when provided")
         return value
 
-    @field_validator("involved_entities")
+    @field_validator("involved_entities", "known_by")
     @classmethod
     def _entity_refs_must_be_non_blank(
         cls, values: list[str], info: ValidationInfo
@@ -94,6 +101,13 @@ class FactEntry(BaseModel):
             raise ValueError(f"{info.field_name} entries must be non-empty")
         return values
 
+    @field_validator("chronological_order")
+    @classmethod
+    def _optional_chrono_must_be_non_blank(cls, value: Optional[str]) -> Optional[str]:
+        if value is not None and not value.strip():
+            raise ValueError("chronological_order must be non-empty when provided")
+        return value
+
     def to_prompt_line(self) -> str:
         status = "✓" if self.confirmed else "?"
         suffix = (
@@ -101,7 +115,12 @@ class FactEntry(BaseModel):
             if self.validity_interval is not None
             else ""
         )
-        return f"{status} [{self.fact_type}]{suffix} {self.statement}"
+        line = f"{status} [{self.fact_type}]{suffix} {self.statement}"
+        if self.known_by:
+            line += f" [知: {','.join(self.known_by)}]"
+        if self.chronological_order:
+            line += f" [{self.chronological_order}]"
+        return line
 
 
 class FactLedger(BaseModel):

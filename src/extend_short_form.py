@@ -31,6 +31,7 @@ from src.workflow_action.style import load_style_context
 from src.workflow_action.retrieval import load_retrieval_context
 from src.workflow_action.excerpt import load_recent_excerpts
 from src.workflow_action.timebook import build_time_context, load_time_book
+from src.workflow_action import prose as prose_action
 
 continuation_module = importlib.import_module("src.workflow_action.continuation")
 ContinueUnit = continuation_module.ContinueUnit
@@ -77,7 +78,10 @@ Extend 流（续写）：
     8. Codex 生成 JSON 响应，保存到 output/extend_rewrite_response.txt。
     9. 重跑脚本，生成 output/extend_rereview_prompt.txt 后退出。
     10. Codex 生成 JSON 响应，保存到 output/extend_rereview_response.txt。
-    11. 再次重跑脚本，输出 output/extend_result.json。
+    11. 再次重跑脚本，生成 output/prose_prompt.txt 后退出。
+    12. Codex 生成纯文本章节正文，保存到 output/prose_response.txt。
+    13. 再次重跑脚本，正文落盘到 chapters/chapter_<N>.txt，输出 output/extend_result.json。
+    （--no-prose 跳过 11-13，保持旧版纯结构产物。）
 
   章节级模式（长文本 >10000字符自动启用，或 --chapter-wise 强制启用）：
     1. 脚本自动切分章节，逐批生成 extend_batch_XXX_YYY_rebuild_prompt.txt。
@@ -143,6 +147,11 @@ def main() -> int:
         default="on",
         choices=["on", "off"],
         help="状态检索注入开关（默认 on；off 时与旧版 prompt 字节一致）",
+    )
+    parser.add_argument(
+        "--no-prose",
+        action="store_true",
+        help="跳过章节正文落盘（只产出 PlotUnit 结构；默认自动成文落盘 chapters/）",
     )
     args = parser.parse_args()
     try:
@@ -602,6 +611,44 @@ def main() -> int:
     if route != "pass":
         print(f"\nExtend blocked: route={route}; candidate state not saved")
         return 1
+
+    # Step 6: Prose（章节正文成文落盘；--no-prose 跳过）
+    if not args.no_prose:
+        prose_prompt_path = output_dir / "prose_prompt.txt"
+        prose_response_path = output_dir / "prose_response.txt"
+        if not prose_response_path.exists():
+            style_context = load_style_context(
+                output_dir, style_name=args.style or None
+            )
+            if not style_context and args.temperament:
+                style_context = build_temperament_guidance(args.temperament)
+            prose_prompt_path.write_text(
+                prose_action.build_prompt(
+                    plotunit,
+                    new_state,
+                    workspec_context=workspec.to_prompt_context(),
+                    style_context=style_context,
+                    excerpt_context=load_recent_excerpts(text),
+                    timeline_context=facts.to_timeline_context(include_header=False),
+                    time_context=build_time_context(load_time_book(output_dir)),
+                    prev_chapter_end=prose_action.prev_chapter_tail(text),
+                ),
+                encoding="utf-8",
+            )
+            print(f"\n[STEP: PROSE] Prompt saved: {prose_prompt_path}")
+            print(f"[WAITING] Generate response to: {prose_response_path}")
+            print("[RESUME] Re-run this script after saving response")
+            return 0
+        chapter_text = prose_action.parse_response(
+            _read_response_text(prose_response_path)
+        )
+        chapters_dir = output_dir.parent.parent / "chapters"
+        chapters_dir.mkdir(parents=True, exist_ok=True)
+        chapter_file = prose_action.chapter_path(
+            chapters_dir, prose_action.next_chapter_number(chapters_dir)
+        )
+        chapter_file.write_text(chapter_text, encoding="utf-8")
+        print(f"Saved chapter: {chapter_file}")
 
     final_objects = objects + [plotunit, new_state]
     final_package = serializer.build_package(*final_objects)

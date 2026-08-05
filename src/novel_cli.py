@@ -2467,6 +2467,8 @@ def _run_extend(args: argparse.Namespace) -> int:
     if getattr(args, "temperament", None):
         command.extend(["--temperament", args.temperament])
     command.extend(["--retrieval", getattr(args, "retrieval", "on")])
+    if getattr(args, "no_prose", False):
+        command.append("--no-prose")
     return _run_child(command)
 
 
@@ -2523,6 +2525,8 @@ def _run_compose(args: argparse.Namespace) -> int:
     if getattr(args, "temperament", None):
         command.extend(["--temperament", args.temperament])
     command.extend(["--retrieval", getattr(args, "retrieval", "on")])
+    if getattr(args, "no_prose", False):
+        command.append("--no-prose")
     return _run_child(command)
 
 
@@ -3667,6 +3671,11 @@ def build_parser(*, emit_json_errors: bool = False) -> argparse.ArgumentParser:
         default="on",
         help="状态检索注入开关（默认 on；off 时与旧版 prompt 字节一致）",
     )
+    extend.add_argument(
+        "--no-prose",
+        action="store_true",
+        help="跳过章节正文落盘（只产出 PlotUnit 结构）",
+    )
     extend.set_defaults(func=_run_extend)
 
     compose = subparsers.add_parser("compose", help="从 WorkSpec 创作")
@@ -3682,6 +3691,11 @@ def build_parser(*, emit_json_errors: bool = False) -> argparse.ArgumentParser:
         choices=["on", "off"],
         default="on",
         help="状态检索注入开关（默认 on；off 时与旧版 prompt 字节一致）",
+    )
+    compose.add_argument(
+        "--no-prose",
+        action="store_true",
+        help="跳过章节正文落盘（只产出 PlotUnit 结构）",
     )
     compose.set_defaults(func=_run_compose)
 

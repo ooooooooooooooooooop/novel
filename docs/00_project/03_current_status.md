@@ -14,7 +14,7 @@ The repository is currently **end_to_end_validated** and **Tier 0 production rea
 
 Tier 0 (local staged CLI v0, operator-in-the-loop) was validated on 2026-07-28:
 
-- full pytest baseline: 1696 tests passing
+- full pytest baseline: 1773 tests passing
 - audit canary (`tier0-canary`) passed `novel gate`: `ok=true`, `review_route=pass`, `next_workflow=ContinueUnit`, `blocking_pending_count=0`
 - canary evidence: `docs/00_project/releases/tier0-canary-evidence.json`
 - saved canary gate result: `docs/00_project/releases/tier0-canary-gate.json`
@@ -31,6 +31,7 @@ Three-flow daily-production hardening was completed on 2026-07-29 (see `docs/00_
 - canonical canary response sources now checked in under `canary_inputs/` so the three canary workspaces are reproducible
 - workspace hygiene: `.gitignore` ignores `.pytest-tmp-*/`; canary `output/` artifacts are force-added as immutable evidence (they are referenced by file sha256)
 - production-readiness re-certified on 2026-08-04 under a new immutable checkpoint: git tag `v0.1.1-tier0` (hardening stays inside the Tier 0 boundary; no tier upgrade is implied)
+- **evidence caveat**: the extend/compose canary workspaces were generated under a gate contract that predates the Phase 5 serialization-package requirement (`31fc12a`); as committed they contain no `extend_rebuild_package.json` / `compose_state.json`, so `novel gate` now reports `ContinueUnit requires a serialization package` for those two workspaces and `python scripts/tier0_canary_regression.py` reports FAIL for extend/compose (audit passes). The committed per-flow gate JSONs and the aggregation `final_gate_ok` for extend/compose predate this and no longer reflect the current gate contract. Regeneration under the current contract is a pending operator task (see Known limitations below).
 
 It now has both:
 
@@ -127,6 +128,7 @@ Known limitations declared for Tier 0 (must hold for any future work that treats
 - Tier 0 is not a public product surface
 - release record does not replace a release tag or immutable checkpoint
 - response files must be materialized by the operator or Codex; no automatic model call is performed
+- extend/compose canary evidence predates the Phase 5 gate package requirement (`31fc12a`) and lacks `extend_rebuild_package.json` / `compose_state.json`; `novel gate` on those workspaces reports a serialization-package violation and `python scripts/tier0_canary_regression.py` reports FAIL for extend/compose (audit canary still passes). Regenerating that evidence under the current gate contract is a pending operator task and does not affect the Tier 0 release record (whose canary evidence is the audit canary).
 
 ---
 
@@ -215,7 +217,7 @@ The artifact set is complete and the first running slices are end-to-end validat
 
 Current baseline:
 
-- `pytest -q`: 1696 tests passing
+- `pytest -q`: 1773 tests passing
 - long-form multi-arc stress test: PASS
 - end-to-end Audit / Extend / Compose validation: PASS
 
@@ -315,7 +317,7 @@ Current next decision:
   - Track 3 CharacterModel evidence-leakback checks
   - generative_indicia detection checks
   - Review hard rules extension checks
-  - total validation baseline: 1696 tests passing
+  - total validation baseline: 1773 tests passing
 - **Slice L1: Long-form chapter-level infra** - Complete
   - `src/boundary_control/chunking.py` splits text by chapters
   - `src/boundary_control/report_formatter.py` formats audit reports

@@ -22,7 +22,7 @@ All three implementation slices are code-complete and validated:
 Tier 0 (local staged CLI v0, operator-in-the-loop) was declared production-ready on 2026-07-28:
 
 - production tier: `local staged CLI v0`
-- full pytest baseline: 1696 tests passing
+- full pytest baseline: 1773 tests passing
 - release record: `docs/00_project/releases/tier0-release.json` — passing the single combined validation command
 - canary evidence: `docs/00_project/releases/tier0-canary-evidence.json`
 - saved canary gate result: `docs/00_project/releases/tier0-canary-gate.json`
@@ -35,6 +35,8 @@ Three-flow daily-production hardening (2026-07-29) extended the Tier 0 verdict f
 - operator runbook: `docs/00_project/35_operator_runbook.md`
 - one-command regression gate: `python scripts/tier0_canary_regression.py`
 - hardening planning: `docs/00_project/34_tier0_daily_production_hardening_plan.md`
+
+> **Evidence caveat**: the extend/compose canary workspaces as committed lack `extend_rebuild_package.json` / `compose_state.json`, so `novel gate` on them currently reports `ContinueUnit requires a serialization package` and `python scripts/tier0_canary_regression.py` reports FAIL for extend/compose (the audit canary still passes). This predates the A-E hardening (the `31fc12a` gate contract); regenerating that evidence is a pending operator task. See Known Limitations in `docs/00_project/30_production_readiness_checklist.md`.
 
 Tier 0 boundaries that remain in force:
 
@@ -58,7 +60,7 @@ Current work has completed:
 - bounded implementation slices: all three complete and validated
 - LLM layer split: workflow units expose `build_prompt()` and `parse_response()`
 - long-form multi-arc stress test: PASS
-- executable no-regression tests: 1696 tests passing
+- executable no-regression tests: 1773 tests passing
 - end-to-end Audit / Extend / Compose validation: PASS
 ## Implementation Status
 
@@ -102,7 +104,7 @@ Current work has completed:
   - all flow outputs should be isolated with `--output-dir`
   - DirectAPI, UI, and fully automatic closed-loop model calls remain deferred
 - **Validation status**
-  - `pytest tests/ -q`: 1696 tests passing
+  - `pytest tests/ -q`: 1773 tests passing
   - long-form multi-arc Audit / Extend stress test: PASS
   - end-to-end Audit / Extend / Compose workflow validation: PASS
 

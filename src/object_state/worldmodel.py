@@ -37,6 +37,18 @@ class WorldModel(BaseModel):
     consequence_logic: list[str] = Field(
         default_factory=list, description="后果逻辑，如禁术使用留下可追踪痕迹"
     )
+    hard_rules: list[str] = Field(
+        default_factory=list, description="世界硬规则，如力量上限、寿命边界"
+    )
+    death_rule: Optional[str] = Field(
+        default=None, description="死亡规则，如死亡是否可逆、复活代价"
+    )
+    forbidden_actions: list[str] = Field(
+        default_factory=list, description="禁忌行为，违反即触发世界惩罚"
+    )
+    exception_rules: list[str] = Field(
+        default_factory=list, description="例外规则，硬规则的豁免条件"
+    )
 
     @field_validator(
         "world_facts",
@@ -44,6 +56,9 @@ class WorldModel(BaseModel):
         "time_rules",
         "prohibitions",
         "consequence_logic",
+        "hard_rules",
+        "forbidden_actions",
+        "exception_rules",
     )
     @classmethod
     def _rule_items_must_be_non_blank(
@@ -52,6 +67,15 @@ class WorldModel(BaseModel):
         if any(not item.strip() for item in values):
             raise ValueError(f"{info.field_name} entries must be non-empty")
         return values
+
+    @field_validator("death_rule")
+    @classmethod
+    def _optional_death_rule_must_be_non_blank(
+        cls, value: Optional[str], info: ValidationInfo
+    ) -> Optional[str]:
+        if value is not None and not value.strip():
+            raise ValueError("death_rule must be non-empty when provided")
+        return value
 
     def validate_event(self, event_description: str) -> tuple[bool, list[str]]:
         """验证事件是否符合世界规则.
@@ -98,6 +122,14 @@ class WorldModel(BaseModel):
             lines.append(f"禁止事项: {'; '.join(self.prohibitions)}")
         if self.consequence_logic:
             lines.append(f"后果逻辑: {'; '.join(self.consequence_logic)}")
+        if self.hard_rules:
+            lines.append(f"硬规则: {'; '.join(self.hard_rules)}")
+        if self.death_rule:
+            lines.append(f"死亡规则: {self.death_rule}")
+        if self.forbidden_actions:
+            lines.append(f"禁忌行为: {'; '.join(self.forbidden_actions)}")
+        if self.exception_rules:
+            lines.append(f"例外规则: {'; '.join(self.exception_rules)}")
         if self.world_facts:
             lines.append(f"已知事实: {'; '.join(self.world_facts)}")
         return "\n".join(lines)

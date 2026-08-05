@@ -14,9 +14,7 @@ from pathlib import Path
 
 from src.boundary_control.style_metrics import analyze_style_metrics
 from src.domain_layer.style_rules import (
-    build_style_knowledge_context,
     get_ai_flavor_markers,
-    get_tone_style_traits,
     list_available_tones,
 )
 from src.object_state.reviewissue import ReviewIssue

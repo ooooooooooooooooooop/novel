@@ -55,6 +55,17 @@ class PlotUnit(BaseModel):
         default_factory=list, description="本单元导致的后果清单"
     )
 
+    # 状态变化摘要（弱推进检查依据）
+    state_change_summary: Optional[str] = Field(
+        default=None,
+        description="状态变化摘要：本单元改变了什么（目标/信息/关系/风险/冲突），"
+        "weak_progression 判定依据",
+    )
+    removable_without_loss: Optional[bool] = Field(
+        default=None,
+        description="删除本单元后主线是否几乎不受损（冗余度判定依据）",
+    )
+
     # 有效性标记(运行时判断)
     is_effective: StrictBool = Field(
         default=False,
@@ -108,5 +119,9 @@ class PlotUnit(BaseModel):
             lines.append(f"结构节点: {self.formula_node}")
         if self.consequences:
             lines.append(f"后果: {'; '.join(self.consequences)}")
+        if self.state_change_summary:
+            lines.append(f"状态变化: {self.state_change_summary}")
+        if self.removable_without_loss is not None:
+            lines.append(f"可删无损: {'是' if self.removable_without_loss else '否'}")
         lines.append(f"有效推进: {'是' if self.is_effective else '待确认'}")
         return "\n".join(lines)

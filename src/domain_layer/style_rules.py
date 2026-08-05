@@ -14,7 +14,6 @@ from src.domain_layer.style_knowledge import (
     OMISSION_AXIS,
     SUBTLE_TECHNIQUES,
     TEMPERAMENT_BUCKETS,
-    TEMPERAMENT_NAMES,
     TONE_STYLE_TRAITS,
     WEAK_ADVERB_SET,
 )
@@ -132,41 +131,6 @@ def build_worldview_axis_guidance() -> str:
     )
 
 
-def get_description_techniques() -> list[TechniqueEntry]:
-    """描写手法全集（白描/细描/渲染/衬托/侧面/动静/点面）."""
-    return DESCRIPTION_TECHNIQUES
-
-
-def get_omission_axis() -> list[TechniqueEntry]:
-    """留白轴（点破/留白）."""
-    return OMISSION_AXIS
-
-
-def get_subtle_techniques() -> list[TechniqueEntry]:
-    """含蓄表现手法（象征/暗示/用典/双关）."""
-    return SUBTLE_TECHNIQUES
-
-
-def get_character_methods() -> list[TechniqueEntry]:
-    """人物五法（肖像/动作/语言/心理/神态）."""
-    return CHARACTER_METHODS
-
-
-def get_dialogue_techniques() -> list[TechniqueEntry]:
-    """对白技巧（潜文本/性格化/言外之意）."""
-    return DIALOGUE_TECHNIQUES
-
-
-def get_decision_grounding_axis() -> list[TechniqueEntry]:
-    """决策依据轴（身份/信念/剧情需要/随机）."""
-    return DECISION_GROUNDING_AXIS
-
-
-def get_temperament_buckets() -> list[TemperamentBucket]:
-    """全部叙事气质桶."""
-    return TEMPERAMENT_BUCKETS
-
-
 # 气质桶别名：容忍"散文"漏打"型"后缀等常见输入，归一化到全称（全称匹配优先）。
 _TEMPERAMENT_ALIASES: dict[str, str] = {
     "散文": "散文型",
@@ -183,11 +147,6 @@ def get_temperament_bucket(name: str) -> TemperamentBucket | None:
         if bucket["name"] == canonical:
             return bucket
     return None
-
-
-def list_available_temperaments() -> list[str]:
-    """返回所有可用气质桶名."""
-    return list(TEMPERAMENT_NAMES)
 
 
 def build_temperament_guidance(temperament: str) -> str:
