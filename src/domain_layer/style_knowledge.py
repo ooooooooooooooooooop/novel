@@ -315,3 +315,279 @@ AUTHOR_STYLE_ANCHORS: dict[str, str] = {
     "priest": "行文流畅语言精练，幽默与深刻并存，感情线克制",
     "老舍": "京味白话、口语化、幽默感，白描精准，'大白话写力量'",
 }
+
+# =====================================================================
+# 写作手法世界观（v3）：创作要素 × 手法谱系
+# ---------------------------------------------------------------------
+# 概念：作品由要素构成（描写/人物/对白/抒情/意象…），每个要素可选用
+# 不同手法去写。这些表给出每种手法的定义、写作指令、误用警示与适用气质，
+# 作为风格提炼的分类轴 / compose 注入的写作约束 / 审查规则的判断依据。
+# 规则知识，非事实，非推断。形状对齐 TONE_STYLE_TRAITS（纯数据表）。
+# =====================================================================
+
+
+class TechniqueEntry(TypedDict):
+    name: str  # 手法名，如 "白描"
+    definition: str  # 定义（权威出处/美学依据）
+    instruction: str  # 具体写作指令
+    misuse: str  # 常见误用警示
+    temperament_fit: list[str]  # 适用叙事气质桶
+
+
+class TemperamentBucket(TypedDict):
+    name: str  # 气质名
+    description: str  # 气质定义
+    default_focus: list[str]  # 该气质默认聚焦的手法/要素
+    baseline_notes: list[str]  # 量化参考基线（供审查/相似度/注入）
+
+
+# --- 描写手法轴（白描/细描/渲染/衬托/侧面/动静/点面） ---
+
+DESCRIPTION_TECHNIQUES: list[TechniqueEntry] = [
+    {
+        "name": "白描",
+        "definition": "以简洁素朴的语言直接勾勒事物形象，不施修饰色彩（'绘事后素'，素笔勾画）",
+        "instruction": "用动词+名词打天下，删除不承载信息的形容词/副词；'她很美'→'她笑的时候，右边嘴角会先往上翘半分'",
+        "misuse": "白描≠干瘪，缺乏具象动词会退化成流水账",
+        "temperament_fit": ["散文型", "氛围型"],
+    },
+    {
+        "name": "细描(工笔)",
+        "definition": "用密集细节精细刻画对象局部，放大决定性细节",
+        "instruction": "选择一到两个决定性细节放大，不平均用力；'他数清了对面墙砖的裂缝，37条'",
+        "misuse": "工笔不等于堆砌，面面俱到反失重点",
+        "temperament_fit": ["散文型", "氛围型"],
+    },
+    {
+        "name": "渲染",
+        "definition": "通过环境、气氛、情绪的铺陈烘托对象，营造氛围而非直接陈述",
+        "instruction": "用景物/光影/声响铺气氛，让情绪从氛围中渗出；'雨下了整整一夜'承载未言明的离别",
+        "misuse": "渲染过度=无信息量的辞藻堆砌；渲染须服务于情绪与主题",
+        "temperament_fit": ["氛围型", "戏剧型"],
+    },
+    {
+        "name": "衬托(正衬/反衬)",
+        "definition": "以宾衬主，通过类似(正衬)或相反(反衬)事物突出主体，'烘云托月'",
+        "instruction": "主角的情绪/处境由他人反应、环境细节侧面带出，不直写内心；'所有人都停下筷子'",
+        "misuse": "衬托≠转移视角，被衬对象须始终在场；宾体不能喧宾夺主",
+        "temperament_fit": ["散文型", "氛围型"],
+    },
+    {
+        "name": "侧面描写",
+        "definition": "通过他人之眼、之言、之反应描写对象，不正面直写",
+        "instruction": "用旁观者视角写主角的强/弱/魅力，读者自行推断",
+        "misuse": "侧面描写过多会绕，关键信息仍需正面锚定",
+        "temperament_fit": ["散文型"],
+    },
+    {
+        "name": "动静结合",
+        "definition": "静态画面与动态事件交错，以静衬动或以动衬静",
+        "instruction": "大战前写极静的瞬间，以静势压住动势",
+        "misuse": "动静是节奏手段，不宜机械交替",
+        "temperament_fit": ["戏剧型", "氛围型"],
+    },
+    {
+        "name": "点面结合",
+        "definition": "全景(面)与特写(点)结合，既有全貌又有细节",
+        "instruction": "写大场面先给全景一笔，再落一个具体人物的特写",
+        "misuse": "点面无比例=大场面失焦",
+        "temperament_fit": ["戏剧型", "信息型"],
+    },
+]
+
+# --- 含蓄表现手法轴（象征/暗示/用典/双关） ---
+
+SUBTLE_TECHNIQUES: list[TechniqueEntry] = [
+    {
+        "name": "象征",
+        "definition": "以具体物象承载抽象含义，物象与含义有约定俗成的关联",
+        "instruction": "一个象征物贯穿全篇，结尾变化/回归完成闭合（闭环物象）",
+        "misuse": "象征不能过度注解，点到即止",
+        "temperament_fit": ["散文型", "氛围型"],
+    },
+    {
+        "name": "暗示",
+        "definition": "不点破，通过细节、伏线、留白让读者自行推断出结论",
+        "instruction": "把结论藏进动作/物件/旁人反应里；顿悟用矛盾呈现，'可他从不记得来过'",
+        "misuse": "暗示须有迹可循、线索公平；完全无据=故弄玄虚",
+        "temperament_fit": ["散文型", "氛围型"],
+    },
+    {
+        "name": "用典",
+        "definition": "引用典籍、史事、成句以含蓄表达",
+        "instruction": "用典须贴合语境，为文脉服务而非掉书袋",
+        "misuse": "过度用典增加阅读门槛",
+        "temperament_fit": ["氛围型", "散文型"],
+    },
+    {
+        "name": "双关",
+        "definition": "同一表达承载字面与言外两层含义",
+        "instruction": "关键对白用双关，让知情者读字面、当局者听弦外",
+        "misuse": "双关须语境自然，生硬=冷笑话",
+        "temperament_fit": ["氛围型", "戏剧型"],
+    },
+]
+
+# --- 留白轴（点破/留白，Art of Omission） ---
+
+OMISSION_AXIS: list[TechniqueEntry] = [
+    {
+        "name": "点破",
+        "definition": "直接陈述信息、情绪与结论",
+        "instruction": "信息型叙事/爽文节奏可用直给；情绪用动作呈现而非'他感到'",
+        "misuse": "关键情绪全靠点破=无回味、AI 味",
+        "temperament_fit": ["信息型", "戏剧型"],
+    },
+    {
+        "name": "留白",
+        "definition": "省略不写或只写一半，留由读者补全（Art of Omission）",
+        "instruction": "关键动作写细、过渡/氛围一笔带过（密疏配比）；顿悟不点破",
+        "misuse": "处处留白=读者不知所云；留白需与密写配比",
+        "temperament_fit": ["散文型", "氛围型"],
+    },
+]
+
+# --- 人物五法轴（肖像/动作/语言/心理/神态） ---
+
+CHARACTER_METHODS: list[TechniqueEntry] = [
+    {
+        "name": "肖像",
+        "definition": "外貌、装束、神色描画人物",
+        "instruction": "用特征化细节而非罗列五官；'笔帽内侧刻着歪扭的勇字'",
+        "misuse": "肖像不承载性格=无效描写",
+        "temperament_fit": ["散文型", "氛围型"],
+    },
+    {
+        "name": "动作",
+        "definition": "以动作写人物状态与性格",
+        "instruction": "'她捏碎了玻璃杯'胜于'她很生气'；身份决定动作分寸",
+        "misuse": "动作缺乏身份/情绪依据=炫技",
+        "temperament_fit": ["散文型", "戏剧型"],
+    },
+    {
+        "name": "语言",
+        "definition": "以对白与说话方式呈现人物",
+        "instruction": "对白贴合身份/性格/处境，不同人物可区分",
+        "misuse": "所有人物同一种腔调=人物失格",
+        "temperament_fit": ["散文型", "信息型"],
+    },
+    {
+        "name": "心理",
+        "definition": "直接呈现内心活动与独白",
+        "instruction": "心理与内独白控制密度，show-don't-tell 优先；情绪靠身体反应",
+        "misuse": "心理密度过高=解释腔/AI 味",
+        "temperament_fit": ["氛围型", "戏剧型"],
+    },
+    {
+        "name": "神态",
+        "definition": "以神情变化传递未言之情绪",
+        "instruction": "眼神/表情的微小变化承载大情绪；'他笑了，笑意没到眼底'",
+        "misuse": "神态与情绪脱节=误导读者",
+        "temperament_fit": ["散文型", "氛围型"],
+    },
+]
+
+# --- 对白技巧轴（潜文本/性格化/言外之意） ---
+
+DIALOGUE_TECHNIQUES: list[TechniqueEntry] = [
+    {
+        "name": "潜文本",
+        "definition": "对白表面一层意思，内里藏着未说出的意图",
+        "instruction": "对话带潜文本；'你今晚早点回来'可能意为'我在意你'",
+        "misuse": "潜文本须有语境支撑，人人潜文本=故弄玄虚",
+        "temperament_fit": ["散文型", "氛围型"],
+    },
+    {
+        "name": "性格化",
+        "definition": "对白风格因人物而异，隐藏人名也可辨别说话者",
+        "instruction": "不同身份/性格用不同措辞、句长、口头禅",
+        "misuse": "性格化靠堆口头禅=贴标签",
+        "temperament_fit": ["散文型", "信息型"],
+    },
+    {
+        "name": "言外之意",
+        "definition": "借题发挥、声东击西表达真实意图",
+        "instruction": "借一件小事传达另一件大事的试探/警告",
+        "misuse": "言外之意过多=绕弯子拖节奏",
+        "temperament_fit": ["氛围型", "戏剧型"],
+    },
+]
+
+# --- 决策依据轴（选择为什么这么做；role 逻辑层，非手法） ---
+
+DECISION_GROUNDING_AXIS: list[TechniqueEntry] = [
+    {
+        "name": "身份驱动",
+        "definition": "选择由角色的身份、地位、处境约束决定——'一个人基于身份会做对什么做错什么'",
+        "instruction": "每个关键选择须能回溯到身份：他是谁，这个身份在此情势下会怎么做",
+        "misuse": "身份驱动≠刻板，同一身份不同性格仍有分歧空间",
+        "temperament_fit": ["散文型", "戏剧型", "信息型", "氛围型"],
+    },
+    {
+        "name": "信念驱动",
+        "definition": "选择由角色的价值观、信念、理想、恐惧、缺陷驱动",
+        "instruction": "写'他为什么不肯低头'时回溯到 inner_need/fear/flaw；选择像人而非理性人",
+        "misuse": "信念须与人物弧一致，不能为情节临时改信念",
+        "temperament_fit": ["散文型", "戏剧型", "信息型", "氛围型"],
+    },
+    {
+        "name": "剧情需要(plot-driven)",
+        "definition": "选择只服务剧情推进，缺乏角色内在依据——全局最优或随情节摆布（'剧情工具人'风险）",
+        "instruction": "识别并提示：该选择是否有身份/信念依据？无则补依据或改为有依据的选择",
+        "misuse": "审查时区分'有意的戏剧性反转'与'无依据的剧情需要'",
+        "temperament_fit": ["警示项"],
+    },
+    {
+        "name": "随机",
+        "definition": "选择无内在逻辑，纯随机/掷骰子",
+        "instruction": "警惕随机选择：除非有意写荒诞，否则是审稿警告信号",
+        "misuse": "随机≠无理由的反转",
+        "temperament_fit": ["警示项"],
+    },
+]
+
+# --- 叙事气质桶（作品类型化的评价基准，与 genre 平行） ---
+
+TEMPERAMENT_BUCKETS: list[TemperamentBucket] = [
+    {
+        "name": "散文型",
+        "description": "以写人、写情、写意为主，重描述手法与留白，节奏舒缓",
+        "default_focus": ["白描", "衬托", "侧面描写", "留白", "潜文本", "象征", "暗示"],
+        "baseline_notes": [
+            "低修饰负载（白描负代理）",
+            "关键动作写细、过渡一笔带过（密疏）",
+            "情绪由旁观者反应/环境细节带出，不直说",
+        ],
+    },
+    {
+        "name": "戏剧型",
+        "description": "以冲突、张力、情绪起伏为主，重渲染与动静结合",
+        "default_focus": ["渲染", "动静结合", "言外之意", "心理"],
+        "baseline_notes": [
+            "情绪张力密集，关键节点用 high-effectiveness 钩子",
+            "动静交替制造节奏势能",
+        ],
+    },
+    {
+        "name": "信息型",
+        "description": "以推进情节、传达信息为主，直给、快节奏、少留白",
+        "default_focus": ["点面结合", "语言", "点破", "性格化"],
+        "baseline_notes": [
+            "对话优先，大段叙述是忌",
+            "每章小结果、每3章中高潮",
+            "直给密度高（非白描型）",
+        ],
+    },
+    {
+        "name": "氛围型",
+        "description": "以意境、氛围、意象为主，重渲染与象征，虚实相生",
+        "default_focus": ["渲染", "象征", "用典", "神态", "留白"],
+        "baseline_notes": [
+            "感官细节丰富，意境贴合结构节点",
+            "意象承载情绪，物象闭环",
+        ],
+    },
+]
+
+# 全部气质桶名（校验 temperament_fit 指向用）
+TEMPERAMENT_NAMES: list[str] = [bucket["name"] for bucket in TEMPERAMENT_BUCKETS]

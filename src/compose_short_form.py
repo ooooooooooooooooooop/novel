@@ -34,6 +34,7 @@ from src.workflow_action.continuation import ContinueUnit, admit_new_facts
 from src.workflow_action.frame import NarrativeFrameUnit
 from src.workflow_action.review import ReviewUnit
 from src.workflow_action.rewrite import RewriteUnit
+from src.domain_layer.style_rules import build_temperament_guidance
 from src.workflow_action.style import load_style_context
 from src.workflow_action.retrieval import load_retrieval_context
 from src.workflow_action.timebook import build_time_context, load_time_book, save_time_book
@@ -191,6 +192,11 @@ def main() -> int:
         help="引用风格库中的已有档案 <name>（style_library/<name>.json），注入续写 prompt",
     )
     parser.add_argument(
+        "--temperament",
+        default="",
+        help="叙事气质（散文型/戏剧型/信息型/氛围型）；CLI 优先，缺省回落到 workspec.temperament。无风格档案时注入气质桶指导",
+    )
+    parser.add_argument(
         "--retrieval",
         default="on",
         choices=["on", "off"],
@@ -333,6 +339,14 @@ def main() -> int:
                 facts=facts,
                 foreshadows=foreshadows,
             )
+        # 风格注入：风格档案 > 气质桶指导（无档案且指定气质时）。
+        # 气质桶是通用分类（散文/戏剧/信息/氛围），CLI --temperament 优先，
+        # 缺省回落到 workspec.temperament。workspec 无该字段（旧 JSON）时默认为空。
+        style_context = load_style_context(output_dir, style_name=args.style or None)
+        if not style_context:
+            temperament = args.temperament or (workspec.temperament or "")
+            if temperament:
+                style_context = build_temperament_guidance(temperament)
         continue_prompt_path.write_text(
             cont.build_prompt(
                 state=narrative_state,
@@ -344,7 +358,7 @@ def main() -> int:
                 structure_template=structure_template_name,
                 platform=workspec.platform,
                 genre=workspec.genre,
-                style_context=load_style_context(output_dir, style_name=args.style or None),
+                style_context=style_context,
                 retrieval_context=retrieval_context,
                 timeline_context=facts.to_timeline_context(include_header=False),
                 time_context=build_time_context(load_time_book(output_dir)),

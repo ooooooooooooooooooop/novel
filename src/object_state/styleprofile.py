@@ -161,6 +161,28 @@ class StyleQuantitativeStats(BaseModel):
         default=0.0, ge=0, le=1, description="叙述句子占比（无引号∧无动作∧无景物∧无心理词）"
     )
 
+    # ---- v3: 写作手法世界观量化（代理指标，全零默认） ----
+    # 每条是"文笔手法的代理信号"，诚实标注：只捕捉显式可量化的侧面，
+    # 真正的正向文笔鉴赏仍在正文层，这里不冒充全文鉴赏。
+    modifier_load_density: float = Field(
+        default=0.0, ge=0, description="修饰词负载（白描负代理：白描文本负载低，每千字）"
+    )
+    bystander_reaction_density: float = Field(
+        default=0.0, ge=0, description="旁观者反应句密度（衬托/侧面描写代理，每千字）"
+    )
+    foil_sentence_ratio: float = Field(
+        default=0.0, ge=0, le=1, description="旁观/侧面句占比（侧面描写代理）"
+    )
+    omission_marker_count: int = Field(
+        default=0, ge=0, description="显式省略标记计数（省略号/未完句；只捕捉显式留白，隐式留白不可量化）"
+    )
+    decision_grounding_marker_density: float = Field(
+        default=0.0, ge=0, description="显式决策依据信号密度（不得不/因为/基于+身份词共现，每千字）"
+    )
+    key_segment_len_ratio: float = Field(
+        default=0.0, ge=0, description="高潮段与过渡段字数比（密疏详略代理）"
+    )
+
 
 class StyleProfile(BaseModel):
     """顶层写作风格档案.
@@ -211,6 +233,28 @@ class StyleProfile(BaseModel):
     rhythm_notes: list[str] = Field(
         default_factory=list, description="叙事节奏与结构（叙述/对话/动作/描写配比/事件推进方式）"
     )
+    # ---- v3: 写作手法世界观质性（LLM 提炼，可选；空字段时静默不渲染） ----
+    temperament: Optional[str] = Field(
+        default=None, description="叙事气质（散文型/戏剧型/信息型/氛围型）"
+    )
+    description_layering_notes: list[str] = Field(
+        default_factory=list, description="描写手法选择与配比（白描/细描/渲染/衬托/侧面/动静/点面）"
+    )
+    omission_notes: list[str] = Field(
+        default_factory=list, description="留白策略（什么细写、什么带过、不点破处；Art of Omission）"
+    )
+    subtle_technique_notes: list[str] = Field(
+        default_factory=list, description="含蓄手法使用（象征/暗示/用典/双关）"
+    )
+    character_method_notes: list[str] = Field(
+        default_factory=list, description="人物五法使用（肖像/动作/语言/心理/神态）"
+    )
+    dialogue_technique_notes: list[str] = Field(
+        default_factory=list, description="对白技巧（潜文本/性格化/言外之意）"
+    )
+    decision_grounding_notes: list[str] = Field(
+        default_factory=list, description="决策依据（选择由身份/信念/恐惧/利益驱动）"
+    )
     taboo_words: list[str] = Field(
         default_factory=list, description="作者自查禁忌词（删/避用词）"
     )
@@ -234,7 +278,7 @@ class StyleProfile(BaseModel):
     ) -> str:
         return _require_non_blank(value, info.field_name)
 
-    @field_validator("genre_guess")
+    @field_validator("genre_guess", "temperament")
     @classmethod
     def _optional_text_must_be_non_blank(
         cls, value: Optional[str], info: ValidationInfo
@@ -254,6 +298,12 @@ class StyleProfile(BaseModel):
         "scene_transition_notes",
         "psychology_notes",
         "rhythm_notes",
+        "description_layering_notes",
+        "omission_notes",
+        "subtle_technique_notes",
+        "character_method_notes",
+        "dialogue_technique_notes",
+        "decision_grounding_notes",
         "taboo_words",
         "style_references",
         "confidence_gaps",
@@ -308,6 +358,27 @@ class StyleProfile(BaseModel):
         if self.rhythm_notes:
             lines.append("叙事节奏与结构:")
             lines.extend(f"- {item}" for item in self.rhythm_notes)
+        # ---- v3: 写作手法世界观质性（空字段不渲染） ----
+        if self.temperament:
+            lines.append(f"叙事气质: {self.temperament}")
+        if self.description_layering_notes:
+            lines.append("描写手法:")
+            lines.extend(f"- {item}" for item in self.description_layering_notes)
+        if self.omission_notes:
+            lines.append("留白与详略:")
+            lines.extend(f"- {item}" for item in self.omission_notes)
+        if self.subtle_technique_notes:
+            lines.append("含蓄手法:")
+            lines.extend(f"- {item}" for item in self.subtle_technique_notes)
+        if self.character_method_notes:
+            lines.append("人物刻画手法:")
+            lines.extend(f"- {item}" for item in self.character_method_notes)
+        if self.dialogue_technique_notes:
+            lines.append("对白技巧:")
+            lines.extend(f"- {item}" for item in self.dialogue_technique_notes)
+        if self.decision_grounding_notes:
+            lines.append("决策依据:")
+            lines.extend(f"- {item}" for item in self.decision_grounding_notes)
         if self.taboo_words:
             lines.append(f"禁忌词: {', '.join(self.taboo_words)}")
         stats = self.stats
@@ -343,6 +414,25 @@ class StyleProfile(BaseModel):
                 f"｜ 动作动词 {stats.action_verb_density_per_1000:.1f}/千字"
                 f"｜ 时间标记 {stats.time_marker_density_per_1000:.1f}/千字"
                 f"｜ 叙述句占比 {stats.narration_sentence_ratio:.2f}"
+            )
+        # v3 世界观量化行：仅当任一新统计非零时渲染（对齐 v2 门控 → 零成本契约）。
+        v3_stats_nonzero = any(
+            getattr(stats, field, 0.0) not in (0, 0.0)
+            for field in (
+                "modifier_load_density",
+                "bystander_reaction_density",
+                "foil_sentence_ratio",
+                "omission_marker_count",
+                "decision_grounding_marker_density",
+                "key_segment_len_ratio",
+            )
+        )
+        if v3_stats_nonzero:
+            lines.append(
+                f"世界观量化: 修饰词负载 {stats.modifier_load_density:.1f}/千字"
+                f"（白描负代理）｜ 旁观者反应 {stats.bystander_reaction_density:.1f}/千字"
+                f"（衬托代理）｜ 显式留白 {stats.omission_marker_count} 处"
+                f"｜ 显式决策依据 {stats.decision_grounding_marker_density:.1f}/千字"
             )
         if self.ai_flavor_risks:
             lines.append("AI 味风险:")

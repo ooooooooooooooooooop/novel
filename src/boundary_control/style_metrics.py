@@ -17,8 +17,11 @@ from src.domain_layer.style_knowledge import (
 )
 from src.domain_layer.style_lexicon import (
     ACTION_VERBS,
+    BYSTANDER_REACTION_PHRASES,
+    DECISION_GROUNDING_MARKERS,
     EXPLICIT_TRANSITION_MARKERS,
     INNER_MONOLOGUE_PHRASES,
+    MODIFIER_ADVERBS,
     PSYCH_VERBS,
     SCENERY_NOUNS,
     SENSORY_VERBS,
@@ -334,6 +337,76 @@ def detect_narrative_ratio(sentences: list[str]) -> float:
     return round(narration / len(sentences), 4)
 
 
+# --- v3: 写作手法世界观量化（代理指标） ---
+# 诚实边界：每条是"文笔手法的可量化侧面"，只捕捉显式信号；
+# 隐式手法（不点破的衬托/留白/决策依据）由 LLM 质性字段判断。
+
+
+def detect_modifier_load(text: str) -> float:
+    """修饰词负载（每千字）—— 白描负代理.
+
+    白描以动词+名词打天下、删除不承载信息的修饰语，故高修饰负载 = 非白描倾向。
+    """
+    total = sum(_word_count_map(text, MODIFIER_ADVERBS).values())
+    return round(_per_1000(total, len(text)), 2)
+
+
+def detect_bystander_reaction(text: str) -> tuple[float, float]:
+    """旁观者反应密度（每千字）+ 旁观/侧面句占比.
+
+    衬托（烘云托月）与侧面描写的代理：以他人之眼、之言、之反应呈现主体。
+    """
+    sentences = _split_sentences(text)
+    total = sum(_word_count_map(text, BYSTANDER_REACTION_PHRASES).values())
+    ratio = 0.0
+    if sentences:
+        ratio = sum(
+            1
+            for s in sentences
+            if any(word in s for word in BYSTANDER_REACTION_PHRASES)
+        ) / len(sentences)
+    return round(_per_1000(total, len(text)), 2), round(ratio, 4)
+
+
+def detect_omission_markers(text: str) -> int:
+    """显式省略标记计数（省略号）—— 留白代理.
+
+    诚实标注：只捕捉显式留白（省略号），隐式留白（不写、点到即止）不可量化。
+    """
+    return len(re.findall(r"…+", text)) + text.count("...")
+
+
+def detect_decision_grounding_markers(text: str) -> float:
+    """显式决策依据信号密度（每千字）.
+
+    身份/信念/权衡的显式标记（不得不/基于/出于/作为…）。
+    诚实标注：只捕捉显式信号；大量决策经叙述自然呈现、无法用关键词捕捉。
+    """
+    total = sum(_word_count_map(text, DECISION_GROUNDING_MARKERS).values())
+    return round(_per_1000(total, len(text)), 2)
+
+
+def detect_key_segment_len_ratio(text: str) -> float:
+    """密疏详略代理：关键段（最长 20% 段落）与过渡段（最短 40% 段落）字数比.
+
+    详略经济学：关键动作写细、过渡一笔带过（疏可走马密不透风）→ 比值高。
+    <3 段时样本不足返回 0.0。
+    """
+    lengths = sorted(
+        (len(paragraph.strip()) for paragraph in text.split("\n") if paragraph.strip()),
+        reverse=True,
+    )
+    if len(lengths) < 3:
+        return 0.0
+    top_count = max(1, int(len(lengths) * 0.2))
+    bottom_count = max(1, int(len(lengths) * 0.4))
+    top_avg = sum(lengths[:top_count]) / top_count
+    bottom_avg = sum(lengths[-bottom_count:]) / bottom_count
+    if bottom_avg <= 0:
+        return 0.0
+    return round(top_avg / bottom_avg, 2)
+
+
 def analyze_style_metrics(text: str) -> StyleQuantitativeStats:
     """对全文做纯代码量化分析."""
     sentences = _split_sentences(text)
@@ -343,6 +416,7 @@ def analyze_style_metrics(text: str) -> StyleQuantitativeStats:
     transition = detect_transition_metrics(text)
     psych = detect_psych_metrics(text)
     action = detect_action_metrics(text)
+    bystander_density, foil_ratio = detect_bystander_reaction(text)
 
     return StyleQuantitativeStats(
         total_chars=len(text),
@@ -372,4 +446,11 @@ def analyze_style_metrics(text: str) -> StyleQuantitativeStats:
         action_verb_density_per_1000=action["action_verb_density_per_1000"],
         action_sentence_ratio=action["action_sentence_ratio"],
         narration_sentence_ratio=detect_narrative_ratio(sentences),
+        # v3: 写作手法世界观代理指标（全零默认；诚实标注为代理信号）
+        modifier_load_density=detect_modifier_load(text),
+        bystander_reaction_density=bystander_density,
+        foil_sentence_ratio=foil_ratio,
+        omission_marker_count=detect_omission_markers(text),
+        decision_grounding_marker_density=detect_decision_grounding_markers(text),
+        key_segment_len_ratio=detect_key_segment_len_ratio(text),
     )

@@ -26,6 +26,7 @@ from src.workflow_action.frame import NarrativeFrameUnit
 from src.workflow_action.rebuild import RebuildUnit
 from src.workflow_action.review import ReviewUnit
 from src.workflow_action.rewrite import RewriteUnit
+from src.domain_layer.style_rules import build_temperament_guidance
 from src.workflow_action.style import load_style_context
 from src.workflow_action.retrieval import load_retrieval_context
 from src.workflow_action.excerpt import load_recent_excerpts
@@ -131,6 +132,11 @@ def main() -> int:
         "--style",
         default="",
         help="引用风格库中的已有档案 <name>（style_library/<name>.json），注入续写 prompt",
+    )
+    parser.add_argument(
+        "--temperament",
+        default="",
+        help="叙事气质（散文型/戏剧型/信息型/氛围型）；无风格档案时注入气质桶指导",
     )
     parser.add_argument(
         "--retrieval",
@@ -429,6 +435,11 @@ def main() -> int:
                 facts=facts,
                 foreshadows=foreshadows,
             )
+        # 风格注入：风格档案 > 气质桶指导（无档案且指定气质时）。
+        # extend 无 workspec，气质桶仅来自 CLI --temperament。
+        style_context = load_style_context(output_dir, style_name=args.style or None)
+        if not style_context and args.temperament:
+            style_context = build_temperament_guidance(args.temperament)
         continue_prompt_path.write_text(
             cont.build_prompt(
                 state=narrative_state,
@@ -440,7 +451,7 @@ def main() -> int:
                 structure_template=structure_template_name,
                 platform=workspec.platform,
                 genre=workspec.genre,
-                style_context=load_style_context(output_dir, style_name=args.style or None),
+                style_context=style_context,
                 retrieval_context=retrieval_context,
                 timeline_context=facts.to_timeline_context(include_header=False),
                 time_context=build_time_context(load_time_book(output_dir)),

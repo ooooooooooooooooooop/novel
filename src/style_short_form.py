@@ -23,7 +23,10 @@ if str(PROJECT_ROOT) not in sys.path:
 from src.boundary_control.chunking import get_total_stats, split_by_chapters
 from src.boundary_control.runtime_identity import file_content_hash, validate_run_hash
 from src.boundary_control.style_metrics import analyze_style_metrics
-from src.domain_layer.style_rules import build_style_knowledge_context
+from src.domain_layer.style_rules import (
+    build_style_knowledge_context,
+    build_worldview_axis_guidance,
+)
 from src.workflow_action.outline import OutlineUnit
 from src.workflow_action.style import (
     STYLE_DEDUP_THRESHOLD,
@@ -110,6 +113,11 @@ def main() -> int:
         help="类型提示词（可选，注入 genre 风格知识，如 仙侠）",
     )
     parser.add_argument(
+        "--temperament",
+        default="",
+        help="叙事气质先验（可选，注入气质桶风格知识，如 散文型）",
+    )
+    parser.add_argument(
         "--name",
         default="",
         help="将提炼出的档案另存到风格库 style_library/<name>.json（可跨小说复用）",
@@ -137,12 +145,6 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    text_path = Path(args.input_file)
-    if not text_path.exists():
-        print(f"Error: Input file not found: {text_path}")
-        return 1
-    text = _read_text(text_path)
-
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -162,6 +164,12 @@ def main() -> int:
                 f"{entry.get('genre_guess')} — {sig}"
             )
         return 0
+
+    text_path = Path(args.input_file)
+    if not text_path.exists():
+        print(f"Error: Input file not found: {text_path}")
+        return 1
+    text = _read_text(text_path)
 
     # --style 引用模式：不提炼，直接加载库档案 + 可选禁忌词 lint
     if args.style:
@@ -223,13 +231,15 @@ def main() -> int:
         )
         quantitative_context = _render_quantitative_context(stats, risks)
         style_knowledge_context = build_style_knowledge_context(
-            tone=args.tone, genre=args.genre
+            tone=args.tone, genre=args.genre, temperament=args.temperament
         )
         prompt = extract_unit.build_prompt(
             samples_text=samples_text,
             total_stats=total_stats,
             quantitative_context=quantitative_context,
             style_knowledge_context=style_knowledge_context,
+            temperament=args.temperament,
+            worldview_axis_context=build_worldview_axis_guidance(),
         )
         extract_prompt_path.write_text(prompt, encoding="utf-8")
         print(f"\n[STEP: EXTRACT] Prompt saved: {extract_prompt_path}")
@@ -337,6 +347,12 @@ def _render_quantitative_context(stats, risks) -> str:
     lines.append(f"- 心理动词密度: {stats.psych_verb_density_per_1000}/千字 | 心理句占比: {stats.psych_sentence_ratio:.2f} | 内独白句占比: {stats.inner_monologue_sentence_ratio:.2f}")
     lines.append(f"- 动作动词密度: {stats.action_verb_density_per_1000}/千字 | 动作句占比: {stats.action_sentence_ratio:.2f}")
     lines.append(f"- 叙述句占比: {stats.narration_sentence_ratio:.2f}")
+    # ---- v3: 世界观代理指标（供 LLM 做质性判断；诚实标注是代理信号） ----
+    lines.append(f"- 修饰词负载: {stats.modifier_load_density}/千字（白描负代理）")
+    lines.append(f"- 旁观者反应密度: {stats.bystander_reaction_density}/千字 | 旁观句占比: {stats.foil_sentence_ratio:.2f}（衬托/侧面代理）")
+    lines.append(f"- 显式省略标记: {stats.omission_marker_count} 处（显式留白代理，隐式不可量化）")
+    lines.append(f"- 显式决策依据信号: {stats.decision_grounding_marker_density}/千字（只捕捉显式信号）")
+    lines.append(f"- 关键段/过渡段字数比: {stats.key_segment_len_ratio:.2f}（密疏代理）")
     if risks:
         lines.append("- AI 味风险:")
         for risk in risks:

@@ -37,6 +37,8 @@ KNOWN_REVIEW_PREFIXES = {
     "iss_genind",
     "iss_genind2",
     "iss_genind3",
+    "iss_layering",
+    "iss_agency",
 }
 
 # web_fiction.py 的 7 张领域表（evidence_sources 必须覆盖）

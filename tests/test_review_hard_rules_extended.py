@@ -177,3 +177,152 @@ def test_review_blocks_ineffective_plotunit():
     assert len(ineffective) == 1
     assert ineffective[0].issue_type == "weak_progression"
     assert ineffective[0].severity == "blocking"
+
+
+# --- v3: 决策依据可回溯性（iss_agency_*）与描写分层（iss_layering_*）---
+
+
+def test_agency_rule_flags_unjustified_decision():
+    """PlotUnit 含决策动作但无显式依据标记 + 有 CharacterModel → iss_agency 弱信号."""
+    from src.object_state import CharacterModel, PlotUnit
+    from src.workflow_action.review import ReviewUnit
+
+    char = CharacterModel(
+        character_id="c1",
+        name="顾临",
+        identity="被逐出宗门的弟子",
+        outer_goal="为师父报仇",
+        inner_need="被认可",
+        fear="再次被抛弃",
+        flaw="过度自我牺牲",
+        strength="意志坚定",
+        stance="敌对",
+    )
+    pu = PlotUnit(
+        unit_id="pu_agency",
+        level="scene",
+        goal="顾临决定背叛宗门",
+        conflict="他答应交出师父的遗物",
+        input_state_ref="ns",
+        output_state_ref="ns",
+    )
+
+    issues = ReviewUnit()._domain_rules([char, pu])
+    agency = [i for i in issues if i.issue_id.startswith("iss_agency_")]
+    assert len(agency) == 1
+    assert agency[0].issue_type == "weak_progression"
+    assert "依据" in agency[0].description
+
+
+def test_agency_rule_skips_when_explicit_grounding():
+    """含显式依据标记（不得不/作为/为保全）→ 不报 iss_agency."""
+    from src.object_state import CharacterModel, PlotUnit
+    from src.workflow_action.review import ReviewUnit
+
+    char = CharacterModel(
+        character_id="c1",
+        name="顾临",
+        identity="城主",
+        outer_goal="守住城门",
+        inner_need="守护家人",
+        fear="城破",
+        flaw="心软",
+        strength="威望",
+        stance="中立",
+    )
+    pu = PlotUnit(
+        unit_id="pu_ok",
+        level="scene",
+        goal="作为城主，他不得不答应献城",
+        conflict="为保全百姓，他选择了背叛",
+        input_state_ref="ns",
+        output_state_ref="ns",
+    )
+
+    issues = ReviewUnit()._domain_rules([char, pu])
+    agency = [i for i in issues if i.issue_id.startswith("iss_agency_")]
+    assert agency == []
+
+
+def test_agency_rule_skips_without_character_model():
+    """无 CharacterModel（如只审查 PlotUnit）→ 不跑 agency 检查."""
+    from src.object_state import PlotUnit
+    from src.workflow_action.review import ReviewUnit
+
+    pu = PlotUnit(
+        unit_id="pu_nochar",
+        level="scene",
+        goal="他决定离开",
+        conflict="他答应留下",
+        input_state_ref="ns",
+        output_state_ref="ns",
+    )
+    issues = ReviewUnit()._domain_rules([pu])
+    assert not any(i.issue_id.startswith("iss_agency_") for i in issues)
+
+
+def test_agency_rule_skips_non_decision_plotunit():
+    """无决策动作触发词（描述型 goal/conflict）→ 不报 iss_agency."""
+    from src.object_state import CharacterModel, PlotUnit
+    from src.workflow_action.review import ReviewUnit
+
+    char = CharacterModel(
+        character_id="c1",
+        name="顾临",
+        identity="弟子",
+        outer_goal="练成剑法",
+        inner_need="复仇",
+        fear="失败",
+        flaw="急躁",
+        strength="天赋",
+        stance="中立",
+    )
+    pu = PlotUnit(
+        unit_id="pu_desc",
+        level="scene",
+        goal="练成第七重剑法",
+        conflict="内力不足，剑招始终无法贯通",
+        input_state_ref="ns",
+        output_state_ref="ns",
+    )
+    issues = ReviewUnit()._domain_rules([char, pu])
+    assert not any(i.issue_id.startswith("iss_agency_") for i in issues)
+
+
+def test_layering_rule_flags_explanatory_announcement():
+    """PlotUnit 字段含解释腔/情绪宣布词 → iss_layering 弱信号（low 非阻断）."""
+    from src.object_state import PlotUnit
+    from src.workflow_action.review import ReviewUnit
+
+    pu = PlotUnit(
+        unit_id="pu_lay",
+        level="scene",
+        goal="他忽然明白",
+        conflict="她心中涌起一股怒火",
+        emotional_shift="他感到恐惧",
+        input_state_ref="ns",
+        output_state_ref="ns",
+    )
+    issues = ReviewUnit()._domain_rules([pu])
+    layering = [i for i in issues if i.issue_id.startswith("iss_layering_")]
+    assert len(layering) == 1
+    assert layering[0].severity == "low"
+    assert not layering[0].is_blocking()
+
+
+def test_layering_rule_clean():
+    """无直给标记 → 不报 iss_layering."""
+    from src.object_state import PlotUnit
+    from src.workflow_action.review import ReviewUnit
+
+    pu = PlotUnit(
+        unit_id="pu_clean",
+        level="scene",
+        goal="追回失物",
+        conflict="师父已死，遗物在仇人手中",
+        emotional_shift="决意复仇",
+        input_state_ref="ns",
+        output_state_ref="ns",
+    )
+    issues = ReviewUnit()._domain_rules([pu])
+    assert not any(i.issue_id.startswith("iss_layering_") for i in issues)

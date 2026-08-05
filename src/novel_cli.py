@@ -2464,6 +2464,8 @@ def _run_extend(args: argparse.Namespace) -> int:
     _append_long_options(command, args)
     if getattr(args, "style", None):
         command.extend(["--style", args.style])
+    if getattr(args, "temperament", None):
+        command.extend(["--temperament", args.temperament])
     command.extend(["--retrieval", getattr(args, "retrieval", "on")])
     return _run_child(command)
 
@@ -2518,6 +2520,8 @@ def _run_compose(args: argparse.Namespace) -> int:
     command.extend(["--output-dir", str(output_dir)])
     if getattr(args, "style", None):
         command.extend(["--style", args.style])
+    if getattr(args, "temperament", None):
+        command.extend(["--temperament", args.temperament])
     command.extend(["--retrieval", getattr(args, "retrieval", "on")])
     return _run_child(command)
 
@@ -2526,6 +2530,17 @@ def _run_style(args: argparse.Namespace) -> int:
     """从已有小说文本提炼写作风格档案（或引用风格库档案做 lint）."""
     novel_dir = _novel_dir(args.novel)
     output_dir = _output_dir(novel_dir, "style")
+    # --style-search：纯库检索（全局 manifest），无需输入文本 / hash / config
+    if getattr(args, "style_search", None):
+        command = [
+            sys.executable,
+            _script_path("style_short_form.py"),
+            "--output-dir",
+            str(output_dir),
+            "--style-search",
+            args.style_search,
+        ]
+        return _run_child(command)
     source_input = _input_source(args, novel_dir)
     # --style 引用模式不做提炼，跳过 hash 校验（输入仅供 lint 用）
     if not args.style and not _preflight_run_hash(
@@ -2563,6 +2578,8 @@ def _run_style(args: argparse.Namespace) -> int:
         command.extend(["--name", args.name])
     if args.style:
         command.extend(["--style", args.style])
+    if getattr(args, "temperament", None):
+        command.extend(["--temperament", args.temperament])
     return _run_child(command)
 
 
@@ -3637,6 +3654,10 @@ def build_parser(*, emit_json_errors: bool = False) -> argparse.ArgumentParser:
     _add_long_arguments(extend)
     extend.add_argument("--style", help="引用风格库中的已有档案 <name>，注入续写 prompt")
     extend.add_argument(
+        "--temperament",
+        help="叙事气质（散文型/戏剧型/信息型/氛围型）；无风格档案时注入气质桶指导",
+    )
+    extend.add_argument(
         "--retrieval",
         choices=["on", "off"],
         default="on",
@@ -3648,6 +3669,10 @@ def build_parser(*, emit_json_errors: bool = False) -> argparse.ArgumentParser:
     compose.add_argument("novel", help="小说名")
     compose.add_argument("--workspec", help="WorkSpec JSON 文件路径")
     compose.add_argument("--style", help="引用风格库中的已有档案 <name>，注入续写 prompt")
+    compose.add_argument(
+        "--temperament",
+        help="叙事气质（散文型/戏剧型/信息型/氛围型）；CLI 优先，缺省回落到 workspec.temperament",
+    )
     compose.add_argument(
         "--retrieval",
         choices=["on", "off"],
@@ -3664,6 +3689,15 @@ def build_parser(*, emit_json_errors: bool = False) -> argparse.ArgumentParser:
     style.add_argument("--lint", action="store_true", help="对全文做 AI 味 lint")
     style.add_argument("--name", help="另存到风格库 style_library/<name>.json（可跨小说复用）")
     style.add_argument("--style", help="引用风格库中的已有档案 <name>，跳过提炼")
+    style.add_argument(
+        "--temperament",
+        help="叙事气质（散文型/戏剧型/信息型/氛围型），透传给风格提炼作为先验",
+    )
+    style.add_argument(
+        "--style-search",
+        metavar="QUERY",
+        help="在风格库 manifest 上检索候选 id（支持 '要素:手法' 如 人物:衬托），列出后退出",
+    )
     style.set_defaults(func=_run_style)
 
     compliance = subparsers.add_parser("compliance", help="内容合规模块：扫敏感词 + 平台政策")

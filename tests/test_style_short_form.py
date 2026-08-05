@@ -180,3 +180,47 @@ def test_tone_genre_knowledge_in_prompt(tmp_path):
     prompt = (output_dir / "style_extract_prompt.txt").read_text(encoding="utf-8")
     assert "克制" in prompt
     assert "仙侠" in prompt
+
+
+def test_temperament_injects_knowledge_and_worldview(tmp_path):
+    """--temperament 注入气质桶知识 + 完整写作手法世界观分类轴到提炼 prompt."""
+    input_path = tmp_path / "input.txt"
+    input_path.write_text(SAMPLE_TEXT, encoding="utf-8")
+    output_dir = tmp_path / "output"
+
+    result = _run_style(input_path, output_dir, "--temperament", "散文型")
+    assert result.returncode == 0, result.stdout + result.stderr
+    prompt = (output_dir / "style_extract_prompt.txt").read_text(encoding="utf-8")
+    assert "叙事气质: 散文型" in prompt
+    assert "【写作手法世界观（完整分类轴）】" in prompt
+    assert "【描写手法轴】" in prompt
+    assert "【人物五法轴】" in prompt
+
+
+def test_v3_response_fields_parsed_and_saved(tmp_path):
+    """response 含 v3 世界观质性字段 → 解析并写入 style_profile.json."""
+    input_path = tmp_path / "input.txt"
+    input_path.write_text(SAMPLE_TEXT, encoding="utf-8")
+    output_dir = tmp_path / "output"
+    _run_style(input_path, output_dir)
+    (output_dir / "style_extract_response.txt").write_text(
+        json.dumps(
+            {
+                **json.loads(VALID_RESPONSE),
+                "temperament": "散文型",
+                "description_layering_notes": ["白描为本，衬托带情绪"],
+                "omission_notes": ["关键动作写细，过渡一笔带过"],
+                "decision_grounding_notes": ["选择由身份与信念驱动"],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    result = _run_style(input_path, output_dir)
+    assert result.returncode == 0, result.stdout + result.stderr
+    profile_path = output_dir / "style_profile.json"
+    profile = json.loads(profile_path.read_text(encoding="utf-8"))
+    assert profile["schema_version"] == 3
+    assert profile["temperament"] == "散文型"
+    assert profile["description_layering_notes"] == ["白描为本，衬托带情绪"]
+    assert profile["decision_grounding_notes"] == ["选择由身份与信念驱动"]

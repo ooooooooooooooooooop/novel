@@ -37,7 +37,7 @@ REVIEW_RUBRIC: list[RubricDimension] = [
         "description": "修辞手法与句式变化是否丰富，避免空转壳句式与重复比喻",
         "evaluation_focus": ["重复喻体密度", "壳句式（不是A而是B / 四连排比）", "弱化副词"],
         "mapped_issue_types": ["generative_indicia"],
-        "mapped_rule_ids": ["iss_genind", "iss_genind2", "iss_genind3"],
+        "mapped_rule_ids": ["iss_genind", "iss_genind2", "iss_genind3", "iss_layering"],
         "evidence_sources": [
             "web_fiction.py:HOOK_TAXONOMY(paragraph.sensory_detail)",
             "style_knowledge.py:AI_FLAVOR_MARKERS(ai_parallel_four/ai_shell_not_a_but_b/ai_metaphor_repeat)",
@@ -101,6 +101,7 @@ REVIEW_RUBRIC: list[RubricDimension] = [
             "iss_hard_rel",
             "iss_hard_active_character",
             "iss_hard_plotunit_participant",
+            "iss_agency",
         ],
         "evidence_sources": [
             "review.py:_hard_rules(1,4,5-participants)",

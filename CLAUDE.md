@@ -22,7 +22,7 @@
 - 章节正文目录：续写/创作的章节正文统一存 `novels/<小说名>/chapters/`（如 `chapters/chapter_1197.txt`），与 `output/` 系统产物分离；小说工作区一律不提交 GitHub（`novels/*/` 已入 `.gitignore`，canary 证据目录 `novels/tier0-*-canary/` 反向放行），GitHub 仅保留工具框架（代码/测试/脚本/规则文档/运行配置/风格库积累）
 - 续写篇幅与原文参考：有原文时，原文按章拆分入 `chapters/chapter_01.txt` 起（保留章节标题行），续写从下一编号续（原文 23 章 → 续写从 `chapter_24` 起），目录内编号连续；续写章节篇幅对齐原文章均（参考值：《示例小说丁》约 6,500 字符/章），不得明显偏短；续写须参考原文语感、意象系统（杨柳/水/套装/信等）与事件细节，不能凭空脱离原文
 - 隐私纪律：所有具体小说信息（标题、正文、角色、工作区名、作者笔名）一律不提交 GitHub；git 历史中如有此类内容，push 前须用 `git filter-repo --path-*` 完整重写历史剔除（本项目已按此重写并 force-push）；正文仅存本地 `novels/<小说名>/chapters/`；写作风格综合积累可入库，统一放仓库根 `style_library/<name>.json`（中性文件名，不含小说名/作者笔名/机器路径）
-- 测试：1625 passed
+- 测试：1681 passed
 
 ## 怎么用（在 Codex 中）
 
@@ -85,7 +85,7 @@ novel style 示例小说丙 --input 示例小说丙.txt --tone 克制 --genre �
 novel style 示例小说丙 --input 示例小说丙.txt                # 自动入库 → style_library/克制-官商-001.json
 novel style 示例小说丙 --input 示例小说丙.txt --name 克制风    # 另存到 style_library/克制风.json
 novel style 示例小说丙 --style 克制风 --lint               # 引用库档案做禁忌词 lint（跳过提炼）
-novel style --style-search "官商 克制"                    # 按 tone/genre/句式检索库内档案 id
+novel style 某作 --style-search "人物:衬托"                # 检索库内档案 id（支持 "要素:手法" 语法，如 描写:白描 / 对白:潜文本）
 novel style 示例小说丙 --input 示例小说丙.txt --force        # 入库时忽略相似度提示，强制新建
 novel style 示例小说丙 --input 示例小说丙.txt --no-library   # 只提炼不写库
 novel compose 新作 --style 克制-官商-001                  # 新小说注入库档案（id 或文件名均可）
@@ -96,7 +96,7 @@ novel extend 续作 --style 克制风                          # 续写注入库
 - 相似度去重：入库前与库内档案算相似度（数值 60% + 分类 20% + 质性 20%），≥ 0.90 且未 `--force` 时提示 `--style <top_id>` 复用，不盲目新建，避免库无限扩张
 - `--name NAME` 把提炼结果另存为命名档案到 `style_library/<name>.json`（同样登记 manifest）
 - `--style NAME` 引用库中已有档案（两路解析：manifest.id 优先，其次物理文件名）：style 流跳过提炼直接按禁忌词 lint；compose/extend 的 Continue 注入该档案
-- `--style-search QUERY` 在 manifest 上做关键词检索（tone/genre/POV/句式），列出候选 id 后退出
+- `--style-search QUERY` 在 manifest 上做关键词检索（tone/genre/POV/句式/手法笔记），列出候选 id 后退出；支持 `"要素:手法"` 语法（如 `人物:衬托`、`描写:白描`），不要求输入文本
 - `--force` 忽略相似度去重提示强制新建；`--no-library` 只提炼不写库
 - 未指定 `--style` 时 compose/extend 回落到小说自身的 `output/style/style_profile.json`
 - 隐私：id 只含风格词，manifest 不含作品名/作者名/路径；风格库是允许入库的中性积累

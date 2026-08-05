@@ -54,6 +54,13 @@ _OPTIONAL_RESPONSE_FIELDS = (
     "scene_transition_notes",   # 场景转换：章内/章间切换方式 + 段落衔接
     "psychology_notes",         # 心理：密度判断 + 直接/间接内独白 + show-don't-tell 深化
     "rhythm_notes",             # 节奏：叙述/对话/动作/描写配比 + 事件推进方式
+    # v3: 写作手法世界观质性（对应 style_knowledge 六轴 + 气质桶）
+    "description_layering_notes",  # 描写手法选择与配比（白描/细描/渲染/衬托/侧面/动静/点面）
+    "omission_notes",              # 留白策略（什么细写、什么带过、不点破处；Art of Omission）
+    "subtle_technique_notes",      # 含蓄手法（象征/暗示/用典/双关）
+    "character_method_notes",      # 人物五法（肖像/动作/语言/心理/神态）
+    "dialogue_technique_notes",    # 对白技巧（潜文本/性格化/言外之意）
+    "decision_grounding_notes",    # 决策依据（选择由身份/信念/恐惧/利益驱动）
 )
 
 
@@ -67,6 +74,8 @@ class StyleExtractUnit:
         quantitative_context: str,
         style_knowledge_context: str = "",
         available_tones: list[str] | None = None,
+        temperament: str = "",
+        worldview_axis_context: str = "",
     ) -> str:
         """生成风格提炼 prompt.
 
@@ -74,8 +83,10 @@ class StyleExtractUnit:
             samples_text: 章节采样文本（首+中+末均匀采样）
             total_stats: get_total_stats 的输出（章节数/字数）
             quantitative_context: 量化分析渲染文本
-            style_knowledge_context: tone/genre 风格知识（给 LLM 分类轴）
+            style_knowledge_context: tone/genre/temperament 风格知识（给 LLM 分类轴）
             available_tones: 可用调性列表（未知调性进 confidence_gaps）
+            temperament: 叙事气质先验（如 散文型；空=由 LLM 自行判断）
+            worldview_axis_context: 写作手法世界观完整分类轴（build_worldview_axis_guidance）
         """
         tones = available_tones or list_available_tones()
         knowledge_section = ""
@@ -83,6 +94,11 @@ class StyleExtractUnit:
             knowledge_section = (
                 f"\n\n【风格知识参考（分类轴）】\n{style_knowledge_context}\n"
                 f"可用调性标签: {' / '.join(tones)}"
+            )
+        worldview_section = ""
+        if worldview_axis_context:
+            worldview_section = (
+                f"\n\n【写作手法世界观（完整分类轴）】\n{worldview_axis_context}"
             )
 
         return f"""你是一位小说文风分析专家。请从以下章节采样中提炼这部作品的写作风格档案。
@@ -98,6 +114,7 @@ class StyleExtractUnit:
 【量化分析（纯代码，已算出）】
 {quantitative_context}
 {knowledge_section}
+{worldview_section}
 
 【提炼要求】
 1. tone_labels 从可用调性标签中选择（可多选；若文本不属于任何标签，写 '未标注'）
@@ -111,6 +128,13 @@ class StyleExtractUnit:
 9. scene_transition_notes 依据量化转场/时间标记计数判断场景切换方式（显式标记/无痕切换/时间跳转）与段落衔接
 10. psychology_notes 依据量化心理动词密度判断内视角深度、直接/间接内独白与 show-don't-tell 深化手法
 11. rhythm_notes 依据量化动作/叙述/对话/景物四占比判断章内配比与事件推进方式（章末钩子已在 chapter_end_hook_notes）
+12. temperament 依据【写作手法世界观】四气质桶判断叙事气质（散文型/戏剧型/信息型/氛围型；不确定可省略）
+13. description_layering_notes 依据【描写手法轴】列出实际使用的描写手法与配比（白描/细描/渲染/衬托/侧面/动静/点面），不逐条报数，只报用到的
+14. omission_notes 依据【留白轴】列出留白策略：什么细写、什么一笔带过、哪些顿悟不点破
+15. subtle_technique_notes 依据【含蓄表现手法轴】列出实际使用的含蓄手法（象征/暗示/用典/双关）
+16. character_method_notes 依据【人物五法轴】列出刻画人物主要用的手法（肖像/动作/语言/心理/神态）
+17. dialogue_technique_notes 依据【对白技巧轴】列出对白手法（潜文本/性格化/言外之意）
+18. decision_grounding_notes 依据【决策依据轴】判断关键选择的驱动（身份/信念/利益），识别是否有"剧情需要"式无依据选择
 
 【输出格式】
 严格输出 JSON，不要 Markdown 代码块标记:
@@ -130,7 +154,14 @@ class StyleExtractUnit:
   "environment_notes": ["环境描写手法与功能（可选）"],
   "scene_transition_notes": ["场景转换手法（可选）"],
   "psychology_notes": ["心理与内视角表现（可选）"],
-  "rhythm_notes": ["叙事节奏与结构（可选）"]
+  "rhythm_notes": ["叙事节奏与结构（可选）"],
+  "temperament": "散文型（可选，四气质桶之一）",
+  "description_layering_notes": ["描写手法与配比（可选）"],
+  "omission_notes": ["留白策略（可选）"],
+  "subtle_technique_notes": ["含蓄手法（可选）"],
+  "character_method_notes": ["人物五法使用（可选）"],
+  "dialogue_technique_notes": ["对白技巧（可选）"],
+  "decision_grounding_notes": ["决策依据（可选）"]
 }}"""
 
     def parse_response(self, response: str) -> dict:
@@ -149,7 +180,7 @@ class StyleExtractUnit:
                 "Style extraction response missing required field(s): "
                 + ", ".join(missing)
             )
-        allowed = set(_REQUIRED_RESPONSE_FIELDS) | set(_OPTIONAL_RESPONSE_FIELDS)
+        allowed = set(_REQUIRED_RESPONSE_FIELDS) | set(_OPTIONAL_RESPONSE_FIELDS) | {"temperament"}
         extra = sorted(set(data) - allowed)
         if extra:
             raise ValueError(
@@ -190,6 +221,14 @@ class StyleExtractUnit:
                     f"Style extraction response field {field} must be a list of strings"
                 )
             data[field] = value
+        # v3 可选字符串字段：temperament（None=未给出；须为四气质桶之一或空）
+        temperament_value = data.get("temperament")
+        if temperament_value is not None:
+            if not isinstance(temperament_value, str) or not temperament_value.strip():
+                raise ValueError(
+                    "Style extraction response field temperament must be a non-empty string"
+                )
+        data["temperament"] = temperament_value
         for field in ("genre_guess", "narrative_pov", "pacing_description"):
             value = data[field]
             if not isinstance(value, str) or not value.strip():
@@ -221,7 +260,7 @@ class StyleExtractUnit:
         return StyleProfile(
             profile_id=profile_id,
             source_text_ref=source_text_ref,
-            schema_version=2,
+            schema_version=3,
             tone_labels=tone_labels,
             genre_guess=qualitative.get("genre_guess"),
             narrative_pov=qualitative["narrative_pov"],
@@ -235,6 +274,14 @@ class StyleExtractUnit:
             scene_transition_notes=qualitative.get("scene_transition_notes", []),
             psychology_notes=qualitative.get("psychology_notes", []),
             rhythm_notes=qualitative.get("rhythm_notes", []),
+            # v3: 写作手法世界观质性（可空 → 静默不渲染）
+            temperament=qualitative.get("temperament"),
+            description_layering_notes=qualitative.get("description_layering_notes", []),
+            omission_notes=qualitative.get("omission_notes", []),
+            subtle_technique_notes=qualitative.get("subtle_technique_notes", []),
+            character_method_notes=qualitative.get("character_method_notes", []),
+            dialogue_technique_notes=qualitative.get("dialogue_technique_notes", []),
+            decision_grounding_notes=qualitative.get("decision_grounding_notes", []),
             taboo_words=qualitative.get("taboo_words", []),
             style_references=qualitative.get("style_references", []),
             stats=stats,
@@ -456,6 +503,14 @@ _SIM_NUMERIC_FIELDS: tuple[tuple[str, float], ...] = (
     ("psych_verb_density_per_1000", 30.0),
     ("action_verb_density_per_1000", 30.0),
     ("narration_sentence_ratio", 1.0),
+    # v3: 写作手法世界观代理指标（白描/衬托/留白/密疏；诚实标注是代理信号）。
+    # decision_grounding_marker_density 排除：决策依据属角色层特征，非文笔指纹，
+    # 与 _quality_similarity 排除 decision_grounding_notes 保持一致。
+    ("modifier_load_density", 30.0),
+    ("bystander_reaction_density", 20.0),
+    ("foil_sentence_ratio", 1.0),
+    ("omission_marker_count", 20.0),
+    ("key_segment_len_ratio", 5.0),
 )
 
 # 自动入库去重拦截阈值：新档案与库中最高相似度 ≥ 该值 → 提示复用，不盲目新建
@@ -537,18 +592,33 @@ def _categorical_similarity(a: StyleProfile, b: StyleProfile) -> float:
 
 
 def _quality_similarity(a: StyleProfile, b: StyleProfile) -> float:
-    """质性特征相似度：句式/修辞/物象/禁忌词 合并集合 Jaccard."""
+    """质性特征相似度：句式/修辞/物象/禁忌词 + v3 手法笔记 合并集合 Jaccard.
+
+    v3 手法笔记纳入：描写/留白/含蓄/五法/对白（文笔指纹）。
+    decision_grounding_notes 排除：角色层特征（决策依据），非文笔指纹，
+    纳入会导致去重误判（同一写法不同人物动机被误判为新风格）。
+    """
     merged_a = (
         list(a.sentence_habits)
         + list(a.rhetorical_preferences)
         + list(a.closed_loop_objects)
         + list(a.taboo_words)
+        + list(a.description_layering_notes)
+        + list(a.omission_notes)
+        + list(a.subtle_technique_notes)
+        + list(a.character_method_notes)
+        + list(a.dialogue_technique_notes)
     )
     merged_b = (
         list(b.sentence_habits)
         + list(b.rhetorical_preferences)
         + list(b.closed_loop_objects)
         + list(b.taboo_words)
+        + list(b.description_layering_notes)
+        + list(b.omission_notes)
+        + list(b.subtle_technique_notes)
+        + list(b.character_method_notes)
+        + list(b.dialogue_technique_notes)
     )
     return _jaccard(merged_a, merged_b)
 
@@ -591,8 +661,21 @@ def save_style_manifest(
 
 
 def _key_signatures(profile: StyleProfile, limit: int = 5) -> list[str]:
-    """可检索的风格指纹：句式/修辞/闭环物象 前几条."""
-    parts = (
+    """可检索的风格指纹：v3 手法笔记（带'要素:'前缀）优先 + 句式/修辞/闭环物象.
+
+    v3 手法条目形如 '人物: 衬托为主'、'对白: 潜文本'，支持 --style-search 的
+    '要素:手法' 检索语法；空 v3 字段时回落到句式/修辞（旧行为不变）。
+    """
+    parts: list[str] = []
+    for label, notes in (
+        ("描写", profile.description_layering_notes),
+        ("留白", profile.omission_notes),
+        ("含蓄", profile.subtle_technique_notes),
+        ("人物", profile.character_method_notes),
+        ("对白", profile.dialogue_technique_notes),
+    ):
+        parts.extend(f"{label}: {item}" for item in notes)
+    parts += (
         list(profile.sentence_habits)
         + list(profile.rhetorical_preferences)
         + list(profile.closed_loop_objects)
@@ -615,6 +698,7 @@ def upsert_style_manifest(
         "tone_labels": profile.tone_labels,
         "genre_guess": profile.genre_guess,
         "narrative_pov": profile.narrative_pov,
+        "temperament": profile.temperament,
         "key_signatures": _key_signatures(profile),
         "avg_sentence_len": profile.stats.avg_sentence_len,
         "dialogue_ratio": profile.stats.dialogue_ratio,
@@ -666,7 +750,11 @@ def find_most_similar(
 def search_style_manifest(
     manifest: dict | None, query: str
 ) -> list[dict]:
-    """在 manifest 上做关键词检索：每个词须命中 tone/genre/pov/key_signatures 之一.
+    """在 manifest 上做关键词检索：每个词须命中 tone/genre/pov/temperament/key_signatures 之一.
+
+    支持 '要素:手法' 语法（如 '人物:衬托'、'对白:潜文本'、'描写:白描'）：
+    token 中的 ':' 规范化为 ': ' 匹配 key_signatures 的带前缀条目格式
+    （'人物: 衬托为主'）。
 
     返回按命中字段数降序的候选条目列表（未命中返回空列表）。
     """
@@ -674,6 +762,8 @@ def search_style_manifest(
     tokens = [t.strip() for t in re.split(r"[\s,，;；]+", query) if t.strip()]
     if not tokens:
         return []
+    # '人物:衬托' → '人物: 衬托'，匹配 '要素: 手法' 指纹格式
+    tokens = [t.replace(":", ": ") for t in tokens]
     scored: list[tuple[int, dict]] = []
     for entry in manifest.get("profiles", []):
         haystack = " ".join(
@@ -682,6 +772,7 @@ def search_style_manifest(
                 " ".join(entry.get("tone_labels") or []),
                 entry.get("genre_guess") or "",
                 entry.get("narrative_pov") or "",
+                entry.get("temperament") or "",
                 " ".join(entry.get("key_signatures") or []),
             ]
         )

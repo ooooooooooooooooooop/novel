@@ -11,6 +11,11 @@ from src.domain_layer.rules import (
     validate_node_emotion,
     validate_plotunit_hook,
 )
+from src.domain_layer.style_knowledge import (
+    EMOTION_ANNOUNCEMENT_PHRASES,
+    EXPLANATORY_PHRASES,
+)
+from src.domain_layer.style_lexicon import DECISION_GROUNDING_MARKERS
 from src.object_state import (
     CharacterModel,
     FactLedger,
@@ -21,6 +26,13 @@ from src.object_state import (
     ReviewReminder,
     WorkSpec,
 )
+
+# v3: 决策依据检查的"决策动作触发词"（出现在 goal/conflict 才检查回溯性）
+_AGENCY_TRIGGERS: frozenset[str] = frozenset({
+    "答应", "拒绝", "决定", "选择", "放弃", "背叛", "归顺", "妥协",
+    "出手", "收手", "立誓", "投靠", "反叛", "认罪", "放过", "杀掉",
+    "救下", "改投", "投降", "屈服", "反击",
+})
 
 
 class ReviewUnit:
@@ -486,6 +498,66 @@ class ReviewUnit:
                             description=f"goal 与 PlotUnit {pu_a.unit_id} 完全重复",
                         )
                     )
+
+        # ---- v3: 决策依据可回溯性（iss_agency_*）----
+        # CharacterModel 已含 identity/outer_goal/fear/flaw/stance（决策依据层）。
+        # 启发式弱信号：PlotUnit 的冲突/目标含"决策动作触发词"但完全无显式依据
+        # 标记时，提示复核该选择是否有身份/信念依据 —— 诚实标注对象层代理性，
+        # 真正判断在 LLM（区分"有意的戏剧性反转" vs "无依据的剧情需要/工具人"）。
+        if any(isinstance(o, CharacterModel) for o in objects):
+            for pu in plotunits:
+                decision_text = " ".join(
+                    filter(None, [pu.goal, pu.conflict])
+                )
+                if not decision_text:
+                    continue
+                if not any(marker in decision_text for marker in _AGENCY_TRIGGERS):
+                    continue
+                if any(marker in decision_text for marker in DECISION_GROUNDING_MARKERS):
+                    continue
+                issues.append(
+                    ReviewIssue(
+                        issue_id=f"iss_agency_{pu.unit_id}",
+                        issue_type="weak_progression",
+                        severity="warning",
+                        location=f"PlotUnit {pu.unit_id}",
+                        scope_of_impact="角色动机一致性",
+                        violated_rule="关键选择应可回溯到身份/信念/恐惧",
+                        description=(
+                            f"PlotUnit {pu.unit_id} 的选择 '{decision_text[:40]}…' "
+                            f"含决策动作但无显式依据标记（不得不/基于/出于/作为…）。"
+                            f"请复核该选择是否有身份/信念依据，区分'有意的戏剧性反转'"
+                            f"与'无依据的剧情需要（工具人风险）'。"
+                        ),
+                    )
+                )
+
+        # ---- v3: 描写分层失衡（iss_layering_*）----
+        # 直给型陈述（解释腔/情绪宣布词）在 PlotUnit 字段出现 → 弱信号：
+        # 该处可能"直给"了（他感到/涌起一股），散文型气质应改白描/衬托呈现。
+        # 诚实标注：对象层无正文，这是代理信号，需在正文层确认（LLM 复核）。
+        layering_markers = set(EXPLANATORY_PHRASES) | set(EMOTION_ANNOUNCEMENT_PHRASES)
+        for pu in plotunits:
+            text_to_check = " ".join(
+                filter(None, [pu.goal, pu.conflict, pu.emotional_shift or ""])
+            )
+            hits = [marker for marker in layering_markers if marker in text_to_check]
+            if hits:
+                issues.append(
+                    ReviewIssue(
+                        issue_id=f"iss_layering_{pu.unit_id}",
+                        issue_type="weak_progression",
+                        severity="low",
+                        location=f"PlotUnit {pu.unit_id}",
+                        scope_of_impact="表达层",
+                        violated_rule="直给型陈述应改用动作/衬托呈现",
+                        description=(
+                            f"PlotUnit {pu.unit_id} 字段含直给型标记 {hits}。"
+                            f"提示该处可能'直给'了（他感到/涌起一股）。"
+                            f"散文型气质应改白描/衬托：以动作、身体反应、他人反应呈现。"
+                        ),
+                    )
+                )
 
         return issues
 

@@ -12,6 +12,8 @@ from src.object_state.styleprofile import StyleProfile
 from src.workflow_action.style import (
     STYLE_DEDUP_THRESHOLD,
     StyleLintUnit,
+    _key_signatures,
+    _quality_similarity,
     auto_style_id,
     find_most_similar,
     load_style_context,
@@ -362,6 +364,151 @@ def test_search_style_manifest():
     ]
     assert [h["id"] for h in search_style_manifest(manifest, "仙侠")] == ["仙侠-001"]
     assert search_style_manifest(manifest, "不存在") == []
+
+
+# --- v3: 手法指纹（要素:手法 检索 / 相似度纳入 / manifest temperament）---
+
+
+def test_key_signatures_prefixed_v3_notes():
+    """v3 手法笔记带'要素:'前缀进入检索指纹（支持 '要素:手法' 检索语法）."""
+    profile = _make_profile(
+        description_layering_notes=["白描为本，衬托带情绪"],
+        omission_notes=["关键动作写细，过渡一笔带过"],
+        character_method_notes=["动作/神态为主"],
+        dialogue_technique_notes=["对白带潜文本"],
+        decision_grounding_notes=["身份驱动"],
+    )
+    sigs = _key_signatures(profile)
+    assert "描写: 白描为本，衬托带情绪" in sigs
+    assert "留白: 关键动作写细，过渡一笔带过" in sigs
+    assert "人物: 动作/神态为主" in sigs
+    assert "对白: 对白带潜文本" in sigs
+
+
+def test_search_style_manifest_element_syntax():
+    """'要素:手法' 检索语法命中带前缀的手法指纹."""
+    manifest = {
+        "profiles": [
+            {
+                "id": "克制-官商-001",
+                "key_signatures": ["人物: 衬托为主", "对白: 潜文本"],
+            },
+            {
+                "id": "仙侠-001",
+                "key_signatures": ["描写: 白描为本"],
+            },
+        ]
+    }
+    assert [h["id"] for h in search_style_manifest(manifest, "人物:衬托")] == [
+        "克制-官商-001"
+    ]
+    assert [h["id"] for h in search_style_manifest(manifest, "对白:潜文本")] == [
+        "克制-官商-001"
+    ]
+    assert [h["id"] for h in search_style_manifest(manifest, "描写:白描")] == [
+        "仙侠-001"
+    ]
+
+
+def test_manifest_upsert_includes_temperament(tmp_path):
+    novels_root = tmp_path / "novels"
+    profile = _make_profile(tone_labels=["克制"], genre_guess="仙侠", temperament="散文型")
+    upsert_style_manifest(profile, "克制-仙侠-001", "克制-仙侠-001.json", novels_root)
+    manifest = load_style_manifest(novels_root)
+    assert manifest["profiles"][0]["temperament"] == "散文型"
+
+
+def test_manifest_upsert_temperament_none_absent(tmp_path):
+    """temperament 未提炼时 manifest 条目 temperament 为 None（不破坏旧检索）."""
+    novels_root = tmp_path / "novels"
+    profile = _make_profile(tone_labels=["克制"], genre_guess="仙侠")
+    upsert_style_manifest(profile, "克制-仙侠-001", "克制-仙侠-001.json", novels_root)
+    manifest = load_style_manifest(novels_root)
+    assert manifest["profiles"][0]["temperament"] is None
+    # 旧 manifest 检索不受影响
+    assert [h["id"] for h in search_style_manifest(manifest, "仙侠")] == [
+        "克制-仙侠-001"
+    ]
+
+
+def test_quality_similarity_includes_v3_notes():
+    """v3 手法笔记纳入质性相似度：相同笔记 → 1.0，不同笔记 → 低于 1.0."""
+    a = _make_profile(
+        description_layering_notes=["白描为本"], omission_notes=["关键动作写细"]
+    )
+    b = _make_profile(
+        description_layering_notes=["白描为本"], omission_notes=["关键动作写细"]
+    )
+    assert _quality_similarity(a, b) == pytest.approx(1.0)
+    c = _make_profile(
+        description_layering_notes=["渲染铺陈"], omission_notes=["全篇铺开"]
+    )
+    assert 0.0 <= _quality_similarity(a, c) < 1.0
+
+
+def test_quality_similarity_excludes_decision_grounding():
+    """decision_grounding_notes 排除：动机不同的同写法不降低文笔相似度."""
+    a = _make_profile(decision_grounding_notes=["身份驱动"])
+    b = _make_profile(decision_grounding_notes=["信念驱动"])
+    c = _make_profile(decision_grounding_notes=[])
+    assert _quality_similarity(a, b) == pytest.approx(1.0)
+    assert _quality_similarity(a, c) == pytest.approx(1.0)
+
+
+def test_style_search_cli_element_syntax(tmp_path):
+    """CLI --style-search '人物:衬托' 命中带手法指纹的库档案."""
+    novels_root = tmp_path / "novels"
+    input_path = tmp_path / "input.txt"
+    input_path.write_text("第一章 测试\n\n顾临蹲在藏经阁。", encoding="utf-8")
+    output_dir = tmp_path / "output"
+    first = _run_style(input_path, output_dir)
+    assert first.returncode == 0, first.stdout + first.stderr
+    # response 带 v3 手法笔记（人物五法）
+    response = {
+        **LIB_RESPONSE,
+        "temperament": "散文型",
+        "character_method_notes": ["衬托为主，动作/神态为辅"],
+    }
+    (output_dir / "style_extract_response.txt").write_text(
+        json.dumps(response, ensure_ascii=False), encoding="utf-8"
+    )
+    second = _run_style(input_path, output_dir)
+    assert second.returncode == 0, second.stdout + second.stderr
+    search = _run_style(input_path, output_dir, "--style-search", "人物:衬托")
+    assert search.returncode == 0, search.stdout + search.stderr
+    assert "克制-仙侠-001" in search.stdout
+
+
+def test_novel_cli_style_search_element_syntax(tmp_path, monkeypatch):
+    """novel_cli 层透传 --style-search '人物:衬托'（无输入文件需求）命中库档案."""
+    novels_root = tmp_path / "novels"
+    monkeypatch.setenv("NOVELS_ROOT", str(novels_root))
+    upsert_style_manifest(
+        _make_profile(character_method_notes=["衬托为主，动作/神态为辅"]),
+        "克制-仙侠-001",
+        "克制-仙侠-001.json",
+        novels_root,
+    )
+    env = os.environ.copy()
+    env["NOVELS_ROOT"] = str(novels_root)
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "src.novel_cli",
+            "style",
+            "检索验证",
+            "--style-search",
+            "人物:衬托",
+        ],
+        cwd=PROJECT_ROOT,
+        env=env,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "克制-仙侠-001" in result.stdout
 
 
 def test_resolve_style_library_path_via_manifest(tmp_path, monkeypatch):

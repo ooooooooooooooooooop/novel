@@ -2,11 +2,16 @@
 
 from src.boundary_control.style_metrics import (
     analyze_style_metrics,
+    detect_bystander_reaction,
     detect_colon_enumeration,
     detect_connective_abuse,
     detect_dash_colons,
+    detect_decision_grounding_markers,
     detect_explanatory_phrases,
+    detect_key_segment_len_ratio,
     detect_metaphor_repeats,
+    detect_modifier_load,
+    detect_omission_markers,
     detect_shell_patterns,
     dialogue_ratio,
     sentence_length_distribution,
@@ -139,3 +144,96 @@ def test_style_stats_backward_compat_old_json():
     stats = StyleQuantitativeStats.model_validate(old_payload)
     assert stats.connective_abuse_count == 0
     assert stats.colon_enumeration_count == 0
+
+
+# --- v3: 写作手法世界观代理指标 ---
+
+
+def test_modifier_load_positive_for_adverb_heavy_text():
+    # "非常/十分/极其" 高修饰负载 → 白描负代理值高
+    text = "他非常非常生气，十分愤怒，极其痛苦地攥紧了拳头。"
+    assert detect_modifier_load(text) > 0
+
+
+def test_modifier_load_zero_for_baimiao_text():
+    # 白描文本（动词+名词）修饰负载低
+    text = "他蹲在藏经阁的地板缝边上，把册子插回架。"
+    assert detect_modifier_load(text) == 0.0
+
+
+def test_bystander_reaction_density_and_ratio():
+    text = "众人倒吸一口凉气。他抬了一眼，全场瞬间死寂。围观的人窃窃私语。"
+    density, ratio = detect_bystander_reaction(text)
+    assert density > 0
+    assert ratio > 0
+    assert 0.0 <= ratio <= 1.0
+
+
+def test_bystander_reaction_clean_zero():
+    text = "他蹲下身子，擦了擦手，往屋里走。"
+    density, ratio = detect_bystander_reaction(text)
+    assert density == 0.0
+    assert ratio == 0.0
+
+
+def test_omission_markers_counts_ellipsis():
+    text = "他没有再说下去…… 那一夜…… 或许永远。"
+    assert detect_omission_markers(text) == 2
+
+
+def test_omission_markers_clean_zero():
+    assert detect_omission_markers("他推开门，走了进去。") == 0
+
+
+def test_decision_grounding_markers_density():
+    text = "作为城主，他不得不做出这个决定。出于对宗门的责任，他宁可自己担责。"
+    assert detect_decision_grounding_markers(text) > 0
+
+
+def test_decision_grounding_clean_zero():
+    assert detect_decision_grounding_markers("他推开门，走了进去。") == 0.0
+
+
+def test_key_segment_len_ratio_dense_vs_transition():
+    # 关键段写细、过渡段一笔带过 → 比值 > 1
+    text = (
+        "关键高潮段落非常非常长，描写每一个动作每一个眼神每一个细节"
+        "都展开来写，让读者沉浸其中感受当时的紧张与压迫感。\n"
+        "关键高潮第二段同样很长，继续铺陈情绪与动作，毫不吝惜笔墨。\n"
+        "过了。\n"
+        "第二天。\n"
+        "他走了。\n"
+        "三日后。\n"
+    )
+    assert detect_key_segment_len_ratio(text) > 1.0
+
+
+def test_key_segment_len_ratio_uniform_near_one():
+    # 均匀段落 → 比值接近 1
+    text = "第一段话。\n第二段话。\n第三段话。\n第四段话。\n第五段话。\n"
+    ratio = detect_key_segment_len_ratio(text)
+    assert 0.0 < ratio <= 1.5
+
+
+def test_key_segment_len_ratio_few_paragraphs_zero():
+    assert detect_key_segment_len_ratio("只有一段。") == 0.0
+
+
+def test_analyze_style_metrics_includes_v3_fields():
+    text = "众人倒吸一口凉气。他非常冷静地转过身。……他不得不继续走下去。"
+    stats = analyze_style_metrics(text)
+    assert stats.modifier_load_density > 0
+    assert stats.bystander_reaction_density > 0
+    assert stats.omission_marker_count > 0
+    assert stats.decision_grounding_marker_density > 0
+
+
+def test_analyze_v3_all_zero_on_clean_text():
+    # 干净文本 → 全部代理指标零（零风险、零注入契约）
+    text = "他蹲在藏经阁的地板缝边上，把册子插回架。"
+    stats = analyze_style_metrics(text)
+    assert stats.modifier_load_density == 0.0
+    assert stats.bystander_reaction_density == 0.0
+    assert stats.foil_sentence_ratio == 0.0
+    assert stats.omission_marker_count == 0
+    assert stats.decision_grounding_marker_density == 0.0

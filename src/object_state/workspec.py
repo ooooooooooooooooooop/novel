@@ -38,6 +38,10 @@ class WorkSpec(BaseModel):
         default=None,
         description="目标平台标识，如 web_novel_daily / web_novel_serial / short_form_burst",
     )
+    temperament: Optional[str] = Field(
+        default=None,
+        description="叙事气质（散文型/戏剧型/信息型/氛围型）；compose 用它作为风格先验，无 StyleProfile 时注入气质桶指导",
+    )
     length_target: Optional[StrictInt] = Field(
         default=None,
         ge=0,
@@ -90,6 +94,8 @@ class WorkSpec(BaseModel):
             lines.append(f"结构模板: {self.structure_template}")
         if self.platform:
             lines.append(f"目标平台: {self.platform}")
+        if self.temperament:
+            lines.append(f"叙事气质: {self.temperament}")
         if self.length_target:
             lines.append(f"目标长度: {self.length_target}")
         if self.constraints:
