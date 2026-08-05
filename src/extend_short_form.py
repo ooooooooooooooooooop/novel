@@ -21,6 +21,7 @@ from src.boundary_control.runtime_args import validate_long_runtime_args
 from src.boundary_control.runtime_state import require_continue_runtime_state
 from src.boundary_control.serialization import SerializationBoundaryUnit
 from src.boundary_control.validation import NoRegressionValidationUnit
+from src.domain_layer.compliance_rules import build_nsfw_context
 from src.domain_layer.rules import get_structure_template
 from src.workflow_action.frame import NarrativeFrameUnit
 from src.workflow_action.rebuild import RebuildUnit
@@ -147,6 +148,12 @@ def main() -> int:
         default="on",
         choices=["on", "off"],
         help="状态检索注入开关（默认 on；off 时与旧版 prompt 字节一致）",
+    )
+    parser.add_argument(
+        "--nsfw",
+        default="off",
+        choices=["on", "off"],
+        help="成人向（NSFW）开关（默认 off 正常向：注入禁成人内容分级；on：允许成人向内容）",
     )
     parser.add_argument(
         "--no-prose",
@@ -465,6 +472,7 @@ def main() -> int:
                 timeline_context=facts.to_timeline_context(include_header=False),
                 time_context=build_time_context(load_time_book(output_dir)),
                 excerpt_context=load_recent_excerpts(text),
+                nsfw_context=build_nsfw_context(args.nsfw == "on"),
             ),
             encoding="utf-8",
         )

@@ -12,7 +12,7 @@ from pathlib import Path
 
 from src.boundary_control.chunking import count_non_whitespace, split_by_chapters
 from src.domain_layer.compliance_rules import (
-    build_lexicon_from_categories,
+    build_lexicon_nsfw_aware,
     get_platform_policy,
     parse_chapter_length_target,
 )
@@ -59,6 +59,7 @@ class ComplianceReport:
         source_text_ref: str,
         platform: str,
         sensitive_scan: bool,
+        nsfw_scan: bool = True,
         hits: list[ComplianceHit],
         platform_policy: dict,
         issues: list[ReviewIssue],
@@ -66,6 +67,7 @@ class ComplianceReport:
         self.source_text_ref = source_text_ref
         self.platform = platform
         self.sensitive_scan = sensitive_scan
+        self.nsfw_scan = nsfw_scan
         self.hits = hits
         self.platform_policy = platform_policy
         self.issues = issues
@@ -99,6 +101,7 @@ class ComplianceReport:
             "source_text_ref": self.source_text_ref,
             "platform": self.platform,
             "sensitive_scan": self.sensitive_scan,
+            "nsfw_scan": self.nsfw_scan,
             "route": "pass",
             "risk_level": self.risk_level(),
             "hit_count": len(self.hits),
@@ -119,19 +122,21 @@ class ComplianceUnit:
         *,
         platform: str,
         sensitive_on: bool = True,
+        nsfw_on: bool = False,
         custom_entries: list | None = None,
         source_text_ref: str = "",
     ) -> ComplianceReport:
         """对正文扫敏感词 + 平台政策检查.
 
         sensitive_on=False 时跳过词库扫描（平台政策检查仍跑）。
+        nsfw_on=True 时跳过「涉黄」分类（成人向作品不扫涉黄，其余分类仍扫）。
         """
         hits: list[ComplianceHit] = []
         lines = text.splitlines()
-        lexicon = (
-            build_lexicon_from_categories(custom_entries=custom_entries)
-            if sensitive_on
-            else []
+        lexicon = build_lexicon_nsfw_aware(
+            sensitive_on=sensitive_on,
+            nsfw_on=nsfw_on,
+            custom_entries=custom_entries,
         )
 
         for line_number, line in enumerate(lines, start=1):
@@ -166,6 +171,7 @@ class ComplianceUnit:
             source_text_ref=source_text_ref,
             platform=platform,
             sensitive_scan=sensitive_on,
+            nsfw_scan=not nsfw_on,
             hits=hits,
             platform_policy=policy,
             issues=issues,

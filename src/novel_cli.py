@@ -96,6 +96,7 @@ VALID_CONFIG_FIELDS = {
     "sensitive",
     "lexicon",
     "retrieval",
+    "nsfw",
     "rebuild",
     "check",
 }
@@ -2451,7 +2452,8 @@ def _run_extend(args: argparse.Namespace) -> int:
         novel_dir,
         {"mode": "extend", **_capture_long_config(args)}
         | ({"style": args.style} if getattr(args, "style", None) else {})
-        | {"retrieval": getattr(args, "retrieval", "on")},
+        | {"retrieval": getattr(args, "retrieval", "on")}
+        | {"nsfw": getattr(args, "nsfw", "off")},
     )
 
     command = [
@@ -2467,6 +2469,7 @@ def _run_extend(args: argparse.Namespace) -> int:
     if getattr(args, "temperament", None):
         command.extend(["--temperament", args.temperament])
     command.extend(["--retrieval", getattr(args, "retrieval", "on")])
+    command.extend(["--nsfw", getattr(args, "nsfw", "off")])
     if getattr(args, "no_prose", False):
         command.append("--no-prose")
     return _run_child(command)
@@ -2502,7 +2505,8 @@ def _run_compose(args: argparse.Namespace) -> int:
         _write_config(
             novel_dir,
             {"mode": "compose", "workspec": "workspec.json"}
-            | ({"style": args.style} if getattr(args, "style", None) else {}),
+            | ({"style": args.style} if getattr(args, "style", None) else {})
+            | {"nsfw": getattr(args, "nsfw", "off")},
         )
     elif source_workspec_path is not None:
         command.append(str(novel_dir / "workspec.json"))
@@ -2510,14 +2514,16 @@ def _run_compose(args: argparse.Namespace) -> int:
             novel_dir,
             {"mode": "compose", "workspec": "workspec.json"}
             | ({"style": args.style} if getattr(args, "style", None) else {})
-            | {"retrieval": getattr(args, "retrieval", "on")},
+            | {"retrieval": getattr(args, "retrieval", "on")}
+            | {"nsfw": getattr(args, "nsfw", "off")},
         )
     else:
         _write_config(
             novel_dir,
             {"mode": "compose", "workspec": None}
             | ({"style": args.style} if getattr(args, "style", None) else {})
-            | {"retrieval": getattr(args, "retrieval", "on")},
+            | {"retrieval": getattr(args, "retrieval", "on")}
+            | {"nsfw": getattr(args, "nsfw", "off")},
         )
     command.extend(["--output-dir", str(output_dir)])
     if getattr(args, "style", None):
@@ -2525,6 +2531,7 @@ def _run_compose(args: argparse.Namespace) -> int:
     if getattr(args, "temperament", None):
         command.extend(["--temperament", args.temperament])
     command.extend(["--retrieval", getattr(args, "retrieval", "on")])
+    command.extend(["--nsfw", getattr(args, "nsfw", "off")])
     if getattr(args, "no_prose", False):
         command.append("--no-prose")
     return _run_child(command)
@@ -2611,6 +2618,7 @@ def _run_compliance(args: argparse.Namespace) -> int:
             "mode": "compliance",
             **({"platform": args.platform} if getattr(args, "platform", None) else {}),
             **({"sensitive": args.sensitive} if getattr(args, "sensitive", None) else {}),
+            **({"nsfw": args.nsfw} if getattr(args, "nsfw", None) else {}),
             **({"lexicon": args.lexicon} if getattr(args, "lexicon", None) else {}),
         },
     )
@@ -2626,6 +2634,8 @@ def _run_compliance(args: argparse.Namespace) -> int:
         command.extend(["--platform", args.platform])
     if args.sensitive:
         command.extend(["--sensitive", args.sensitive])
+    if args.nsfw:
+        command.extend(["--nsfw", args.nsfw])
     if args.lexicon:
         command.extend(["--lexicon", args.lexicon])
     return _run_child(command)
@@ -2724,6 +2734,7 @@ def _run_resume(args: argparse.Namespace) -> int:
         if config.get("style"):
             command.extend(["--style", config["style"]])
         command.extend(["--retrieval", config.get("retrieval", "on")])
+        command.extend(["--nsfw", config.get("nsfw", "off")])
         return _run_child(command)
     if mode == "compose":
         output_dir = _output_dir(novel_dir, "compose")
@@ -2737,6 +2748,7 @@ def _run_resume(args: argparse.Namespace) -> int:
         if config.get("style"):
             command.extend(["--style", config["style"]])
         command.extend(["--retrieval", config.get("retrieval", "on")])
+        command.extend(["--nsfw", config.get("nsfw", "off")])
         return _run_child(command)
     if mode == "style":
         output_dir = _output_dir(novel_dir, "style")
@@ -2765,6 +2777,8 @@ def _run_resume(args: argparse.Namespace) -> int:
             command.extend(["--platform", config["platform"]])
         if config.get("sensitive"):
             command.extend(["--sensitive", config["sensitive"]])
+        if config.get("nsfw"):
+            command.extend(["--nsfw", config["nsfw"]])
         if config.get("lexicon"):
             command.extend(["--lexicon", config["lexicon"]])
         return _run_child(command)
@@ -3672,6 +3686,12 @@ def build_parser(*, emit_json_errors: bool = False) -> argparse.ArgumentParser:
         help="状态检索注入开关（默认 on；off 时与旧版 prompt 字节一致）",
     )
     extend.add_argument(
+        "--nsfw",
+        choices=["on", "off"],
+        default="off",
+        help="成人向（NSFW）开关（默认 off 正常向：注入禁成人内容分级；on：允许成人向内容）",
+    )
+    extend.add_argument(
         "--no-prose",
         action="store_true",
         help="跳过章节正文落盘（只产出 PlotUnit 结构）",
@@ -3691,6 +3711,12 @@ def build_parser(*, emit_json_errors: bool = False) -> argparse.ArgumentParser:
         choices=["on", "off"],
         default="on",
         help="状态检索注入开关（默认 on；off 时与旧版 prompt 字节一致）",
+    )
+    compose.add_argument(
+        "--nsfw",
+        choices=["on", "off"],
+        default="off",
+        help="成人向（NSFW）开关（默认 off 正常向：注入禁成人内容分级；on：允许成人向内容）",
     )
     compose.add_argument(
         "--no-prose",
@@ -3737,6 +3763,12 @@ def build_parser(*, emit_json_errors: bool = False) -> argparse.ArgumentParser:
         default="on",
         choices=["on", "off"],
         help="敏感词扫描开关（默认 on；off 时跳过词库扫描，平台政策检查仍跑）",
+    )
+    compliance.add_argument(
+        "--nsfw",
+        default="off",
+        choices=["on", "off"],
+        help="成人向（NSFW）开关（默认 off 正常向：扫描涉黄分类；on：跳过涉黄分类，其余分类仍扫）",
     )
     compliance.add_argument("--lexicon", help="自定义词库 JSON 文件路径（与内置词库合并）")
     compliance.set_defaults(func=_run_compliance)

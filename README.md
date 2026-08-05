@@ -4,7 +4,7 @@ An automatic novel narrative system that parses narrative structure, maintains n
 
 一个自动小说叙事系统：解析叙事结构、维护叙事状态、规划故事推进、审查生成结果。
 
-> **Tier 0 production-ready** — local staged CLI, operator-in-the-loop · **1773 tests passing** · checkpoint tag `v0.1.1-tier0`
+> **Tier 0 production-ready** — local staged CLI, operator-in-the-loop · **1791 tests passing** · checkpoint tag `v0.1.1-tier0`
 
 ---
 
@@ -31,7 +31,7 @@ The repository is **Tier 0 production-ready — three-flow daily-production hard
 Tier 0 生产就绪判定（2026-07-28 宣布）：
 
 - production tier: `local staged CLI v0`（本地分阶段 CLI v0）
-- full pytest baseline: 1773 tests passing（完整回归基线 1773 个测试通过）
+- full pytest baseline: 1791 tests passing（完整回归基线 1791 个测试通过）
 - release record: `docs/00_project/releases/tier0-release.json`
 - immutable checkpoint: git tag `v0.1.1-tier0`
 - extend / compose canaries 均通过 `novel gate` 同四标准；聚合证据在 `docs/00_project/releases/tier0-three-flow-canary-aggregation.json`
@@ -60,6 +60,7 @@ Tier 0 边界仍然生效：
 - **零成本契约**：无 TimeBook → 无注入、无检测、无产物，prompt 字节与旧版逐字节相同（回归测试锁死）
 - **统一入口**：`novel` 命令管理 `novels/<小说名>/` 工作目录，并调用 audit / extend / compose / style / compliance / rubric / time staged CLI
 - **内容合规**：`novel compliance` 单遍扫描，产出合规报告（风险等级/位置锚点/严重级/替换建议）
+- **NSFW 内容分级开关**：compose/extend `--nsfw on|off`（默认 off 正常向，注入禁成人内容分级；on 允许成人向）+ compliance `--nsfw on|off`（on 跳过「涉黄」分类扫描）贯通创作与审核一套语义
 - **离线评测**：`novel rubric` 导出 WebNovelBench 8 维本地 rubric（装配时间一致性后 9 维）
 
 ## Install / 安装
@@ -119,6 +120,7 @@ novel style 某作 --style-search "人物:衬托"                     # 检索�
 ```bash
 novel compliance 某作 --input 某作.txt --platform 通用
 novel compliance 某作 --input 某作.txt --sensitive off      # 关闭词库扫描
+novel compliance 某作 --input 某作.txt --nsfw on            # 跳过涉黄分类（成人向作品）
 novel compliance 某作 --input 某作.txt --lexicon custom.json # 合并自定义词库
 ```
 
@@ -210,4 +212,4 @@ New to the repository? Read in this order:
 pytest tests/ -q
 ```
 
-Baseline: **1773 tests passing**（Windows 下测试请带 `PYTHONIOENCODING=utf-8`）。
+Baseline: **1791 tests passing**（Windows 下测试请带 `PYTHONIOENCODING=utf-8`）。

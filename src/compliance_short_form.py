@@ -8,7 +8,7 @@
 
 用法:
     python src/compliance_short_form.py <input.txt> --output-dir <dir>
-        [--platform 通用] [--sensitive on|off] [--lexicon FILE]
+        [--platform 通用] [--sensitive on|off] [--nsfw on|off] [--lexicon FILE]
 """
 
 import argparse
@@ -66,6 +66,12 @@ def main() -> int:
         help="敏感词扫描开关（默认 on；off 时跳过词库扫描，平台政策检查仍跑）",
     )
     parser.add_argument(
+        "--nsfw",
+        default="off",
+        choices=["on", "off"],
+        help="成人向（NSFW）开关（默认 off 正常向：扫描涉黄分类；on：跳过涉黄分类，其余分类仍扫）",
+    )
+    parser.add_argument(
         "--lexicon",
         default="",
         help="自定义词库 JSON 文件路径（与内置词库合并）",
@@ -103,17 +109,22 @@ def main() -> int:
 
     # Step 2: scan (pure code)
     sensitive_on = args.sensitive == "on"
+    nsfw_on = args.nsfw == "on"
     unit = ComplianceUnit()
     report = unit.scan_prose(
         text,
         platform=args.platform,
         sensitive_on=sensitive_on,
+        nsfw_on=nsfw_on,
         custom_entries=custom_entries,
         source_text_ref=str(text_path),
     )
 
     print(f"\n{'=' * 50}")
-    print(f"Compliance Scan | platform={args.platform} | sensitive={args.sensitive}")
+    print(
+        f"Compliance Scan | platform={args.platform} | sensitive={args.sensitive} "
+        f"| nsfw={args.nsfw}"
+    )
     print(f"{'=' * 50}")
     print(f"风险等级: {report.risk_level()} | 命中: {len(report.hits)} | 政策 issue: {len(report.issues)}")
     if report.hits:

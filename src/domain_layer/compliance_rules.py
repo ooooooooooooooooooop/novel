@@ -8,6 +8,9 @@ import re
 
 from src.domain_layer.compliance_knowledge import (
     DEFAULT_PLATFORM,
+    NSFW_ALLOW_CONTENT_POLICY,
+    NSFW_CATEGORY,
+    NSFW_SAFE_CONTENT_POLICY,
     PLATFORM_POLICY,
     SENSITIVE_LEXICON,
     SensitiveEntry,
@@ -46,6 +49,41 @@ def build_lexicon_from_categories(
     if custom_entries:
         all_entries = [*all_entries, *custom_entries]
     return all_entries
+
+
+def build_lexicon_nsfw_aware(
+    sensitive_on: bool,
+    nsfw_on: bool,
+    custom_entries: list[SensitiveEntry] | None = None,
+) -> list[SensitiveEntry]:
+    """构建参与扫描的敏感词条目列表（NSFW 感知）.
+
+    - ``sensitive_on=False``: 整体跳过词库扫描（与 --sensitive off 一致）。
+    - ``nsfw_on=True``: 跳过「涉黄」分类（成人向作品不扫涉黄），其余分类仍扫。
+    """
+    if not sensitive_on:
+        return []
+    categories = None
+    if nsfw_on:
+        categories = [
+            category
+            for category in get_sensitive_categories()
+            if category != NSFW_CATEGORY
+        ]
+    all_entries = build_lexicon_from_categories(
+        categories=categories, custom_entries=custom_entries
+    )
+    if nsfw_on:
+        # 自定义词库条目不经 categories 过滤，统一再剔除涉黄，保证 NSFW 语义一致.
+        all_entries = [
+            entry for entry in all_entries if entry["category"] != NSFW_CATEGORY
+        ]
+    return all_entries
+
+
+def build_nsfw_context(nsfw_on: bool) -> str:
+    """生成侧内容分级文案：--nsfw off 返回正常向禁令，on 返回成人向授权."""
+    return NSFW_ALLOW_CONTENT_POLICY if nsfw_on else NSFW_SAFE_CONTENT_POLICY
 
 
 def get_platform_policy(platform: str) -> dict:

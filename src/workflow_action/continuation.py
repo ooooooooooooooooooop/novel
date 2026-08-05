@@ -69,6 +69,7 @@ class ContinueUnit:
         timeline_context: str = "",
         time_context: str = "",
         excerpt_context: str = "",
+        nsfw_context: str = "",
     ) -> str:
         """生成续写 prompt."""
         return self._build_prompt(
@@ -86,6 +87,7 @@ class ContinueUnit:
             timeline_context,
             time_context,
             excerpt_context,
+            nsfw_context,
         )
 
     def parse_response(self, response: str) -> tuple[PlotUnit, NarrativeState, list[str], list[str]]:
@@ -143,6 +145,7 @@ class ContinueUnit:
         timeline_context: str = "",
         time_context: str = "",
         excerpt_context: str = "",
+        nsfw_context: str = "",
     ) -> str:
         char_ctx = "\n---\n".join(c.to_prompt_context() for c in characters)
         active_threads = foreshadows.get_active()
@@ -196,6 +199,9 @@ class ContinueUnit:
         excerpt_section = ""
         if excerpt_context:
             excerpt_section = f"\n\n【原文锚点与文风样例】\n{excerpt_context}"
+        nsfw_section = ""
+        if nsfw_context:
+            nsfw_section = f"\n\n【内容分级】\n{nsfw_context}"
         structure_section = ""
         if structure_template:
             nodes = get_structure_template(structure_template)
@@ -210,7 +216,7 @@ class ContinueUnit:
         return f"""你是一位叙事续写专家。请基于当前叙事状态，生成下一个 PlotUnit。
 
 【作品约束】
-{workspec_context}{platform_section}{genre_section}{style_section}{time_section}{timeline_section}{excerpt_section}{retrieval_section}
+{workspec_context}{platform_section}{genre_section}{style_section}{time_section}{timeline_section}{excerpt_section}{retrieval_section}{nsfw_section}
 
 【当前叙事状态】
 {state.to_prompt_context()}
