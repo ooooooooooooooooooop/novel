@@ -26,11 +26,18 @@ from src.boundary_control.style_metrics import analyze_style_metrics
 from src.domain_layer.style_rules import build_style_knowledge_context
 from src.workflow_action.outline import OutlineUnit
 from src.workflow_action.style import (
+    STYLE_DEDUP_THRESHOLD,
     StyleExtractUnit,
     StyleLintUnit,
+    auto_style_id,
+    find_most_similar,
     load_style_context,
+    load_style_manifest,
+    resolve_style_library_path,
+    search_style_manifest,
     style_library_dir,
     style_library_profile_path,
+    upsert_style_manifest,
 )
 
 
@@ -54,10 +61,10 @@ def _run_reference_mode(args: argparse.Namespace, text: str, output_dir: Path) -
     """
     from src.object_state.styleprofile import StyleProfile
 
-    library_path = style_library_profile_path(args.style)
+    library_path = resolve_style_library_path(args.style)
     if not library_path.exists():
         print(f"Error: style library profile not found: {library_path}")
-        print("Run `novel style <小说> --name <name>` to save one first.")
+        print("Run `novel style <小说>` to auto-save, or use --style-search to find an id.")
         return 1
 
     profile = StyleProfile.model_validate_json(library_path.read_text(encoding="utf-8"))
@@ -110,7 +117,23 @@ def main() -> int:
     parser.add_argument(
         "--style",
         default="",
-        help="引用风格库中的已有档案 <name>，跳过提炼；配 --lint 时对全文做禁忌词 style_drift 检查",
+        help="引用风格库中的已有档案 <id 或文件名>，跳过提炼；配 --lint 时对全文做禁忌词 style_drift 检查",
+    )
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="入库时忽略相似度去重提示，强制新建档案",
+    )
+    parser.add_argument(
+        "--no-library",
+        action="store_true",
+        help="提炼结果不写入风格库（跳过自动入库）",
+    )
+    parser.add_argument(
+        "--style-search",
+        metavar="QUERY",
+        default="",
+        help="在风格库 manifest 上做关键词检索（tone/genre/pov/句式），列出候选 id 后退出",
     )
     args = parser.parse_args()
 
@@ -122,6 +145,23 @@ def main() -> int:
 
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
+
+    # --style-search：在风格库 manifest 上检索候选 id（不需输入文本）
+    if args.style_search:
+        manifest = load_style_manifest()
+        results = search_style_manifest(manifest, args.style_search)
+        if not results:
+            print(f"Style library: no match for query {args.style_search!r}")
+            return 1
+        print(f"Style library: {len(results)} match(es) for {args.style_search!r}")
+        for entry in results:
+            sig = "; ".join(entry.get("key_signatures") or [])[:80]
+            print(
+                f"  {entry.get('id')}  <{entry.get('file')}>  "
+                f"[{'/'.join(entry.get('tone_labels') or [])}] "
+                f"{entry.get('genre_guess')} — {sig}"
+            )
+        return 0
 
     # --style 引用模式：不提炼，直接加载库档案 + 可选禁忌词 lint
     if args.style:
@@ -215,11 +255,44 @@ def main() -> int:
     print(f"Taboo words: {profile.taboo_words}")
     print(f"Confidence gaps: {profile.confidence_gaps}")
 
-    # --name: 另存到风格库（可跨小说复用）
+    # 入库到风格库（可跨小说复用）
+    #   --name NAME：按给定名字入库；否则自动生成风格化中性 id（克制-官商-001）
+    #   自动入库前与库中档案算相似度，≥ STYLE_DEDUP_THRESHOLD 且未 --force 时提示复用，不新建
     if args.name:
-        library_path = style_library_profile_path(args.name)
+        style_id = args.name
+        style_library_profile_path(style_id)  # 校验名字合法（非法抛 ValueError）
+    elif args.no_library:
+        print("Style library: skipped (--no-library)")
+        style_id = None
+    else:
+        manifest = load_style_manifest()
+        top_id, top_score = find_most_similar(profile, manifest)
+        if top_id and top_score >= STYLE_DEDUP_THRESHOLD and not args.force:
+            print(
+                f"Style library: new style is {top_score:.0%} similar to "
+                f"'{top_id}' — not auto-saved. Reuse with --style {top_id}, "
+                f"or save anyway with --force."
+            )
+            style_id = None
+        else:
+            style_id = auto_style_id(profile, manifest)
+            if top_id:
+                if args.force:
+                    note = f"--force overrides similarity with '{top_id}' ({top_score:.0%})"
+                else:
+                    note = f"nearest '{top_id}' ({top_score:.0%}) is below threshold"
+                print(f"Style library: {note}; saving {style_id}")
+            else:
+                print(f"Style library: first entry, saving {style_id}")
+
+    if style_id:
+        manifest = load_style_manifest()
+        library_path = style_library_dir() / f"{style_id}.json"
         library_path.parent.mkdir(parents=True, exist_ok=True)
         library_path.write_text(profile.model_dump_json(indent=2), encoding="utf-8")
+        upsert_style_manifest(
+            profile, style_id=style_id, file_name=f"{style_id}.json"
+        )
         print(f"Saved to style library: {library_path}")
 
     # Step 5: optional lint

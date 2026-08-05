@@ -10,10 +10,18 @@ import pytest
 
 from src.object_state.styleprofile import StyleProfile
 from src.workflow_action.style import (
+    STYLE_DEDUP_THRESHOLD,
     StyleLintUnit,
+    auto_style_id,
+    find_most_similar,
     load_style_context,
+    load_style_manifest,
+    profile_similarity,
+    resolve_style_library_path,
+    search_style_manifest,
     style_library_dir,
     style_library_profile_path,
+    upsert_style_manifest,
 )
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -255,3 +263,205 @@ def test_library_profile_round_trip(tmp_path):
     ctx = profile.to_prompt_context()
     assert "【写作风格画像】" in ctx
     assert "禁忌词: 轻轻, 淡淡" in ctx
+
+
+# --- 风格库 v2：中性 id / 相似度 / manifest / 检索 ---
+
+
+def _make_profile(**overrides) -> StyleProfile:
+    """基于 LIB_RESPONSE 构造可独立调整字段的 StyleProfile."""
+    data = json.loads(_full_profile_json())
+    data.update(overrides)
+    return StyleProfile.model_validate(data)
+
+
+def test_auto_style_id_neutral_naming():
+    profile = _make_profile(tone_labels=["克制"], genre_guess="都市官商重生")
+    assert auto_style_id(profile, {"profiles": []}) == "克制-官商-001"
+
+
+def test_auto_style_id_increments_seq():
+    profile = _make_profile(tone_labels=["克制"], genre_guess="都市官商重生")
+    manifest = {"profiles": [{"id": "克制-官商-001"}, {"id": "克制-官商-002"}]}
+    assert auto_style_id(profile, manifest) == "克制-官商-003"
+
+
+def test_auto_style_id_genre_slug_fallback():
+    # 未知 genre 落 DEFAULT slug（杂）
+    profile = _make_profile(tone_labels=["克制"], genre_guess="跨界流")
+    assert auto_style_id(profile, {"profiles": []}) == "克制-杂-001"
+
+
+def test_profile_similarity_identical_is_1():
+    a = _make_profile()
+    b = _make_profile()
+    assert profile_similarity(a, b) == pytest.approx(1.0)
+
+
+def test_profile_similarity_different_is_lower():
+    base = json.loads(_full_profile_json())
+    stats = dict(base["stats"])
+    stats["avg_sentence_len"] = 8.0
+    b = _make_profile(
+        tone_labels=["热血"],
+        genre_guess="仙侠",
+        narrative_pov="第三人称全知",
+        sentence_habits=["短句直给"],
+        stats=stats,
+    )
+    score = profile_similarity(_make_profile(), b)
+    assert 0.0 <= score < STYLE_DEDUP_THRESHOLD
+
+
+def test_manifest_upsert_idempotent(tmp_path):
+    novels_root = tmp_path / "novels"
+    profile = _make_profile(tone_labels=["克制"], genre_guess="仙侠")
+    upsert_style_manifest(profile, "克制-仙侠-001", "克制-仙侠-001.json", novels_root)
+    upsert_style_manifest(profile, "克制-仙侠-001", "克制-仙侠-001.json", novels_root)
+    manifest = load_style_manifest(novels_root)
+    assert len(manifest["profiles"]) == 1
+    assert manifest["profiles"][0]["id"] == "克制-仙侠-001"
+
+
+def test_find_most_similar_returns_top(tmp_path):
+    novels_root = tmp_path / "novels"
+    lib_dir = style_library_dir(novels_root)
+    lib_dir.mkdir(parents=True)
+    profile_a = _make_profile(tone_labels=["克制"], genre_guess="都市官商重生")
+    (lib_dir / "克制-官商-001.json").write_text(
+        profile_a.model_dump_json(), encoding="utf-8"
+    )
+    upsert_style_manifest(profile_a, "克制-官商-001", "克制-官商-001.json", novels_root)
+    new = _make_profile(tone_labels=["克制"], genre_guess="都市官商重生")
+    top_id, score = find_most_similar(new, novels_root=novels_root)
+    assert top_id == "克制-官商-001"
+    assert score >= STYLE_DEDUP_THRESHOLD
+
+
+def test_search_style_manifest():
+    manifest = {
+        "profiles": [
+            {
+                "id": "克制-官商-001",
+                "tone_labels": ["克制"],
+                "genre_guess": "都市官商重生",
+                "narrative_pov": "第三人称有限",
+                "key_signatures": ["长句叙述", "分号并列"],
+            },
+            {
+                "id": "仙侠-001",
+                "tone_labels": ["热血"],
+                "genre_guess": "仙侠",
+                "narrative_pov": "第三人称",
+                "key_signatures": ["打斗动作"],
+            },
+        ]
+    }
+    assert [h["id"] for h in search_style_manifest(manifest, "官商")] == [
+        "克制-官商-001"
+    ]
+    assert [h["id"] for h in search_style_manifest(manifest, "仙侠")] == ["仙侠-001"]
+    assert search_style_manifest(manifest, "不存在") == []
+
+
+def test_resolve_style_library_path_via_manifest(tmp_path, monkeypatch):
+    """manifest.id 优先解析；物理文件名仍可直接解析（迁移场景）."""
+    novels_root = tmp_path / "novels"
+    lib_dir = style_library_dir(novels_root)
+    lib_dir.mkdir(parents=True)
+    profile = _make_profile(tone_labels=["克制"], genre_guess="都市官商重生")
+    (lib_dir / "style_001.json").write_text(
+        profile.model_dump_json(), encoding="utf-8"
+    )
+    upsert_style_manifest(profile, "克制-官商-001", "style_001.json", novels_root)
+    monkeypatch.setenv("NOVELS_ROOT", str(novels_root))
+    assert resolve_style_library_path("克制-官商-001") == lib_dir / "style_001.json"
+    assert resolve_style_library_path("style_001") == lib_dir / "style_001.json"
+
+
+# --- CLI：自动入库 / 去重拦截 / --force / --no-library / --style-search ---
+
+
+def test_auto_save_first_entry(tmp_path):
+    novels_root = tmp_path / "novels"
+    input_path = tmp_path / "input.txt"
+    input_path.write_text("第一章 测试\n\n顾临蹲在藏经阁。", encoding="utf-8")
+    output_dir = tmp_path / "output"
+    first = _run_style(input_path, output_dir)
+    assert first.returncode == 0, first.stdout + first.stderr
+    (output_dir / "style_extract_response.txt").write_text(
+        json.dumps(LIB_RESPONSE, ensure_ascii=False), encoding="utf-8"
+    )
+    second = _run_style(input_path, output_dir)
+    assert second.returncode == 0, second.stdout + second.stderr
+    assert "first entry" in second.stdout
+    assert "Saved to style library" in second.stdout
+    lib_dir = tmp_path / "style_library"
+    # LIB_RESPONSE: tone=克制, genre_guess=古典仙侠 → slug 先命中"仙侠"→ id 克制-仙侠-001
+    assert (lib_dir / "克制-仙侠-001.json").exists()
+    manifest = load_style_manifest(novels_root)
+    assert manifest["profiles"][0]["id"] == "克制-仙侠-001"
+
+
+def test_auto_save_dedup_blocks_and_force(tmp_path):
+    novels_root = tmp_path / "novels"
+    input_path = tmp_path / "input.txt"
+    input_path.write_text("第一章 测试\n\n顾临蹲在藏经阁。", encoding="utf-8")
+    output_dir = tmp_path / "output"
+    # run 1: 写 prompt
+    first = _run_style(input_path, output_dir)
+    assert first.returncode == 0, first.stdout + first.stderr
+    response = json.dumps(LIB_RESPONSE, ensure_ascii=False)
+    (output_dir / "style_extract_response.txt").write_text(response, encoding="utf-8")
+    # run 2: 入库
+    second = _run_style(input_path, output_dir)
+    assert second.returncode == 0, second.stdout + second.stderr
+    # run 3: 相同 input/response → 相似 100% → 拦截，不新建
+    third = _run_style(input_path, output_dir)
+    assert third.returncode == 0, third.stdout + third.stderr
+    assert "similar to" in third.stdout
+    lib_dir = tmp_path / "style_library"
+    profiles = [f for f in lib_dir.glob("*.json") if f.name != "manifest.json"]
+    assert len(profiles) == 1
+    # run 4: --force 强制新建 → seq 自增为 002
+    forced = _run_style(input_path, output_dir, "--force")
+    assert forced.returncode == 0, forced.stdout + forced.stderr
+    assert "saving 克制-仙侠-002" in forced.stdout
+    assert (lib_dir / "克制-仙侠-002.json").exists()
+
+
+def test_no_library_skips_auto_save(tmp_path):
+    novels_root = tmp_path / "novels"
+    input_path = tmp_path / "input.txt"
+    input_path.write_text("第一章 测试\n\n顾临蹲在藏经阁。", encoding="utf-8")
+    output_dir = tmp_path / "output"
+    first = _run_style(input_path, output_dir, "--no-library")
+    assert first.returncode == 0, first.stdout + first.stderr
+    (output_dir / "style_extract_response.txt").write_text(
+        json.dumps(LIB_RESPONSE, ensure_ascii=False), encoding="utf-8"
+    )
+    second = _run_style(input_path, output_dir, "--no-library")
+    assert second.returncode == 0, second.stdout + second.stderr
+    assert "skipped (--no-library)" in second.stdout
+    assert not (tmp_path / "style_library" / "manifest.json").exists()
+
+
+def test_style_search_cli(tmp_path):
+    novels_root = tmp_path / "novels"
+    input_path = tmp_path / "input.txt"
+    input_path.write_text("第一章 测试\n\n顾临蹲在藏经阁。", encoding="utf-8")
+    output_dir = tmp_path / "output"
+    # 先入库一个档案
+    first = _run_style(input_path, output_dir)
+    assert first.returncode == 0, first.stdout + first.stderr
+    (output_dir / "style_extract_response.txt").write_text(
+        json.dumps(LIB_RESPONSE, ensure_ascii=False), encoding="utf-8"
+    )
+    second = _run_style(input_path, output_dir)
+    assert second.returncode == 0, second.stdout + second.stderr
+    # --style-search 检索
+    search = _run_style(input_path, output_dir, "--style-search", "仙侠")
+    assert search.returncode == 0, search.stdout + search.stderr
+    assert "克制-仙侠-001" in search.stdout
+    miss = _run_style(input_path, output_dir, "--style-search", "不存在")
+    assert miss.returncode == 1

@@ -6,8 +6,10 @@ load_style_context: compose/extend 读取风格档案并渲染注入文本（支
 style_library_dir: 风格库目录 <仓库根>/style_library。
 """
 
+import datetime
 import json
 import os
+import re
 from pathlib import Path
 
 from src.boundary_control.style_metrics import analyze_style_metrics
@@ -399,7 +401,7 @@ def load_style_context(output_dir: Path, style_name: str | None = None) -> str:
     不存在返回 ""；存在但损坏则抛错（stale/corrupt 文件应暴露）。
     """
     if style_name:
-        profile_path = style_library_profile_path(style_name)
+        profile_path = resolve_style_library_path(style_name)
     else:
         style_dir = output_dir.parent / "style"
         profile_path = style_dir / "style_profile.json"
@@ -409,3 +411,293 @@ def load_style_context(output_dir: Path, style_name: str | None = None) -> str:
     # include_header=False：双层段头修复，内层【写作风格画像】头由 continuation
     # 外层【写作风格】独占，避免叠层。
     return profile.to_prompt_context(include_header=False)
+
+
+# =====================================================================
+# 风格库 v2：中性 id 生成 / 相似度去重 / manifest 索引 / 检索
+# ---------------------------------------------------------------------
+# 目标：每次提炼出新风格自动入库（无 --name 时），用风格化中性名
+# （克制-官商-001）落盘 + manifest 语义索引；入库前与库中档案算相似度，
+# 高于阈值提示复用避免重复扩张；--style-search 走 manifest 模糊检索。
+# 隐私：id 只含 tone/genre/seq 风格词；manifest 不含作品名/作者名/路径。
+# =====================================================================
+
+_MANIFEST_SCHEMA_VERSION = 1
+
+# genre_guess → 中性类型 slug 映射（仅类型词，不含作品/作者名）
+_GENRE_SLUGS: tuple[tuple[str, str], ...] = (
+    ("官商", "官商"),
+    ("重生", "重生"),
+    ("都市", "都市"),
+    ("仙侠", "仙侠"),
+    ("玄幻", "玄幻"),
+    ("科幻", "科幻"),
+    ("悬疑", "悬疑"),
+    ("推理", "推理"),
+    ("言情", "言情"),
+    ("历史", "历史"),
+    ("军事", "军事"),
+    ("灵异", "灵异"),
+    ("武侠", "武侠"),
+    ("权谋", "权谋"),
+    ("古典", "古典"),
+)
+_DEFAULT_GENRE_SLUG = "杂"
+
+# 相似度数值字段 → 归一化典型幅度（scale；比值/密度类用经验上界）
+_SIM_NUMERIC_FIELDS: tuple[tuple[str, float], ...] = (
+    ("avg_sentence_len", 50.0),
+    ("short_sentence_ratio", 1.0),
+    ("long_sentence_ratio", 1.0),
+    ("dialogue_ratio", 1.0),
+    ("weak_adverb_density_per_1000", 10.0),
+    ("dash_colon_density_per_1000", 20.0),
+    ("scenery_density_per_1000", 30.0),
+    ("psych_verb_density_per_1000", 30.0),
+    ("action_verb_density_per_1000", 30.0),
+    ("narration_sentence_ratio", 1.0),
+)
+
+# 自动入库去重拦截阈值：新档案与库中最高相似度 ≥ 该值 → 提示复用，不盲目新建
+STYLE_DEDUP_THRESHOLD = 0.90
+
+
+def _sanitize_token(text: str, max_len: int = 4) -> str:
+    """清洗为中性 id 片段：只保留汉字/字母/数字，超长截断."""
+    cleaned = re.sub(r"[^\w一-鿿]", "", text)
+    return cleaned[:max_len] or _DEFAULT_GENRE_SLUG
+
+
+def _genre_slug(genre_guess: str | None) -> str:
+    """genre_guess → 中性类型 slug（如 '都市官商重生' → '官商'）."""
+    if not genre_guess:
+        return _DEFAULT_GENRE_SLUG
+    for key, slug in _GENRE_SLUGS:
+        if key in genre_guess:
+            return slug
+    return _DEFAULT_GENRE_SLUG
+
+
+def auto_style_id(
+    profile: StyleProfile, manifest: dict | None = None
+) -> str:
+    """为新提炼档案生成风格化中性 id: <tone>-<genre>-<seq>（如 克制-官商-001）.
+
+    同 tone+genre 前缀下 seq 自增；manifest 缺省时仅按已用 id 集合避免碰撞。
+    """
+    manifest = manifest or {"profiles": []}
+    tone = profile.tone_labels[0] if profile.tone_labels else "未标注"
+    prefix = f"{_sanitize_token(tone)}-{_genre_slug(profile.genre_guess)}"
+    used = {entry.get("id") for entry in manifest.get("profiles", [])}
+    seq = 1
+    while f"{prefix}-{seq:03d}" in used:
+        seq += 1
+    return f"{prefix}-{seq:03d}"
+
+
+def _stats_vector(profile: StyleProfile) -> dict[str, float]:
+    """提取相似度数值字段向量（缺省字段按 0 计）."""
+    stats = profile.stats
+    return {
+        field: float(getattr(stats, field, 0.0) or 0.0)
+        for field, _ in _SIM_NUMERIC_FIELDS
+    }
+
+
+def _numeric_similarity(a: dict[str, float], b: dict[str, float]) -> float:
+    """数值向量相似度：逐字段 1 - 归一化绝对差，加权平均."""
+    if not a or not b:
+        return 0.0
+    total = 0.0
+    for field, scale in _SIM_NUMERIC_FIELDS:
+        va = a.get(field, 0.0)
+        vb = b.get(field, 0.0)
+        if scale <= 0:
+            continue
+        diff = abs(va - vb) / scale
+        total += max(0.0, 1.0 - min(diff, 1.0))
+    return total / len(_SIM_NUMERIC_FIELDS)
+
+
+def _jaccard(a: list[str] | set[str], b: list[str] | set[str]) -> float:
+    """字符串集合 Jaccard 相似（两端空集合视为一致，返回 1）."""
+    sa, sb = set(a), set(b)
+    union = sa | sb
+    if not union:
+        return 1.0
+    return len(sa & sb) / len(union)
+
+
+def _categorical_similarity(a: StyleProfile, b: StyleProfile) -> float:
+    """分类相似度：tone 交集 / genre slug / POV 各占权重."""
+    tone = _jaccard(a.tone_labels, b.tone_labels)
+    genre = 1.0 if _genre_slug(a.genre_guess) == _genre_slug(b.genre_guess) else 0.0
+    pov = 1.0 if a.narrative_pov == b.narrative_pov else 0.0
+    return 0.5 * tone + 0.25 * genre + 0.25 * pov
+
+
+def _quality_similarity(a: StyleProfile, b: StyleProfile) -> float:
+    """质性特征相似度：句式/修辞/物象/禁忌词 合并集合 Jaccard."""
+    merged_a = (
+        list(a.sentence_habits)
+        + list(a.rhetorical_preferences)
+        + list(a.closed_loop_objects)
+        + list(a.taboo_words)
+    )
+    merged_b = (
+        list(b.sentence_habits)
+        + list(b.rhetorical_preferences)
+        + list(b.closed_loop_objects)
+        + list(b.taboo_words)
+    )
+    return _jaccard(merged_a, merged_b)
+
+
+def profile_similarity(a: StyleProfile, b: StyleProfile) -> float:
+    """两个风格档案的相似度 [0,1].
+
+    数值 60%（句长/配比/密度归一化差）+ 分类 20%（tone/genre/POV）
+    + 质性 20%（句式/修辞/物象/禁忌词 Jaccard）。
+    """
+    return (
+        0.6 * _numeric_similarity(_stats_vector(a), _stats_vector(b))
+        + 0.2 * _categorical_similarity(a, b)
+        + 0.2 * _quality_similarity(a, b)
+    )
+
+
+def load_style_manifest(novels_root: Path | None = None) -> dict:
+    """读取风格库 manifest（不存在返回空骨架）."""
+    path = style_library_dir(novels_root) / "manifest.json"
+    if not path.exists():
+        return {"schema_version": _MANIFEST_SCHEMA_VERSION, "profiles": []}
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return {"schema_version": _MANIFEST_SCHEMA_VERSION, "profiles": []}
+
+
+def save_style_manifest(
+    manifest: dict, novels_root: Path | None = None
+) -> Path:
+    """写风格库 manifest，返回其路径."""
+    manifest.setdefault("schema_version", _MANIFEST_SCHEMA_VERSION)
+    path = style_library_dir(novels_root) / "manifest.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+    return path
+
+
+def _key_signatures(profile: StyleProfile, limit: int = 5) -> list[str]:
+    """可检索的风格指纹：句式/修辞/闭环物象 前几条."""
+    parts = (
+        list(profile.sentence_habits)
+        + list(profile.rhetorical_preferences)
+        + list(profile.closed_loop_objects)
+    )
+    return parts[:limit]
+
+
+def upsert_style_manifest(
+    profile: StyleProfile,
+    style_id: str,
+    file_name: str,
+    novels_root: Path | None = None,
+    created_at: str | None = None,
+) -> Path:
+    """登记/更新档案条目到 manifest（id 幂等：存在则覆盖，否则追加）."""
+    manifest = load_style_manifest(novels_root)
+    entry = {
+        "id": style_id,
+        "file": file_name,
+        "tone_labels": profile.tone_labels,
+        "genre_guess": profile.genre_guess,
+        "narrative_pov": profile.narrative_pov,
+        "key_signatures": _key_signatures(profile),
+        "avg_sentence_len": profile.stats.avg_sentence_len,
+        "dialogue_ratio": profile.stats.dialogue_ratio,
+        "created_at": created_at or datetime.date.today().isoformat(),
+    }
+    profiles = manifest.setdefault("profiles", [])
+    for i, existing in enumerate(profiles):
+        if existing.get("id") == style_id:
+            profiles[i] = entry
+            break
+    else:
+        profiles.append(entry)
+    return save_style_manifest(manifest, novels_root)
+
+
+def find_most_similar(
+    profile: StyleProfile,
+    manifest: dict | None = None,
+    novels_root: Path | None = None,
+) -> tuple[str | None, float]:
+    """库中最相似的既有档案 (id, score)；空库返回 (None, 0.0).
+
+    逐档案加载完整 StyleProfile 计算（manifest 只存摘要，完整相似需 stats）。
+    """
+    manifest = load_style_manifest(novels_root) if manifest is None else manifest
+    lib_dir = style_library_dir(novels_root)
+    best_id: str | None = None
+    best_score = 0.0
+    for entry in manifest.get("profiles", []):
+        file_name = entry.get("file")
+        if not file_name:
+            continue
+        path = lib_dir / file_name
+        if not path.exists():
+            continue
+        try:
+            other = StyleProfile.model_validate_json(
+                path.read_text(encoding="utf-8")
+            )
+        except Exception:
+            continue
+        score = profile_similarity(profile, other)
+        if score > best_score:
+            best_id = entry.get("id")
+            best_score = score
+    return best_id, best_score
+
+
+def search_style_manifest(
+    manifest: dict | None, query: str
+) -> list[dict]:
+    """在 manifest 上做关键词检索：每个词须命中 tone/genre/pov/key_signatures 之一.
+
+    返回按命中字段数降序的候选条目列表（未命中返回空列表）。
+    """
+    manifest = manifest or {"profiles": []}
+    tokens = [t.strip() for t in re.split(r"[\s,，;；]+", query) if t.strip()]
+    if not tokens:
+        return []
+    scored: list[tuple[int, dict]] = []
+    for entry in manifest.get("profiles", []):
+        haystack = " ".join(
+            [
+                entry.get("id") or "",
+                " ".join(entry.get("tone_labels") or []),
+                entry.get("genre_guess") or "",
+                entry.get("narrative_pov") or "",
+                " ".join(entry.get("key_signatures") or []),
+            ]
+        )
+        hits = sum(1 for token in tokens if token in haystack)
+        if hits >= len(tokens):
+            scored.append((hits, entry))
+    scored.sort(key=lambda pair: pair[0], reverse=True)
+    return [entry for _, entry in scored]
+
+
+def resolve_style_library_path(
+    name: str, novels_root: Path | None = None
+) -> Path:
+    """按名字解析风格库档案路径（两路：manifest.id 优先，其次直接文件名）."""
+    manifest = load_style_manifest(novels_root)
+    for entry in manifest.get("profiles", []):
+        if entry.get("id") == name and entry.get("file"):
+            return style_library_dir(novels_root) / entry["file"]
+    return style_library_profile_path(name, novels_root)

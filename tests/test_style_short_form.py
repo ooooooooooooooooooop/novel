@@ -1,6 +1,7 @@
 """Tests for style_short_form.py — end-to-end style extraction flow."""
 
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -68,6 +69,9 @@ CLEAN_TEXT = """第一章 缘起
 
 
 def _run_style(input_path: Path, output_dir: Path, *extra_args) -> subprocess.CompletedProcess:
+    env = os.environ.copy()
+    # 隔离到 tmp 的 novels 根：auto-save 会写 style_library/，不得污染真实仓库
+    env["NOVELS_ROOT"] = str(input_path.parent / "novels")
     return subprocess.run(
         [
             sys.executable,
@@ -78,6 +82,7 @@ def _run_style(input_path: Path, output_dir: Path, *extra_args) -> subprocess.Co
             *extra_args,
         ],
         cwd=PROJECT_ROOT,
+        env=env,
         capture_output=True,
         text=True,
         encoding="utf-8",
