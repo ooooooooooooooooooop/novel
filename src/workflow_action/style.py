@@ -661,10 +661,11 @@ def save_style_manifest(
 
 
 def _key_signatures(profile: StyleProfile, limit: int = 5) -> list[str]:
-    """可检索的风格指纹：v3 手法笔记（带'要素:'前缀）优先 + 句式/修辞/闭环物象.
+    """可检索的风格指纹：v3 手法笔记（带'要素:'前缀）全量优先 + 句式/修辞/闭环样例.
 
     v3 手法条目形如 '人物: 衬托为主'、'对白: 潜文本'，支持 --style-search 的
-    '要素:手法' 检索语法；空 v3 字段时回落到句式/修辞（旧行为不变）。
+    '要素:手法' 检索语法；手法条目全量保留（任一轴都须可检索），句式/修辞/闭环
+    只取前 limit 条作补充样例。空 v3 字段时回落全部句式（旧行为不变）。
     """
     parts: list[str] = []
     for label, notes in (
@@ -675,12 +676,13 @@ def _key_signatures(profile: StyleProfile, limit: int = 5) -> list[str]:
         ("对白", profile.dialogue_technique_notes),
     ):
         parts.extend(f"{label}: {item}" for item in notes)
-    parts += (
+    legacy = (
         list(profile.sentence_habits)
         + list(profile.rhetorical_preferences)
         + list(profile.closed_loop_objects)
     )
-    return parts[:limit]
+    parts += legacy[:limit]
+    return parts
 
 
 def upsert_style_manifest(
@@ -747,14 +749,37 @@ def find_most_similar(
     return best_id, best_score
 
 
+def _search_token_matches(token: str, haystack: str, signatures: list[str]) -> bool:
+    """单个检索 token 是否命中.
+
+    '要素:手法' token（如 '人物:衬托'、'描写:白描'）拆解为 要素/手法：
+    在带 '要素:' 前缀的指纹条目（'描写: 叙述直给为主，白描用于…'）内匹配手法词，
+    要素与手法不必相邻。只有要素无手法（'描写:'）匹配该要素任一条目。
+    其余 token 按原子子串匹配整个 haystack。
+    """
+    if ":" in token:
+        key, _, value = token.partition(":")
+        key = key.strip()
+        value = value.strip()
+        prefix = key + ":"
+        for sig in signatures:
+            s = sig.strip()
+            if not s.startswith(prefix):
+                continue
+            if not value or value in s:
+                return True
+        return False
+    return token in haystack
+
+
 def search_style_manifest(
     manifest: dict | None, query: str
 ) -> list[dict]:
     """在 manifest 上做关键词检索：每个词须命中 tone/genre/pov/temperament/key_signatures 之一.
 
     支持 '要素:手法' 语法（如 '人物:衬托'、'对白:潜文本'、'描写:白描'）：
-    token 中的 ':' 规范化为 ': ' 匹配 key_signatures 的带前缀条目格式
-    （'人物: 衬托为主'）。
+    token 拆为 要素/手法 后匹配带要素前缀的指纹条目（'人物: 衬托为主'、
+    '描写: 叙述直给为主，白描用于…'），要素与手法不必相邻。
 
     返回按命中字段数降序的候选条目列表（未命中返回空列表）。
     """
@@ -762,10 +787,10 @@ def search_style_manifest(
     tokens = [t.strip() for t in re.split(r"[\s,，;；]+", query) if t.strip()]
     if not tokens:
         return []
-    # '人物:衬托' → '人物: 衬托'，匹配 '要素: 手法' 指纹格式
-    tokens = [t.replace(":", ": ") for t in tokens]
+    profiles = manifest.get("profiles", [])
     scored: list[tuple[int, dict]] = []
-    for entry in manifest.get("profiles", []):
+    for entry in profiles:
+        signatures = entry.get("key_signatures") or []
         haystack = " ".join(
             [
                 entry.get("id") or "",
@@ -773,10 +798,12 @@ def search_style_manifest(
                 entry.get("genre_guess") or "",
                 entry.get("narrative_pov") or "",
                 entry.get("temperament") or "",
-                " ".join(entry.get("key_signatures") or []),
+                " ".join(signatures),
             ]
         )
-        hits = sum(1 for token in tokens if token in haystack)
+        hits = sum(
+            1 for token in tokens if _search_token_matches(token, haystack, signatures)
+        )
         if hits >= len(tokens):
             scored.append((hits, entry))
     scored.sort(key=lambda pair: pair[0], reverse=True)

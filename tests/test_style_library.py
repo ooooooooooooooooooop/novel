@@ -410,6 +410,49 @@ def test_search_style_manifest_element_syntax():
     ]
 
 
+def test_search_style_manifest_element_nonadjacent():
+    """'要素:手法' 中要素与手法在指纹条目内不必相邻（修复：整体子串匹配会 miss）."""
+    manifest = {
+        "profiles": [
+            {
+                "id": "克制-官商-001",
+                "key_signatures": ["描写: 叙述直给为主，白描用于关键动作与场景"],
+            },
+        ]
+    }
+    assert [h["id"] for h in search_style_manifest(manifest, "描写:白描")] == [
+        "克制-官商-001"
+    ]
+    # 只有要素、无手法：匹配该要素任一条目
+    assert [h["id"] for h in search_style_manifest(manifest, "描写:")] == [
+        "克制-官商-001"
+    ]
+    # 该要素条目内不含此手法 → miss
+    assert search_style_manifest(manifest, "描写:衬托") == []
+
+
+def test_key_signatures_v3_all_axes_kept():
+    """v3 手法条目全量进指纹（任一轴都须可检索），句式/修辞/闭环才按 limit 截断."""
+    profile = _make_profile(
+        description_layering_notes=[f"描写轴条目{i}" for i in range(1, 5)],
+        omission_notes=[f"留白轴条目{i}" for i in range(1, 4)],
+        subtle_technique_notes=[f"含蓄轴条目{i}" for i in range(1, 4)],
+        character_method_notes=[f"人物轴条目{i}" for i in range(1, 6)],
+        dialogue_technique_notes=[f"对白轴条目{i}" for i in range(1, 4)],
+        sentence_habits=[f"句式{i}" for i in range(1, 10)],
+    )
+    sigs = _key_signatures(profile, limit=3)
+    # 五轴全部条目（18 条）全量保留，不因 limit=3 被截断
+    assert "描写: 描写轴条目4" in sigs
+    assert "留白: 留白轴条目3" in sigs
+    assert "含蓄: 含蓄轴条目3" in sigs
+    assert "人物: 人物轴条目5" in sigs
+    assert "对白: 对白轴条目3" in sigs
+    # 句式只取前 3 条
+    assert "句式1" in sigs
+    assert "句式9" not in sigs
+
+
 def test_manifest_upsert_includes_temperament(tmp_path):
     novels_root = tmp_path / "novels"
     profile = _make_profile(tone_labels=["克制"], genre_guess="仙侠", temperament="散文型")

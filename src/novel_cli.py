@@ -2578,6 +2578,10 @@ def _run_style(args: argparse.Namespace) -> int:
         command.extend(["--name", args.name])
     if args.style:
         command.extend(["--style", args.style])
+    if getattr(args, "force", False):
+        command.append("--force")
+    if getattr(args, "no_library", False):
+        command.append("--no-library")
     if getattr(args, "temperament", None):
         command.extend(["--temperament", args.temperament])
     return _run_child(command)
@@ -3689,6 +3693,16 @@ def build_parser(*, emit_json_errors: bool = False) -> argparse.ArgumentParser:
     style.add_argument("--lint", action="store_true", help="对全文做 AI 味 lint")
     style.add_argument("--name", help="另存到风格库 style_library/<name>.json（可跨小说复用）")
     style.add_argument("--style", help="引用风格库中的已有档案 <name>，跳过提炼")
+    style.add_argument(
+        "--force",
+        action="store_true",
+        help="入库时忽略相似度去重提示，强制新建档案",
+    )
+    style.add_argument(
+        "--no-library",
+        action="store_true",
+        help="提炼结果不写入风格库（跳过自动入库）",
+    )
     style.add_argument(
         "--temperament",
         help="叙事气质（散文型/戏剧型/信息型/氛围型），透传给风格提炼作为先验",
