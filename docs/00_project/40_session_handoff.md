@@ -126,6 +126,15 @@ F1–F8 之后按「继续未做部分」完成三项：
 
 **恢复方法要点**（换机后有用）：①transcript JSONL 的 `tool_use.input.content` 带 Write 全文、`tool_use.input.old/new_string` 带 Edit 增量，按行号重放即可逐字还原（注意 L2426 类失败 Edit 也要复现其失败）；②章节编号连续性靠先铺源章节再 `next_chapter_number`；③`StyleProfile` 缺字段会触发 pydantic 校验失败，必须用 merge 重建非 raw 提取；④所有恢复内容在 `novels/*/` 下，git 零泄漏。
 
+### 续写再生成（2026-08-06 · 当前管线）
+
+恢复后的续写章节按用户要求**在当前系统功能下重新生成**（旧续写未经 F4 篇幅对齐/F5 原文去重/风格注入/检索/NSFW 等后续优化），各自通过 `novel extend` 管线重跑（Rebuild→Reconcile→Continue→Review→Prose），route=pass、prose_overlap=none：
+
+- **`作品A/`**：续到 `chapters/chapter_1198.txt`（当前管线产物，prose_recheck 有标注）；frame cursor → scene_003 active，下一篇对 scene_003。
+- **`作品B/`**：`chapters/chapter_24.txt` 由恢复版《第二十四章：燕京》替换为**当前管线再生成**《第二十四章：后来》（5162 字符去空白，在 F4 目标 6420±35% 区间内；F5 无 ≥30 字符逐字重叠）；prose 复核 3/5 兑现（t_liuqing / t_american_man / t_breakup 三伏笔保持开放，属留白设计）；frame cursor → scene_002 active，下一篇对 scene_002。
+
+续写续作直接用 `PYTHONIOENCODING=utf-8 python -m src.novel_cli extend <作品名> --batch-size <匹配既有响应>` 重跑（staged 响应已物化，脚本读文件继续）。
+
 ---
 
 ## 四、本会话已完成（2026-08-05）
