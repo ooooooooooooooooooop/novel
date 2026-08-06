@@ -19,7 +19,7 @@ Tier 0 (local staged CLI v0, operator-in-the-loop) was validated on 2026-07-28:
 - canary evidence: `docs/00_project/releases/tier0-canary-evidence.json`
 - saved canary gate result: `docs/00_project/releases/tier0-canary-gate.json`
 - release record: `docs/00_project/releases/tier0-release.json` (passing the single combined validation command)
-- immutable checkpoint: git tag `v0.1.1-tier0`
+- immutable checkpoint: git tag `v0.1.2-tier0`
 
 Three-flow daily-production hardening was completed on 2026-07-29 (see `docs/00_project/34_tier0_daily_production_hardening_plan.md`):
 
@@ -30,7 +30,7 @@ Three-flow daily-production hardening was completed on 2026-07-29 (see `docs/00_
 - per-flow gate results: `tier0-extend-canary-gate.json`, `tier0-compose-canary-gate.json` (audit gate already pinned)
 - canonical canary response sources now checked in under `canary_inputs/` so the three canary workspaces are reproducible
 - workspace hygiene: `.gitignore` ignores `.pytest-tmp-*/`; canary `output/` artifacts are force-added as immutable evidence (they are referenced by file sha256)
-- production-readiness re-certified on 2026-08-04 under a new immutable checkpoint: git tag `v0.1.1-tier0` (hardening stays inside the Tier 0 boundary; no tier upgrade is implied)
+- production-readiness re-certified on 2026-08-06 under a new immutable checkpoint: git tag `v0.1.2-tier0` (hardening stays inside the Tier 0 boundary; no tier upgrade is implied)
 - **evidence caveat**: the extend/compose canary workspaces were generated under a gate contract that predates the Phase 5 serialization-package requirement (`31fc12a`); as committed they contain no `extend_rebuild_package.json` / `compose_state.json`, so `novel gate` now reports `ContinueUnit requires a serialization package` for those two workspaces and `python scripts/tier0_canary_regression.py` reports FAIL for extend/compose (audit passes). The committed per-flow gate JSONs and the aggregation `final_gate_ok` for extend/compose predate this and no longer reflect the current gate contract. Regeneration under the current contract is a pending operator task (see Known limitations below).
 
 It now has both:
@@ -117,7 +117,7 @@ Tier 0 production readiness has been reached and verified:
 
 - production tier confirmed as `local staged CLI v0` (operator-in-the-loop, no DirectAPI)
 - release record path: `docs/00_project/releases/tier0-release.json`
-- immutable checkpoint: git tag `v0.1.1-tier0`
+- immutable checkpoint: git tag `v0.1.2-tier0`
 - canary workspace: `novels/tier0-canary/` (audit canary, `gate` ok=true / pass / ContinueUnit / blocking=0)
 - known limitations are documented in `docs/00_project/30_production_readiness_checklist.md`
 

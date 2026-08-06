@@ -4,7 +4,7 @@ An automatic novel narrative system that parses narrative structure, maintains n
 
 一个自动小说叙事系统：解析叙事结构、维护叙事状态、规划故事推进、审查生成结果。
 
-> **Tier 0 production-ready** — local staged CLI, operator-in-the-loop · **1829 tests passing** · checkpoint tag `v0.1.1-tier0`
+> **Tier 0 production-ready** — local staged CLI, operator-in-the-loop · **1829 tests passing** · checkpoint tag `v0.1.2-tier0`
 
 ---
 
@@ -33,7 +33,7 @@ Tier 0 生产就绪判定（2026-07-28 宣布）：
 - production tier: `local staged CLI v0`（本地分阶段 CLI v0）
 - full pytest baseline: 1829 tests passing（完整回归基线 1829 个测试通过）
 - release record: `docs/00_project/releases/tier0-release.json`
-- immutable checkpoint: git tag `v0.1.1-tier0`
+- immutable checkpoint: git tag `v0.1.2-tier0`
 - extend / compose canaries 均通过 `novel gate` 同四标准；聚合证据在 `docs/00_project/releases/tier0-three-flow-canary-aggregation.json`
 - one-command regression gate: `python scripts/tier0_canary_regression.py`
 
@@ -42,6 +42,22 @@ Tier 0 边界仍然生效：
 - DirectAPI 供应商调用未实现；闭环全自动仍未放开
 - Tier 0 不是公开产品形态；release record 不替代 release tag / 不可变 checkpoint
 - response 文件必须由操作者或 Codex 落地，脚本不自动调用模型
+
+## 独立评估修复（2026-08-06）
+
+2026-08-06 独立第三方评估（工程 + 读者陪审团双视角）确认 Top 缺陷后，按
+`docs/00_project/41_evaluation_remediation_plan.md` 落地 F1–F8：
+
+- **F1** 发布门禁基线同步（1791→1829，git_commit/tag 对齐）
+- **F2** 风格库/源码/文档/测试 PII 脱敏 + `test_privacy_redline.py` 红线断言
+- **F4** 续写篇幅对齐：prompt 注入章均目标（±35%），parse_response 低于下界仅告警不阻断
+- **F5** 续写原文去重：`find_overlapping_spans` 检出 ≥30 字符逐字重叠写入 `prose_overlap`
+- **F3a** Review 挂 prose 复核：伏笔/承诺/后果/角色 issue 做正文兑现标注（不改 route）
+- **F6** 时间锚扩窗：首段 220→800 字符 + 全文相对时间兜底（TimeAnchor.relative）
+- **F7** 核实为误报（`_tokenize` 每 doc 仅一次），按计划降级不修
+- **F8** `novel_cli.py` 拆分：校验簇 → `src/cli/validation.py`（3851 → 1480 行）
+
+基线：**1829 tests passing**（测试数自 1792 起同步 6 文档 + 2 release record）。
 
 ## Features / 功能特性
 
@@ -59,6 +75,7 @@ Tier 0 边界仍然生效：
 - **时间域**：TimeBook 先验模型 + `novel time` 管理（--rebuild 锚提取 / --check 时间线报告 / --status）；FACTTRACK v2 检测时间回退 / 先知逾期 / 季节历法违反；Continue 以【时间上下文】段注入
 - **零成本契约**：无 TimeBook → 无注入、无检测、无产物，prompt 字节与旧版逐字节相同（回归测试锁死）
 - **统一入口**：`novel` 命令管理 `novels/<小说名>/` 工作目录，并调用 audit / extend / compose / style / compliance / rubric / time staged CLI
+- **CLI 拆分**：`src/novel_cli.py` 编排层（NovelArgumentParser / 各流 dispatch / run_config 恢复）保留，常量 + staged JSON/list/gate/approval 校验簇拆入 `src/cli/validation.py`（`__all__` 重导出）；命令名/参数/默认值/退出码/`--help` 逐字节不变
 - **内容合规**：`novel compliance` 单遍扫描，产出合规报告（风险等级/位置锚点/严重级/替换建议）
 - **NSFW 内容分级开关**：compose/extend `--nsfw on|off`（默认 off 正常向，注入禁成人内容分级；on 允许成人向）+ compliance `--nsfw on|off`（on 跳过「涉黄」分类扫描）贯通创作与审核一套语义
 - **离线评测**：`novel rubric` 导出 WebNovelBench 8 维本地 rubric（装配时间一致性后 9 维）

@@ -15,9 +15,9 @@ Tier 0 production evidence:
 - release record: `docs/00_project/releases/tier0-release.json` (passes the single combined validation command at the current full-pytest baseline 1829)
 - canary evidence: `docs/00_project/releases/tier0-canary-evidence.json`
 - saved canary gate result: `docs/00_project/releases/tier0-canary-gate.json`
-- immutable checkpoint: git tag `v0.1.1-tier0`
+- immutable checkpoint: git tag `v0.1.2-tier0`
 
-Three-flow hardening evidence (2026-07-29, re-certified under `v0.1.1-tier0` on 2026-08-04):
+Three-flow hardening evidence (2026-07-29, re-certified under `v0.1.2-tier0` on 2026-08-06):
 
 - extend and compose canaries each passed `novel gate`; per-flow gate results: `tier0-extend-canary-gate.json`, `tier0-compose-canary-gate.json`
 - three-flow aggregation evidence: `docs/00_project/releases/tier0-three-flow-canary-aggregation.json`

@@ -7,7 +7,7 @@ Current production tier: local staged CLI v0.
 Tier 0 was declared production-ready on 2026-07-28.
 
 - release record: `docs/00_project/releases/tier0-release.json`
-- immutable checkpoint: git tag `v0.1.1-tier0`
+- immutable checkpoint: git tag `v0.1.2-tier0`
 - canary evidence: `docs/00_project/releases/tier0-canary-evidence.json`
 - saved canary gate result: `docs/00_project/releases/tier0-canary-gate.json`
 - the single combined validation command passes with expected baseline 1829
@@ -18,7 +18,7 @@ Three-flow daily-production hardening completed on 2026-07-29 (planning: `docs/0
 - three-flow aggregation evidence (human-curated): `docs/00_project/releases/tier0-three-flow-canary-aggregation.json`
 - operator runbook for all three flows: `docs/00_project/35_operator_runbook.md`
 - one-command regression gate: `python scripts/tier0_canary_regression.py` (exit 0 ⇒ three-flow baseline not regressed)
-- production-readiness re-certified on 2026-08-04 under a new immutable checkpoint `v0.1.1-tier0` (hardening stays inside the Tier 0 boundary; no tier upgrade)
+- production-readiness re-certified on 2026-08-06 under a new immutable checkpoint `v0.1.2-tier0` (hardening stays inside the Tier 0 boundary; no tier upgrade)
 - **evidence caveat**: the extend/compose canary workspaces were generated on 2026-08-01 under a gate contract that predates the Phase 5 serialization-package requirement (`31fc12a`); as committed they contain no `extend_rebuild_package.json` / `compose_state.json`, so `novel gate` on them now reports `ContinueUnit requires a serialization package` and `python scripts/tier0_canary_regression.py` reports FAIL for extend/compose. The audit canary (which has `rebuild_package.json`) still passes. Regenerating the extend/compose canary evidence is a pending operator task (see Known Limitations below).
 
 The current acceptable production use is internal operator-in-the-loop production:
