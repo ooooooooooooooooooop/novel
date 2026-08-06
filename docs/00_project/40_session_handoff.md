@@ -110,13 +110,13 @@ F1–F8 之后按「继续未做部分」完成三项：
 
 误删后按「canary_inputs 源文本 + transcript 重放」两条路径恢复，全部本地重建（不入库，git clean）：
 
-1. **`作品A/`（续写作B，extend）— 完整恢复**：
-   - `chapters/chapter_1190~1196.txt`：源文本 `canary_inputs/续写作B_1190_1196.txt` 按章拆分；`chapter_1197.txt` 从 transcript（5afa5ad4）提取，与原文逐字节一致（7738 字符 / 82 段）
+1. **`作品A/`（extend）— 完整恢复**：
+   - `chapters/chapter_1190~1196.txt`：源文本 `canary_inputs/作品A_1190_1196.txt` 按章拆分；`chapter_1197.txt` 从 transcript（5afa5ad4）提取，与原文逐字节一致（7738 字符 / 82 段）
    - `output/extend/`：`extend_rebuild_package.json` / `extend_result.json`（route=pass，9 非阻断 warning + 1 reminder，prose_overlap 2 段、prose_recheck 6/9 正文兑现）/ `route_handoff.json` / `extend_frames.json`（scene_001 完成，scene_002 inciting_incident active → 下章 1198）/ `.input_hash`
    - `output/style/style_profile.json`：用 `StyleExtractUnit().merge(qualitative, stats, risks, ref)` 重建合法档案（load_style_context 非空 1874 字符）
-   - `novel gate 续写作B --json`：ok=true、route=pass、next=ContinueUnit、blocking=0 → **可直接续写 1198**
-2. **`作品B/`（续写作A，手动解构续写）— 完整恢复**：
-   - `input.txt`：`canary_inputs/续写作A_full.txt`（148,995 字符，网络版 23 章，零广告残留）
+   - `novel gate 作品A --json`：ok=true、route=pass、next=ContinueUnit、blocking=0 → **可直接续写 1198**
+2. **`作品B/`（手动解构续写）— 完整恢复**：
+   - `input.txt`：`canary_inputs/作品B_full.txt`（148,995 字符，网络版 23 章，零广告残留）
    - `chapters/chapter_01~23.txt`：源按「第X章：标题」切分（注意 `split_by_chapters` 的 `第X章 ` 正则不认全角冒号，手动切分）
    - `chapters/chapter_24.txt`（第二十四章：燕京，6,240 字符 / 89 段）：从 transcript **重放 L2367 Write + 15 次 Edit** 精确还原（L2426 的 Edit 在真实会话里也失败过 `<tool_use_error>`，重建结果与真实文件逐字一致）
    - `output/解构_全书.md`：transcript L2282 提取（全书 23 章结构化解构）
@@ -149,7 +149,7 @@ F1–F8 之后按「继续未做部分」完成三项：
 
 ## 五、建议下一步（未做，按性价比排序）
 
-1. **重建 novels/ 工作区（误删后）**：~~`作品A/`、`作品B/`、`示例小说甲/乙/丙/`、`仙侠新作/` 已被误删~~ → **✅ 已恢复（2026-08-06 · 本会话）**，见下「工作区恢复记录」。`作品A/`（续写作B）与 `作品B/`（续写作A）两个真实创作工作区已从 `canary_inputs/` 源文本 + transcript（5afa5ad4）完整重建并验证；`仙侠新作/`（compose，结构态）与 `示例小说甲/乙/丙/`（演示）的状态已由 tier0 三个 canary 工作区完整保存，无需重复副本。
+1. **重建 novels/ 工作区（误删后）**：~~`作品A/`、`作品B/`、`示例小说甲/乙/丙/`、`仙侠新作/` 已被误删~~ → **✅ 已恢复（2026-08-06 · 本会话）**，见下「工作区恢复记录」。`作品A/`与 `作品B/`两个真实创作工作区已从 `canary_inputs/` 源文本 + transcript（5afa5ad4）完整重建并验证；`仙侠新作/`（compose，结构态）与 `示例小说甲/乙/丙/`（演示）的状态已由 tier0 三个 canary 工作区完整保存，无需重复副本。
 2. ~~**canary extend/compose 补产物**~~ **✅ 已解决（2026-08-06）**：`scripts/tier0_canary_regression.py` 三流全绿。`extend_rebuild_package.json` / `compose_state.json` 已再生并入库（`git add -f`，见上「Canary 实测」修复记录）；钉死证据（compose_result/route_handoff sha256）未漂移。
 3. **F3b 实施（设计已完成，见 42_review_after_prose_design.md）**：Review 移到 prose 之后的结构时序改动。设计已定：净 LLM 轮数不变、Pre-Review 代码闸、双层 rewrite、正文注入、`flow_version` 迁移、零成本契约。实施需独立立项（改时序/加 pre-review/双层 rewrite/注入/迁移，含测试基线同步）。
 4. **V1–V3（已核查，确认外部阻塞）**：读者留存回路（需平台追读率/完读率数据）、评测人类校准（需人类标注集）、`--lint` 外部基准（需人写-AI 写对照语料）。本地 CLI 无替代，维持待接入；结论记入 41_plan。V4 audit 真实文本实跑已完成（`novels/audit-v4/`，PASS）。
