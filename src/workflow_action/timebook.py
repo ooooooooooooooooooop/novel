@@ -67,34 +67,56 @@ _TOD_KEYWORDS = (
 )
 
 
-def _first_paragraphs(text: str, limit: int = 220) -> str:
+def _first_paragraphs(text: str, limit: int = 800) -> str:
+    """取章节首段窗口用于时间锚提取（F6 扩窗：首 220 → 800 字符）.
+
+    章节绝对日期/时段标记常出现在开篇段；800 字符覆盖多数较长的开篇段。
+    更靠后、跨越到下一场景的相对时间标记（三个月后/次日…）由
+    extract_time_anchors 的全文兜底扫描（_RELATIVE_TIME_RE）补齐。
+    """
     return text[:limit]
+
+
+# 相对时间标记（无绝对日期章节的覆盖锚）：次日/翌日/三天后/三个月后/一年后…
+_RELATIVE_TIME_RE = re.compile(
+    r"(?:次日|翌日|第二天"
+    r"|[一二三四五六七八九十两半\d]+\s*(?:天|日|个?月|年|周|个?星期|钟头|时辰|刻)\s*(?:后|之后|以后)"
+    r"|过了\s*[一二三四五六七八九十两半\d]+\s*(?:天|日|个?月|年|周|钟头))"
+)
 
 
 def extract_time_anchors(chunks: list) -> list[TimeAnchor]:
     """从章节块提取时间锚（复用 chunking 的 ChapterChunk）.
 
-    只自动提取日期/农历节气/时段；地点等需要语境的字段留空（手写/编辑补齐）。
+    只自动提取日期/农历节气/时段/相对时间；地点等需要语境的字段留空（手写/编辑补齐）。
+    F6 扩窗：绝对日期/农历/时段扫首段窗口（220→800 字符）；相对时间标记扫全章，
+    无绝对日期但含相对时间（三个月后/次日…）的章节产出 relative 锚，缓解覆盖稀疏。
     无法提取任何信息的章节产出 None 字段锚，由调用方过滤或保留。
     """
     anchors: list[TimeAnchor] = []
     for chunk in chunks:
-        head = _first_paragraphs(getattr(chunk, "text", ""))
+        text = getattr(chunk, "text", "") or ""
+        head = _first_paragraphs(text)
         date_str = None
         m = _DATE_RE.search(head)
         if m:
             date_str = f"{int(m.group('y')):04d}-{int(m.group('m')):02d}-{int(m.group('d')):02d}"
         lunar = next((kw for kw in _LUNAR_KEYWORDS if kw in head), None)
         tod = next((kw for kw in _TOD_KEYWORDS if kw in head), None)
+        relative = None
+        if date_str is None:
+            m_rel = _RELATIVE_TIME_RE.search(text)
+            if m_rel:
+                relative = m_rel.group(0)
         chapter = f"第{chunk.chapter_index}章"
-        if date_str or lunar or tod:
+        if date_str or lunar or tod or relative:
             anchors.append(
                 TimeAnchor(
                     chapter=chapter,
                     date=date_str,
                     lunar=lunar,
                     tod=tod,
-                    loc=None,
+                    relative=relative,
                 )
             )
     return anchors

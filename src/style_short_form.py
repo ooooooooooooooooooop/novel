@@ -23,6 +23,11 @@ if str(PROJECT_ROOT) not in sys.path:
 from src.boundary_control.chunking import get_total_stats, split_by_chapters
 from src.boundary_control.runtime_identity import file_content_hash, validate_run_hash
 from src.boundary_control.style_metrics import analyze_style_metrics
+from src.domain_layer.style_redact import (
+    assign_placeholders,
+    parse_redact_arg,
+    redact_profile,
+)
 from src.domain_layer.style_rules import (
     build_style_knowledge_context,
     build_worldview_axis_guidance,
@@ -142,6 +147,12 @@ def main() -> int:
         metavar="QUERY",
         default="",
         help="在风格库 manifest 上做关键词检索（tone/genre/pov/句式），列出候选 id 后退出",
+    )
+    parser.add_argument(
+        "--redact",
+        default="",
+        help="入库脱敏：逗号分隔的实体词表（如 '主角名,集团名'），写库前替换为中性占位；"
+        "source_text_ref 始终去机器路径",
     )
     args = parser.parse_args()
 
@@ -297,12 +308,23 @@ def main() -> int:
 
     if style_id:
         manifest = load_style_manifest()
+        # 入库前脱敏（中性命名红线）：--redact 词表替换为占位 + source_text_ref 去机器路径。
+        terms = parse_redact_arg(args.redact)
+        replacements = assign_placeholders(terms) if terms else None
+        library_profile = redact_profile(profile, replacements)
         library_path = style_library_dir() / f"{style_id}.json"
         library_path.parent.mkdir(parents=True, exist_ok=True)
-        library_path.write_text(profile.model_dump_json(indent=2), encoding="utf-8")
-        upsert_style_manifest(
-            profile, style_id=style_id, file_name=f"{style_id}.json"
+        library_path.write_text(
+            library_profile.model_dump_json(indent=2), encoding="utf-8"
         )
+        upsert_style_manifest(
+            library_profile, style_id=style_id, file_name=f"{style_id}.json"
+        )
+        if replacements:
+            print(
+                f"Style library: redacted {len(replacements)} entity term(s) "
+                f"on ingest: {', '.join(sorted(replacements))}"
+            )
         print(f"Saved to style library: {library_path}")
 
     # Step 5: optional lint

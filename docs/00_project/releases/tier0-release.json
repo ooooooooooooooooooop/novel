@@ -5,10 +5,10 @@
   "release_id": "tier0-canary-20260804",
   "created_at_utc": "2026-08-04T03:56:36Z",
   "release_tag_or_checkpoint": "v0.1.1-tier0",
-  "git_commit": "da893a98469c166d660d574c7959b7e033dc5538",
-  "baseline_tests_passing": 1792,
+  "git_commit": "900935380dbe2f1a0711c5fffa25e1ffa05b92aa",
+  "baseline_tests_passing": 1829,
   "full_pytest_command": "python -m pytest -q --basetemp .pytest-tmp-current-tier0-release-evidence-full -p no:cacheprovider",
-  "full_pytest_result": "1792 passed",
+  "full_pytest_result": "1829 passed",
   "canary_runbook": "docs/00_project/31_tier0_canary_runbook.md",
   "canary_result": "pass",
   "canary_commands": [

@@ -25,7 +25,7 @@ from src.domain_layer.compliance_rules import build_nsfw_context
 from src.domain_layer.rules import get_structure_template
 from src.workflow_action.frame import NarrativeFrameUnit
 from src.workflow_action.rebuild import RebuildUnit
-from src.workflow_action.review import ReviewUnit
+from src.workflow_action.review import ReviewUnit, recheck_against_prose
 from src.workflow_action.rewrite import RewriteUnit
 from src.domain_layer.style_rules import build_temperament_guidance
 from src.workflow_action.style import load_style_context
@@ -640,6 +640,8 @@ def main() -> int:
                     timeline_context=facts.to_timeline_context(include_header=False),
                     time_context=build_time_context(load_time_book(output_dir)),
                     prev_chapter_end=prose_action.prev_chapter_tail(text),
+                    target_chapter_chars=prose_action.average_chapter_chars(chunks),
+                    reuse_source=text,
                 ),
                 encoding="utf-8",
             )
@@ -648,7 +650,8 @@ def main() -> int:
             print("[RESUME] Re-run this script after saving response")
             return 0
         chapter_text = prose_action.parse_response(
-            _read_response_text(prose_response_path)
+            _read_response_text(prose_response_path),
+            target_chars=prose_action.average_chapter_chars(chunks),
         )
         chapters_dir = output_dir.parent.parent / "chapters"
         chapters_dir.mkdir(parents=True, exist_ok=True)
@@ -657,6 +660,42 @@ def main() -> int:
         )
         chapter_file.write_text(chapter_text, encoding="utf-8")
         print(f"Saved chapter: {chapter_file}")
+
+        # F5 原文长段去重：记录新章与原文逐字重叠片段（只标注，不改 route）
+        overlap_spans = prose_action.find_overlapping_spans(chapter_text, text)
+        if overlap_spans:
+            review_data["prose_overlap"] = overlap_spans
+            extend_result_path.write_text(
+                json.dumps(review_data, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+            print(
+                f"Prose overlap: {len(overlap_spans)} verbatim span(s) "
+                f"from source (≥{prose_action.REUSE_MIN_CHARS} chars)"
+            )
+        else:
+            print("Prose overlap: none")
+
+        # F3a Review 挂 prose 复核：对象层 issue 是否被正文兑现（只标注，不改 route）
+        prose_recheck = recheck_against_prose(issues, chapter_text)
+        confirmed = [
+            r for r in prose_recheck if r["prose_confirmed"] is True
+        ]
+        if confirmed:
+            review_data["prose_recheck"] = prose_recheck
+            extend_result_path.write_text(
+                json.dumps(review_data, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+            print(
+                f"Prose recheck: {len(confirmed)}/{len(prose_recheck)} issue(s) "
+                f"confirmed by prose"
+            )
+            for r in confirmed:
+                print(
+                    f"  [prose-confirmed] {r['issue_type']} "
+                    f"{r['issue_id']}: {r.get('evidence', '')[:40]}"
+                )
 
     final_objects = objects + [plotunit, new_state]
     final_package = serializer.build_package(*final_objects)

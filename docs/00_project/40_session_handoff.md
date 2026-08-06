@@ -5,8 +5,8 @@
 - 生成时间：2026-08-05
 - 仓库：`https://github.com/ooooooooooooooooooop/novel`（公开，origin）
 - 当前 `main`：`9acdaaa`
-- checkpoint tag：`v0.1.1-tier0` → `da893a9`
-- 测试基线：**1792 passed**
+- checkpoint tag：`v0.1.1-tier0` → `9009353`
+- 测试基线：**1829 passed**
 
 ---
 

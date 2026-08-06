@@ -43,8 +43,12 @@ class TimeAnchor(BaseModel):
     lunar: Optional[str] = Field(default=None, description="农历/节气, 如'腊月廿九'")
     tod: Optional[str] = Field(default=None, description="时段, 如'入夜'")
     loc: Optional[str] = Field(default=None, description="地点, 如'某城'")
+    relative: Optional[str] = Field(
+        default=None,
+        description="相对时间标记, 如'三个月后/次日/三天后'（无绝对日期章节的覆盖锚）",
+    )
 
-    @field_validator("chapter", "date", "lunar", "tod", "loc")
+    @field_validator("chapter", "date", "lunar", "tod", "loc", "relative")
     @classmethod
     def _opt_text_must_be_non_blank(cls, value: Optional[str], info: ValidationInfo) -> Optional[str]:
         if value is not None and not value.strip():

@@ -56,6 +56,13 @@
     "事件推进靠电话与人物行动层层叠加（接电话→行动→新变数），章末落在新悬念",
     "动作动词密度低但精准（披衣/摸出手机/端起热茶），节奏偏沉缓，与克制调性一致"
   ],
+  "temperament": null,
+  "description_layering_notes": [],
+  "omission_notes": [],
+  "subtle_technique_notes": [],
+  "character_method_notes": [],
+  "dialogue_technique_notes": [],
+  "decision_grounding_notes": [],
   "taboo_words": [
     "深吸一口气",
     "心中暗想",
@@ -105,7 +112,13 @@
     "inner_monologue_sentence_ratio": 0.0153,
     "action_verb_density_per_1000": 0.73,
     "action_sentence_ratio": 0.0322,
-    "narration_sentence_ratio": 0.7093
+    "narration_sentence_ratio": 0.7093,
+    "modifier_load_density": 0.0,
+    "bystander_reaction_density": 0.0,
+    "foil_sentence_ratio": 0.0,
+    "omission_marker_count": 0,
+    "decision_grounding_marker_density": 0.0,
+    "key_segment_len_ratio": 0.0
   },
   "ai_flavor_risks": [
     {

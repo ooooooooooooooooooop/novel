@@ -215,6 +215,60 @@ def _foreshadow_referenced(
     return any(any(kw in text for kw in keywords) for text in pu_texts)
 
 
+# F3a：可做正文级复核的 issue 类型（对象层弱信号、正文层可兑现）。
+_PROSE_RECHECK_TYPES = frozenset(
+    ("abrupt_payoff", "promise_loss", "missing_consequence", "character_distortion")
+)
+
+
+def _prose_evidence(desc: str, prose_text: str, window: int = 20) -> str:
+    """在正文中定位与 issue 描述共享 2-gram 的首次命中点，取邻窗作证据片段."""
+    desc_bigrams = set(zip(desc, desc[1:]))
+    for pos in range(len(prose_text) - 1):
+        if (prose_text[pos], prose_text[pos + 1]) in desc_bigrams:
+            start = max(0, pos - window // 2)
+            end = min(len(prose_text), pos + window)
+            return prose_text[start:end]
+    return ""
+
+
+def recheck_against_prose(issues, prose_text: str, evidence_chars: int = 40) -> list[dict]:
+    """正文级复核（F3a）：对对象层 issue 做 prose 兑现检查，返回标注（不改 route）.
+
+    对象层 Review 在成文前运行，部分 issue（伏笔/承诺/后果/角色）可能在成文
+    正文中已被自然兑现——这些是"对象层弱信号、正文层已解决"的噪声。本函数对
+    prose-recheckable 类型 issue 判定其描述与正文的相关性（字符 2-gram ≥2）：
+
+    - 相关 → prose_confirmed=True，附命中片段证据（evidence）；
+    - 不相关 → prose_confirmed=False；
+    - 其余类型 → prose_confirmed=None（不适用，保持对象层原判）。
+
+    返回值仅用于展示/注释，不修改 issue、不改 route。
+    """
+    if not prose_text or not prose_text.strip():
+        return []
+    results: list[dict] = []
+    for issue in issues:
+        entry: dict = {
+            "issue_id": issue.issue_id,
+            "issue_type": issue.issue_type,
+            "severity": issue.severity,
+            "location": issue.location,
+        }
+        if issue.issue_type not in _PROSE_RECHECK_TYPES:
+            entry["prose_confirmed"] = None
+            results.append(entry)
+            continue
+        confirmed = _text_related(issue.description, prose_text)
+        entry["prose_confirmed"] = confirmed
+        if confirmed:
+            entry["evidence"] = _prose_evidence(
+                issue.description, prose_text
+            )[:evidence_chars]
+        results.append(entry)
+    return results
+
+
 class ReviewUnit:
     """审查重建结果或推进结果."""
 

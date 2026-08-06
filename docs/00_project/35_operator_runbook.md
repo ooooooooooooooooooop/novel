@@ -235,4 +235,4 @@ v2 要点：
 - DirectAPI / provider 调用：不实现，response 由操作者/Codex 手动物化
 - 闭环自动化：disallowed，无自动 route 推进、无 retry、无 fallback provider
 - UI / Web：不存在，Codex 单用户本地
-- 回归脚本不重放写入（audit canary 是不可变 evidence 基线，sha256 被 `docs/00_project/releases/` 锁定）；`novel respond` 物化路径回归由 1792-test pytest 的 `tests/test_novel_cli.py` 覆盖
+- 回归脚本不重放写入（audit canary 是不可变 evidence 基线，sha256 被 `docs/00_project/releases/` 锁定）；`novel respond` 物化路径回归由 1829-test pytest 的 `tests/test_novel_cli.py` 覆盖

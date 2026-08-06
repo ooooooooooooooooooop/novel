@@ -12,7 +12,7 @@ docs/03_rules/05_information_release_rules.md（信息释放=分配）正交互�
 - 网文叙事研究：Genette 聚焦理论（零/内/外）、有限视角 POV 常识
 - Hitchcock 信息差机制（悬念=读者>角色；神秘=角色>读者）
 - Knox 侦探公平游戏规则（读者知情权）
-- 本项目真实事故复盘（chapter_1197 "没摸实位置却知道人瘦了"）
+- 本项目真实事故复盘（续写正文信息越权：未亲历却获知细节）
 """
 
 from typing import TypedDict

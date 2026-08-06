@@ -112,9 +112,9 @@ def test_info_channel_hits_warrant_breach():
     """事故文本：'没摸实位置 + 人瘦得脱了相' → iss_info_channel 命中."""
     accident = _mk_pu(
         "pu_accident",
-        goal="角色丁电话汇报角色乙下落",
+        goal="部下甲电话汇报对手下落",
         conflict="具体在哪儿还没摸实，人瘦得脱了相",
-        released=["角色乙活着"],
+        released=["对手活着"],
         hook="他这条命是自己藏的",
     )
     issues = ReviewUnit()._domain_rules([accident])
@@ -129,7 +129,7 @@ def test_info_relay_hits_relayed_firsthand():
     """转述通道 + 亲历细节且无亲历前提 → iss_info_relay 命中."""
     accident = _mk_pu(
         "pu_accident",
-        goal="角色丁电话汇报角色乙下落",
+        goal="部下甲电话汇报对手下落",
         conflict="具体在哪儿还没摸实，人瘦得脱了相",
     )
     issues = ReviewUnit()._domain_rules([accident])
@@ -141,9 +141,9 @@ def test_info_relay_exempts_witness_premise():
     """已补亲历前提（'远远看过一回'）→ relay 豁免，不命中."""
     fixed = _mk_pu(
         "pu_fixed",
-        goal="角色丁电话汇报角色乙下落",
+        goal="部下甲电话汇报对手下落",
         conflict="办案的人摸到个大概，我让人远远看过一回，人瘦得脱了相",
-        released=["角色乙活着"],
+        released=["对手活着"],
         hook="他要见主角本人",
     )
     issues = ReviewUnit()._domain_rules([fixed])
@@ -154,8 +154,8 @@ def test_info_channel_no_false_positive_on_clean():
     """干净文本无亲历+未知共现 → 不命中."""
     clean = _mk_pu(
         "pu_clean",
-        goal="主角在外地过年",
-        conflict="角色甲学着包饺子",
+        goal="主角在海外城过年",
+        conflict="配角甲学着包饺子",
         released=["明天三十"],
     )
     issues = ReviewUnit()._domain_rules([clean])
@@ -166,11 +166,11 @@ def test_info_scope_hits_knowledge_flip():
     """角色断言'藏身地点不知'却参与产出亲历细节的单元 → iss_info_scope 命中."""
     scope_hit = _mk_pu(
         "pu_scope_hit",
-        goal="主角复述角色乙眼下的样子",
+        goal="主角复述对手眼下的样子",
         conflict="他躲在地窖里，瘦得脱了相，眼睛却亮",
         participants=["c_zhangke"],
     )
-    cm = _mk_cm("c_zhangke", ["角色乙藏身地点不知"])
+    cm = _mk_cm("c_zhangke", ["对手藏身地点不知"])
     issues = ReviewUnit()._domain_rules([scope_hit, cm])
     scope = [i for i in _iss_info(issues) if i.issue_id.startswith("iss_info_scope")]
     assert len(scope) == 1
@@ -181,11 +181,11 @@ def test_info_scope_no_false_positive():
     """角色断言未知但单元是安排他人观察（无亲历细节产出）→ 不命中."""
     scope_clean = _mk_pu(
         "pu_scope_clean",
-        goal="主角指示看住角色乙",
+        goal="主角指示看住对手",
         conflict="安排人远远看着，不许外人靠近",
         participants=["c_zhangke"],
     )
-    cm = _mk_cm("c_zhangke", ["角色乙藏身地点不知"])
+    cm = _mk_cm("c_zhangke", ["对手藏身地点不知"])
     issues = ReviewUnit()._domain_rules([scope_clean, cm])
     assert not any("pu_scope_clean" in i.issue_id for i in _iss_info(issues))
 

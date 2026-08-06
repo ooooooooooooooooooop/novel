@@ -171,7 +171,7 @@ def _active_foreshadow(expires_at=None) -> ForeshadowGraph:
         entries=[
             ForeshadowEntry(
                 thread_id="t1",
-                content="角色乙生死未卜",
+                content="对手生死未卜",
                 current_status="active",
                 setup_point="第1章",
                 visibility_level="explicit",
@@ -308,6 +308,62 @@ def test_extract_time_anchors_empty_head_skips():
 
     anchors = extract_time_anchors(split_by_chapters("第1章 无时间锚\n　　正文无日期。"))
     assert anchors == []
+
+
+# --- F6 扩窗：首 220→800 字符 + 全文相对时间兜底 -------------------------------
+
+
+def test_extract_time_anchors_expanded_window_finds_late_date():
+    """日期标记出现在首 220 字符之后（开篇段较长）时仍应被检出."""
+    from src.boundary_control.chunking import split_by_chapters
+
+    filler = "雨声时断时续，廊下有人低声说话，灯笼晃了晃。" * 12  # > 220 字符
+    text = f"第1章 长开篇\n　　{filler}\n\n　　2001年1月22日，入夜。"
+    anchors = extract_time_anchors(split_by_chapters(text))
+    assert anchors, "超过原 220 字符窗口的日期标记应被扩窗检出"
+    assert anchors[0].date == "2001-01-22"
+    assert anchors[0].tod == "入夜"
+
+
+def test_extract_time_anchors_relative_marker_coverage():
+    """无绝对日期但含相对时间的章节产出 relative 锚（覆盖稀疏缓解）."""
+    from src.boundary_control.chunking import split_by_chapters
+
+    anchors = extract_time_anchors(
+        split_by_chapters("第1章 转场\n　　三天后，他回到客栈，桌上放着一封信。")
+    )
+    assert len(anchors) == 1
+    assert anchors[0].date is None
+    assert anchors[0].relative == "三天后"
+
+
+def test_extract_time_anchors_relative_defer_to_absolute_date():
+    """同章含绝对日期时以日期为准，不叠加相对锚."""
+    from src.boundary_control.chunking import split_by_chapters
+
+    anchors = extract_time_anchors(
+        split_by_chapters("第1章 a\n　　2001年1月22日，三天后他动身。")
+    )
+    assert len(anchors) == 1
+    assert anchors[0].date == "2001-01-22"
+    assert anchors[0].relative is None
+
+
+def test_extract_time_anchors_relative_no_false_positive():
+    """无时间信息章节不因含'年/日'等字误产锚."""
+    from src.boundary_control.chunking import split_by_chapters
+
+    anchors = extract_time_anchors(
+        split_by_chapters("第1章 闲谈\n　　他提到旧年的事，却说不准是哪一年。")
+    )
+    assert anchors == []
+
+
+def test_first_paragraphs_default_window_is_800():
+    from src.workflow_action.timebook import _first_paragraphs
+
+    assert _first_paragraphs("x" * 1000) == "x" * 800
+    assert _first_paragraphs("短文本") == "短文本"
 
 
 def test_refresh_time_book_anchors_zero_cost_when_no_timebook(tmp_path):
