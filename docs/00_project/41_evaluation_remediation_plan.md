@@ -189,6 +189,14 @@
 - 这是纯重构，不引入新行为、不改 baseline 数字（测试数不变）
 - 守纪门
 
+**实施结论（2026-08-06）**：
+- 第一步落地为「校验簇拆分」：`src/novel_cli.py` 3851 → 1480 行，常量（25）+ staged JSON/list/gate/approval 校验函数（61）+ gate/route/status 辅助（14）共 100 个名字移入新增 `src/cli/validation.py`（含 `__all__` 重导出），`novel_cli.py` 保留 import 块 + `from src.cli.validation import *` + 编排层（NovelArgumentParser/dispatch/run_config）
+- **关键决策**：原校验块（1-2156 行）并不自足——它调用编排区 9 个函数（`_validate_novel_name`/`_route_gate_verdict` 等），经传递闭包算出 14 个一并移入 validation.py（`_validate_novel_name`、`_latest_mtime`、`_read_route_value`、`_load_route_handoff_packet`、`_read_route_handoff`、`_waiting_slots`、`_final_route_path`、`_route_handoff_path`、`_route_detail`、`_gate_package_path`、`_route_gate_verdict`、`_approval_gate_verdict`、`_latest_route_artifact_mtime`、`_prompt_filename`）
+- **陷阱**：`PROJECT_ROOT = Path(__file__).resolve().parent.parent` 在 `src/cli/` 下少一级 → 改为 `.parent.parent.parent`（否则 `DEFAULT_NOVELS_ROOT` 错指 `src/novels`）
+- **3 个契约测试改动（测试数不变）**：2 个 source-introspection 测试（`test_cli_runtime_contract.py` 的 exact-field-call-sites / gate-verdict-helper）改从 `src/cli/validation.py` 读取被移动函数；1 个 monkeypatch 测试（`test_novel_cli.py` respond-materialization）把 patch 目标从 `novel_cli` 改为 `cli_validation`——行为契约不变，仅文件指针随重构移动
+- `--help` 经 f63ff04 worktree A/B 验证字节一致；全量 1829 passed
+- 计划原文「按流拆 audit_cmd/extend_cmd/…」留作后续演进（`run_config` 抽取等），本批先落「校验簇 + cli/ 包骨架」
+
 ---
 
 ## F3b · Review 移到 prose 之后（结构性，独立设计评审）

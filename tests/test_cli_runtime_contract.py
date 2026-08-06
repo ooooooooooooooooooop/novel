@@ -1062,15 +1062,21 @@ def test_staged_entrypoints_do_not_call_direct_response_automation():
 
 
 def test_novel_cli_exact_field_call_sites_declare_cross_contract_metadata_policy():
-    text = (PROJECT_ROOT / "src/novel_cli.py").read_text(encoding="utf-8")
-    tree = ast.parse(text)
-    call_sites = [
-        node
-        for node in ast.walk(tree)
-        if isinstance(node, ast.Call)
-        and isinstance(node.func, ast.Name)
-        and node.func.id == "_validate_exact_fields"
+    # F8 拆分：校验函数簇移至 src/cli/validation.py，跨两文件扫描保持覆盖
+    sources = [
+        (PROJECT_ROOT / "src/novel_cli.py").read_text(encoding="utf-8"),
+        (PROJECT_ROOT / "src/cli/validation.py").read_text(encoding="utf-8"),
     ]
+    call_sites = []
+    for text in sources:
+        tree = ast.parse(text)
+        call_sites += [
+            node
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id == "_validate_exact_fields"
+        ]
 
     assert call_sites
     missing_policy = [
@@ -2327,6 +2333,22 @@ def test_novel_cli_json_error_payload_call_sites_are_guarded_by_json_mode():
 
 
 def test_novel_cli_gate_surfaces_share_route_gate_verdict_helper():
+    # F8 拆分：_route_gate_verdict 随校验簇移入 src/cli/validation.py
+    helper_text = (PROJECT_ROOT / "src/cli/validation.py").read_text(encoding="utf-8")
+    helper_tree = ast.parse(helper_text)
+    helper = {
+        node.name: node
+        for node in helper_tree.body
+        if isinstance(node, ast.FunctionDef)
+    }["_route_gate_verdict"]
+
+    helper_source = ast.get_source_segment(
+        helper_text,
+        helper,
+    )
+    assert "OrchestrationGateUnit" in helper_source
+    assert "verify_entry" in helper_source
+
     text = (PROJECT_ROOT / "src/novel_cli.py").read_text(encoding="utf-8")
     tree = ast.parse(text)
     functions = {
@@ -2334,13 +2356,6 @@ def test_novel_cli_gate_surfaces_share_route_gate_verdict_helper():
         for node in tree.body
         if isinstance(node, ast.FunctionDef)
     }
-
-    helper_source = ast.get_source_segment(
-        text,
-        functions["_route_gate_verdict"],
-    )
-    assert "OrchestrationGateUnit" in helper_source
-    assert "verify_entry" in helper_source
 
     for name in ("_run_gate", "_gate_metadata"):
         source = ast.get_source_segment(text, functions[name])

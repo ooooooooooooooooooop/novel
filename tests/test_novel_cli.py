@@ -4266,6 +4266,7 @@ def test_novel_respond_json_validates_materialization_metadata_before_emit(
     tmp_path,
     monkeypatch,
 ):
+    import src.cli.validation as cli_validation
     import src.novel_cli as novel_cli
 
     novels_root = tmp_path / "novels"
@@ -4285,7 +4286,7 @@ def test_novel_respond_json_validates_materialization_metadata_before_emit(
 
     monkeypatch.setenv("NOVELS_ROOT", str(novels_root))
     monkeypatch.setattr(
-        novel_cli,
+        cli_validation,
         "validate_response_materialization_metadata_in_payload",
         reject_metadata,
     )
