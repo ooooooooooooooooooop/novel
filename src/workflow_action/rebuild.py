@@ -114,6 +114,9 @@ class RebuildUnit:
    - knowledge_state: 已知信息列表
    - misinformation: 错误信念列表
    - relations: {{角色ID: 关系描述}}
+   - current_pressure: 当前压力列表（可选）——此刻正推动/逼迫角色行动的力量（时限/威胁/利益冲突），解释"为什么此刻这样决定"
+   - change_trajectory: 变化过程列表（可选）——经历积累产生的成长/异化轨迹，用于识别"合理变化"vs"突然转变"
+   - relation_behaviors: {{角色ID: 行为差异}}（可选）——同一角色面对不同人时行为如何不同（对盟友坦诚/对上级戒备/对仇敌逞强）
 
 4. NarrativeState（叙事状态）:
    - state_id: 状态ID

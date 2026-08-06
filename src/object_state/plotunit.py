@@ -11,6 +11,8 @@ from pydantic import (
     field_validator,
 )
 
+from src.object_state.scene_experience import SceneExperience
+
 
 class PlotUnit(BaseModel):
     """最小有效叙事推进单元.
@@ -64,6 +66,16 @@ class PlotUnit(BaseModel):
     removable_without_loss: Optional[bool] = Field(
         default=None,
         description="删除本单元后主线是否几乎不受损（冗余度判定依据）",
+    )
+
+    # ---- v4: 场景体验中间层（方向文档第四节）----
+    # 把结构翻译成读者体验的五维（看见/阻碍/选择/结果/认知变化），
+    # 作为正文展开的先验，避免「解释充分但缺乏现场感」。Optional：空不渲染，
+    # 与旧版逐字节一致（零回归契约）。
+    scene_experience: Optional[SceneExperience] = Field(
+        default=None,
+        description="场景体验中间层：主角看见/阻碍/选择依据/结果/认知变化。"
+        "Continue 生成 PlotUnit 时可选产出，Prose 展开时注入正文",
     )
 
     # 有效性标记(运行时判断)
@@ -123,5 +135,7 @@ class PlotUnit(BaseModel):
             lines.append(f"状态变化: {self.state_change_summary}")
         if self.removable_without_loss is not None:
             lines.append(f"可删无损: {'是' if self.removable_without_loss else '否'}")
+        if self.scene_experience:
+            lines.append(self.scene_experience.to_prompt_context(self.unit_id))
         lines.append(f"有效推进: {'是' if self.is_effective else '待确认'}")
         return "\n".join(lines)

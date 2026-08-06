@@ -552,6 +552,52 @@ def _run_compliance(args: argparse.Namespace) -> int:
     return _run_child(command)
 
 
+def _run_reader(args: argparse.Namespace) -> int:
+    """读者体验审查：对章节正文做 7 维分级标注（LLM response-file 循环）.
+
+    定位核心2（读者体验），与 compliance（纯代码）/ rubric（静态导出）不同：
+    reader 需要 LLM 质性判断，走 style 式 [WAITING] 循环。
+    产物 novels/<name>/output/reader_experience/reader_report.json（route=none 不阻断）。
+    """
+    novel_dir = _novel_dir(args.novel)
+    output_dir = _output_dir(novel_dir, "reader_experience")
+    source_input = _input_source(args, novel_dir)
+    if not _preflight_run_hash(
+        output_dir=output_dir,
+        hash_filename=".input_hash",
+        current_hash=file_content_hash(source_input),
+        label="input file",
+    ):
+        return 1
+    input_path = _ensure_input(args, novel_dir)
+    _write_mode(novel_dir, "reader")
+    _write_config(novel_dir, {"mode": "reader"})
+
+    command = [
+        sys.executable,
+        _script_path("reader_short_form.py"),
+        str(input_path),
+        "--output-dir",
+        str(output_dir),
+    ]
+    if getattr(args, "style", None):
+        command.extend(["--style", args.style])
+    if getattr(args, "chapter_id", None):
+        command.extend(["--chapter-id", args.chapter_id])
+    # 读者预期台账源：优先显式 --expectations-from，否则自动探测该小说的
+    # extend rebuild 产物（含 ForeshadowGraph）。可加 --no-expectations 关闭。
+    if getattr(args, "no_expectations", False):
+        return _run_child(command)
+    expectations_from = getattr(args, "expectations_from", None)
+    if not expectations_from:
+        extend_package = novel_dir / "output" / "extend" / "extend_rebuild_package.json"
+        if extend_package.exists():
+            expectations_from = str(extend_package)
+    if expectations_from:
+        command.extend(["--expectations-from", expectations_from])
+    return _run_child(command)
+
+
 def _run_rubric(args: argparse.Namespace) -> int:
     """导出 WebNovelBench 8 维本地评测 rubric（纯代码，无输入文件）.
 
@@ -1401,6 +1447,24 @@ def build_parser(*, emit_json_errors: bool = False) -> argparse.ArgumentParser:
     )
     compliance.add_argument("--lexicon", help="自定义词库 JSON 文件路径（与内置词库合并）")
     compliance.set_defaults(func=_run_compliance)
+
+    reader_cmd = subparsers.add_parser(
+        "reader", help="读者体验审查：对章节正文做 7 维分级标注（好不看好）"
+    )
+    reader_cmd.add_argument("novel", help="小说名")
+    _add_input_argument(reader_cmd)
+    reader_cmd.add_argument("--style", help="引用风格库中的已有档案 <name>")
+    reader_cmd.add_argument("--chapter-id", help="章节标识（默认取输入文件名的 stem）")
+    reader_cmd.add_argument(
+        "--expectations-from",
+        help="ForeshadowGraph JSON 路径（默认自动探测该小说 extend 产物）",
+    )
+    reader_cmd.add_argument(
+        "--no-expectations",
+        action="store_true",
+        help="跳过读者预期台账生成",
+    )
+    reader_cmd.set_defaults(func=_run_reader)
 
     rubric = subparsers.add_parser("rubric", help="导出 WebNovelBench 8 维本地评测 rubric (离线)")
     rubric.add_argument("novel", help="小说名（rubric 为全局知识，novel 仅作容器）")

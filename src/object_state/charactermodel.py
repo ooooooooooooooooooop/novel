@@ -54,6 +54,25 @@ class CharacterModel(BaseModel):
         description="与其他角色的关系结论. key=角色ID, value=关系描述",
     )
 
+    # ---- v4: 动态角色建模（方向文档第五节：从固定标签到经历/压力/变化） ----
+    # 全部 Optional/default，向后兼容（旧 state 无这些字段可反序列化）。
+    current_pressure: list[str] = Field(
+        default_factory=list,
+        description="当前压力——此刻正推动/逼迫角色行动的力量（时限/威胁/利益冲突），"
+        "解释『为什么此刻这样决定』（压力随时间变化，非固定标签）",
+    )
+    change_trajectory: list[str] = Field(
+        default_factory=list,
+        description="变化过程——经历积累产生的成长/异化轨迹（如『从独行到愿意托付』），"
+        "用于识别『合理变化』vs『缺少铺垫的突然转变』",
+    )
+    relation_behaviors: dict[str, str] = Field(
+        default_factory=dict,
+        description="关系→行为差异. key=角色ID, value=『面对此人时行为如何不同』"
+        "（同一角色对不同人表现不同：对盟友坦诚/对上级戒备/对仇敌逞强），"
+        "解决固定标签导致的『对谁都一个样』僵化",
+    )
+
     @field_validator(
         "character_id",
         "name",
@@ -73,7 +92,7 @@ class CharacterModel(BaseModel):
             raise ValueError(f"{info.field_name} must be non-empty")
         return value
 
-    @field_validator("knowledge_state", "misinformation")
+    @field_validator("knowledge_state", "misinformation", "current_pressure", "change_trajectory")
     @classmethod
     def _knowledge_items_must_be_non_blank(
         cls, values: list[str], info: ValidationInfo
@@ -82,7 +101,7 @@ class CharacterModel(BaseModel):
             raise ValueError(f"{info.field_name} entries must be non-empty")
         return values
 
-    @field_validator("relations")
+    @field_validator("relations", "relation_behaviors")
     @classmethod
     def _relation_entries_must_be_non_blank(cls, values: dict[str, str]) -> dict[str, str]:
         if any(not key.strip() or not value.strip() for key, value in values.items()):
@@ -115,4 +134,14 @@ class CharacterModel(BaseModel):
         if self.relations:
             rels = [f"{k}: {v}" for k, v in self.relations.items()]
             lines.append(f"关系: {'; '.join(rels)}")
+        # v4: 动态角色建模（空字段不渲染 → 与旧版逐字节一致）
+        if self.current_pressure:
+            lines.append(f"当前压力: {'; '.join(self.current_pressure)}")
+        if self.change_trajectory:
+            lines.append(f"变化轨迹: {'; '.join(self.change_trajectory)}")
+        if self.relation_behaviors:
+            rel_behav = [
+                f"{k}: {v}" for k, v in self.relation_behaviors.items()
+            ]
+            lines.append(f"关系行为差异: {'; '.join(rel_behav)}")
         return "\n".join(lines)

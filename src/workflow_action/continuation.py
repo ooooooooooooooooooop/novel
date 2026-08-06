@@ -240,6 +240,7 @@ class ContinueUnit:
 5. 不能一次性解决所有悬念，但可以推进其中一个
 6. 情绪变化必须有依据，不能跳跃
 7. 忠于原文：不得引入与已发生事件（时间线）矛盾的事件；新线索必须能与既有事实自洽，不得凭空捏造与原文无关的设定
+8. scene_experience 可选：提供时须落在读者体验五维（看见/阻碍/选择/结果/认知变化），让正文展开有现场感；省略时不注入
 
 【输出格式】
 严格输出 JSON:
@@ -257,7 +258,14 @@ class ContinueUnit:
     "hook": "钩子",
     "formula_node": "当前结构节点名（如 climax）",
     "consequences": ["后果"],
-    "is_effective": true
+    "is_effective": true,
+    "scene_experience": {{
+      "protagonist_sees": "主角看见了什么——本场景的感官焦点（具体画面，非概述）",
+      "obstacles": ["遇到了什么阻碍（具体阻力）"],
+      "choice_grounding": "为什么作出选择（身份/信念/压力依据，避免剧情需要式选择）",
+      "outcome": "选择产生了什么结果（读者知道成/败/变的可见反馈）",
+      "cognition_shift": "情绪和认知如何变化（从之前怎么想到现在怎么想）"
+    }}
   }},
   "new_state": {{
     "state_id": "新状态ID",

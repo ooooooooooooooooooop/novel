@@ -5,7 +5,10 @@ from .factledger import FactEntry, FactLedger, ValidityInterval
 from .foreshadowgraph import ForeshadowEntry, ForeshadowGraph
 from .narrativestate import NarrativeState
 from .plotunit import PlotUnit
+from .readerexpectation import ReaderExpectation, ReaderExpectationLedger
+from .readerreport import ReaderDimension, ReaderExperienceReport
 from .reviewissue import ReviewIssue, ReviewReminder
+from .scene_experience import SceneExperience
 from .styleprofile import (
     MetaphorHit,
     StyleProfile,
@@ -26,8 +29,13 @@ __all__ = [
     "MetaphorHit",
     "NarrativeState",
     "PlotUnit",
+    "ReaderDimension",
+    "ReaderExpectation",
+    "ReaderExpectationLedger",
+    "ReaderExperienceReport",
     "ReviewIssue",
     "ReviewReminder",
+    "SceneExperience",
     "StyleProfile",
     "StyleQuantitativeStats",
     "StyleRisk",
