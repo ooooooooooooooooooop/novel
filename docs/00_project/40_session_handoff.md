@@ -70,7 +70,9 @@ F1–F8 之后按「继续未做部分」完成三项：
 
 **实跑验证出的两个要点**（换机后有用）：①batch 模式响应文件名必须 `batch_<a>_<b>_rebuild_response.txt`（`.txt` 非 `.json`，`audit_short_form.py:330`）；②重建响应中关系引用未建模角色 ID 会触发 `character_distortion` blocking——补建模（如本作 `c_zhaidanqing`/`c_fujun`）即清除，硬规则有效。
 
-**Canary 实测**：`python scripts/tier0_canary_regression.py` —— audit 流 PASS；extend/compose 流 **FAIL**（gate 报 `ContinueUnit requires a serialization package`，工作区缺 `*_rebuild_package.json`）。已用 f63ff04 worktree A/B 确认**拆分前同样 FAIL**，属 canary 工作区状态陈旧（预存在），非本批回归。恢复方式：对 `tier0-extend-canary`/`tier0-compose-canary` 重跑完整 [WAITING] 响应循环补产物。
+**Canary 实测**：`python scripts/tier0_canary_regression.py` —— audit 流 PASS；extend/compose 流 **FAIL**（gate 报 `ContinueUnit requires a serialization package`，工作区缺 `*_rebuild_package.json`）。已用 f63ff04 worktree A/B 确认**拆分前同样 FAIL**，属 canary 工作区状态陈旧（预存在），非本批回归。
+
+**✅ 已修复（2026-08-06 · 本会话）**：`tier0_canary_regression.py` 三流全绿。根因是 **canary 的序列化包文件从未入库**（`novels/*/` 被 gitignore，仅 tracked 文件在 junction 误删后幸存；audit canary 有入库 `rebuild_package.json`，extend/compose 却没有）。修复方式：①用 `canary_inputs/` 保留的响应文件重跑对应流，再生 `extend_rebuild_package.json` / `compose_state.json`（extend 只喂 `rebuild_response.txt` 即停在 Continue；compose 喂 continue/review/rewrite/rereview 四响应，`--no-prose` 跑到流末）；②`.input_hash`/`.workspec_hash` 用项目自身函数补写；③compose 重跑会重写 `compose_result.json`/`route_handoff.json`，因 8/5 审查误报修复（hook 不再判层级非法）导致 issue 数 2→1，**与钉死 sha256 漂移——用备份还原钉死证据，仅保留新生成的 state 包**；④两个包文件 `git add -f` 入库（`output/` 全局 ignore，canary 证据 force-add 是既定模式）。重跑会顺带把 `run_config.json` 更新为当前 CLI schema（补 `retrieval`/`nsfw` 默认值，无害）。
 
 ---
 
@@ -110,7 +112,7 @@ F1–F8 之后按「继续未做部分」完成三项：
 ## 五、建议下一步（未做，按性价比排序）
 
 1. **重建 novels/ 工作区（误删后）**：`作品A/`（1197 章续写）、`作品B/`（chapter_24 续写）、`示例小说甲/乙/丙/`、`仙侠新作/` 已被误删。源文本在 `canary_inputs/`（真实名文件 `*_1190_1196.txt`、`*_full.txt`，未跟踪），重跑管线可重建；或从 `C:\Users\Lenovo 2021\.claude\projects\D--Desktop-novel\` 21MB transcript（5afa5ad4）提取此前生成正文/响应。
-2. **canary extend/compose 补产物**：`scripts/tier0_canary_regression.py` 当前 audit PASS、extend/compose FAIL（工作区缺 `*_rebuild_package.json`，预存在）。对 `tier0-extend-canary`/`tier0-compose-canary` 重跑完整 [WAITING] 响应循环补产物即可全绿。
+2. ~~**canary extend/compose 补产物**~~ **✅ 已解决（2026-08-06）**：`scripts/tier0_canary_regression.py` 三流全绿。`extend_rebuild_package.json` / `compose_state.json` 已再生并入库（`git add -f`，见上「Canary 实测」修复记录）；钉死证据（compose_result/route_handoff sha256）未漂移。
 3. **F3b 实施（设计已完成，见 42_review_after_prose_design.md）**：Review 移到 prose 之后的结构时序改动。设计已定：净 LLM 轮数不变、Pre-Review 代码闸、双层 rewrite、正文注入、`flow_version` 迁移、零成本契约。实施需独立立项（改时序/加 pre-review/双层 rewrite/注入/迁移，含测试基线同步）。
 4. **V1–V3（已核查，确认外部阻塞）**：读者留存回路（需平台追读率/完读率数据）、评测人类校准（需人类标注集）、`--lint` 外部基准（需人写-AI 写对照语料）。本地 CLI 无替代，维持待接入；结论记入 41_plan。V4 audit 真实文本实跑已完成（`novels/audit-v4/`，PASS）。
 5. **NSFW 内容分级定制**（2026-08-05 遗留）：【内容分级】文案按题材（亲情向/热血向等）细化边界。

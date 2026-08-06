@@ -1,4 +1,6 @@
 {
   "mode": "compose",
-  "workspec": null
+  "workspec": null,
+  "retrieval": "on",
+  "nsfw": "off"
 }

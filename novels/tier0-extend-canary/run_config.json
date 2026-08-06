@@ -3,5 +3,7 @@
   "chapter_wise": false,
   "chapter_range": null,
   "batch_size": null,
-  "max_chapters": null
+  "max_chapters": null,
+  "retrieval": "on",
+  "nsfw": "off"
 }
