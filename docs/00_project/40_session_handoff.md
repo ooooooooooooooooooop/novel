@@ -60,6 +60,16 @@ PYTHONIOENCODING=utf-8 .venv/Scripts/python.exe -m pytest tests/ -q
 
 全量 **1829 passed**（测试数自 1792 起未变；文档 6 处 + 2 release record 同步）。
 
+### 未做部分跟进（2026-08-06 · 设计/验证/核查）
+
+F1–F8 之后按「继续未做部分」完成三项：
+
+1. **F3b 独立设计文档**：新建 `docs/00_project/42_review_after_prose_design.md`——Review 移到 prose 之后的结构设计。核心：①净 LLM 轮数不变（happy path 仍 3 轮，只重排 Continue→Prose→Review）；②Pre-Review 代码前置闸（零 LLM 成本，拦截结构性致命错误，守住「无效结构不 prose」）；③双层 rewrite（`target_layer: object|prose`，对象层修复→重成文、正文层修复→直接改章节）；④Review prompt 注入正文（audit 注入被审原文，零时序风险）；⑤`flow_version` 戳 + 旧版 fail-fast 迁移；⑥零成本契约（`prose_text=None` 时 prompt 逐字节不变）。**仅设计，未实施**。
+2. **V4 audit 真实文本端到端实跑**：`novels/audit-v4/`（gitignored）用 `canary_inputs/` 真实名文件（`*_1190_1196.txt`，7 章 57287 字符）实跑完成——Rebuild 13 对象 → Review route=PASS、6 非阻断 promise_loss warning + 3 reminder → `audit_report.json`/`rebuild_package.json`/`review_result.json`/`route_handoff.json`/`timeline_report.json` 齐全。
+3. **V1–V3 可行性核查**：确认均依赖外部资源、本地无替代，结论记入 41_plan 表格。
+
+**实跑验证出的两个要点**（换机后有用）：①batch 模式响应文件名必须 `batch_<a>_<b>_rebuild_response.txt`（`.txt` 非 `.json`，`audit_short_form.py:330`）；②重建响应中关系引用未建模角色 ID 会触发 `character_distortion` blocking——补建模（如本作 `c_zhaidanqing`/`c_fujun`）即清除，硬规则有效。
+
 **Canary 实测**：`python scripts/tier0_canary_regression.py` —— audit 流 PASS；extend/compose 流 **FAIL**（gate 报 `ContinueUnit requires a serialization package`，工作区缺 `*_rebuild_package.json`）。已用 f63ff04 worktree A/B 确认**拆分前同样 FAIL**，属 canary 工作区状态陈旧（预存在），非本批回归。恢复方式：对 `tier0-extend-canary`/`tier0-compose-canary` 重跑完整 [WAITING] 响应循环补产物。
 
 ---
@@ -101,8 +111,8 @@ PYTHONIOENCODING=utf-8 .venv/Scripts/python.exe -m pytest tests/ -q
 
 1. **重建 novels/ 工作区（误删后）**：`作品A/`（1197 章续写）、`作品B/`（chapter_24 续写）、`示例小说甲/乙/丙/`、`仙侠新作/` 已被误删。源文本在 `canary_inputs/`（真实名文件 `*_1190_1196.txt`、`*_full.txt`，未跟踪），重跑管线可重建；或从 `C:\Users\Lenovo 2021\.claude\projects\D--Desktop-novel\` 21MB transcript（5afa5ad4）提取此前生成正文/响应。
 2. **canary extend/compose 补产物**：`scripts/tier0_canary_regression.py` 当前 audit PASS、extend/compose FAIL（工作区缺 `*_rebuild_package.json`，预存在）。对 `tier0-extend-canary`/`tier0-compose-canary` 重跑完整 [WAITING] 响应循环补产物即可全绿。
-3. **F3b（Review 移到 prose 后）**：结构时序改动，独立立项（见 41_plan）。
-4. **V1–V4 补验证**：读者留存回路 / 评测人类校准 / `--lint` 外部基准 / audit 流实跑（需外部资源，见 41_plan，非代码缺陷）。
+3. **F3b 实施（设计已完成，见 42_review_after_prose_design.md）**：Review 移到 prose 之后的结构时序改动。设计已定：净 LLM 轮数不变、Pre-Review 代码闸、双层 rewrite、正文注入、`flow_version` 迁移、零成本契约。实施需独立立项（改时序/加 pre-review/双层 rewrite/注入/迁移，含测试基线同步）。
+4. **V1–V3（已核查，确认外部阻塞）**：读者留存回路（需平台追读率/完读率数据）、评测人类校准（需人类标注集）、`--lint` 外部基准（需人写-AI 写对照语料）。本地 CLI 无替代，维持待接入；结论记入 41_plan。V4 audit 真实文本实跑已完成（`novels/audit-v4/`，PASS）。
 5. **NSFW 内容分级定制**（2026-08-05 遗留）：【内容分级】文案按题材（亲情向/热血向等）细化边界。
 6. **hook_type 字段**（2026-08-05 遗留）：若为 PlotUnit 引入显式 `hook_type` 枚举，可恢复 hook 严格层级校验。
 

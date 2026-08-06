@@ -209,12 +209,14 @@
 
 ## V1–V4 · 需外部资源的「补验证」项（非代码缺陷，不阻塞本批）
 
-| 项 | 评估出处 | 需要的资源 | 建议 |
-|---|---|---|---|
-| V1 读者/留存反馈回路 | 盲点⑤，D8 | 平台后台追读率/完读率数据 | 平台护城河，本地 CLI 拿不到；如未来接入平台 API 再做 |
-| V2 评测人类校准 | 盲点⑥，D8 | 人类标注集 + percentile-vs-human | WebNovelBench 需人类基线；先记录为已知限制 |
-| V3 --lint 外部基准 | 盲点④，D8 | 外部「人写 vs AI 写」基准语料 | F5 的原文去重提示可部分缓解；纯外部基准需语料建设 |
-| V4 audit 流实跑验证 | D2 未验证 | 跑一次真实 audit（已有文本） | 执行者随手跑一次 `novel audit <作品> --input <txt>` 确认端到端，非代码改动 |
+| 项 | 评估出处 | 需要的资源 | 建议 | 可行性核查（2026-08-06） |
+|---|---|---|---|---|
+| V1 读者/留存反馈回路 | 盲点⑤，D8 | 平台后台追读率/完读率数据 | 平台护城河，本地 CLI 拿不到；如未来接入平台 API 再做 | **确认阻塞（外部）**：全仓无读者流量数据源；追读率/完读率只在平台后台。无本地代理可测真实留存；最接近的是 `active_suspense_items`/伏笔活跃度（属 craft 质量，非留存）。解锁条件：接入平台 API。 |
+| V2 评测人类校准 | 盲点⑥，D8 | 人类标注集 + percentile-vs-human | WebNovelBench 需人类基线；先记录为已知限制 | **确认阻塞（外部）**：rubric 已诚实标注 LLM-judge 弱维（review_rubric.py），但 percentile-vs-human 需人类标注集。作者单判 n=1 可作 bootstrap 锚，统计上弱（LLM judge ρ≈0.4-0.6），先记录为已知限制。 |
+| V3 --lint 外部基准 | 盲点④，D8 | 外部「人写 vs AI 写」基准语料 | F5 的原文去重提示可部分缓解；纯外部基准需语料建设 | **确认阻塞（外部）**：--lint 已落地（style_short_form.py 禁忌词 + stats lint），但为词典/统计启发式，**未经人写 vs AI 写语料校准**——AI 味判定阈值无外部基准。F5 原文去重与禁忌词典是部分缓解，非基准。解锁条件：建设人写/AI 写对照语料。 |
+| V4 audit 流实跑验证 | D2 未验证 | 跑一次真实 audit（已有文本） | 执行者随手跑一次 `novel audit <作品> --input <txt>` 确认端到端，非代码改动 | **✅ 已完成（2026-08-06）**：真实文本 7 章（57287 字符）在 `novels/audit-v4/` 端到端实跑，route=PASS，6 个非阻断 promise_loss warning + 3 条 reminder，产出 `audit_report.json`/`rebuild_package.json`/`review_result.json`/`route_handoff.json`/`timeline_report.json`。过程中验证：①batch 响应文件名须 `.txt`（非 `.json`）；②重建响应引用未建模角色 ID 会触发 `character_distortion` blocking——补建角色模型后清除，证明硬规则有效。 |
+
+**V1-V3 核查结论**：三项均属外部资源依赖，非代码缺陷，本地 CLI 无可行替代；V4（唯一本地可跑项）已完成。三项维持「待接入外部资源后再做」状态，不阻塞发布。
 
 ---
 

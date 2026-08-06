@@ -59,6 +59,12 @@ Tier 0 边界仍然生效：
 
 基线：**1829 tests passing**（测试数自 1792 起同步 6 文档 + 2 release record）。
 
+F1–F8 之后按「继续未做部分」跟进（2026-08-06，同文档系列）：
+
+- **F3b 独立设计**：`docs/00_project/42_review_after_prose_design.md`——Review 移到 prose 之后的结构设计（净 LLM 轮数不变、代码前置闸、双层 rewrite、正文注入、`flow_version` 迁移、零成本契约）。**仅设计，未实施**。
+- **V4 audit 真实文本端到端实跑**：`novels/audit-v4/` 用真实文本 7 章实跑，route=PASS、6 非阻断 warning + 3 reminder，`audit_report.json` 等产物齐全；过程中验证了 batch 响应命名（`.txt`）与 `character_distortion` 硬规则有效性。
+- **V1–V3 可行性核查**：确认均依赖外部资源（平台追读率 / 人类标注集 / 人写-AI 写基准语料），本地 CLI 无替代，维持「待接入外部资源」；结论记入 `docs/00_project/41_evaluation_remediation_plan.md`。
+
 ## Features / 功能特性
 
 - **三流完成**：audit（审核）、extend（续写）、compose（创作）
