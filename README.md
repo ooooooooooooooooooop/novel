@@ -43,27 +43,11 @@ Tier 0 边界仍然生效：
 - Tier 0 不是公开产品形态；release record 不替代 release tag / 不可变 checkpoint
 - response 文件必须由操作者或 Codex 落地，脚本不自动调用模型
 
-## 独立评估修复（2026-08-06）
+## 近期落地（2026-08-06）
 
-2026-08-06 独立第三方评估（工程 + 读者陪审团双视角）确认 Top 缺陷后，按
-`docs/00_project/41_evaluation_remediation_plan.md` 落地 F1–F8：
-
-- **F1** 发布门禁基线同步（1791→1829，git_commit/tag 对齐）
-- **F2** 风格库/源码/文档/测试 PII 脱敏 + `test_privacy_redline.py` 红线断言
-- **F4** 续写篇幅对齐：prompt 注入章均目标（±35%），parse_response 低于下界仅告警不阻断
-- **F5** 续写原文去重：`find_overlapping_spans` 检出 ≥30 字符逐字重叠写入 `prose_overlap`
-- **F3a** Review 挂 prose 复核：伏笔/承诺/后果/角色 issue 做正文兑现标注（不改 route）
-- **F6** 时间锚扩窗：首段 220→800 字符 + 全文相对时间兜底（TimeAnchor.relative）
-- **F7** 核实为误报（`_tokenize` 每 doc 仅一次），按计划降级不修
-- **F8** `novel_cli.py` 拆分：校验簇 → `src/cli/validation.py`（3851 → 1480 行）
-
-基线：**1829 tests passing**（测试数自 1792 起同步 6 文档 + 2 release record）。
-
-F1–F8 之后按「继续未做部分」跟进（2026-08-06，同文档系列）：
-
-- **F3b 独立设计**：`docs/00_project/42_review_after_prose_design.md`——Review 移到 prose 之后的结构设计（净 LLM 轮数不变、代码前置闸、双层 rewrite、正文注入、`flow_version` 迁移、零成本契约）。**仅设计，未实施**。
-- **V4 audit 真实文本端到端实跑**：`novels/audit-v4/` 用真实文本 7 章实跑，route=PASS、6 非阻断 warning + 3 reminder，`audit_report.json` 等产物齐全；过程中验证了 batch 响应命名（`.txt`）与 `character_distortion` 硬规则有效性。
-- **V1–V3 可行性核查**：确认均依赖外部资源（平台追读率 / 人类标注集 / 人写-AI 写基准语料），本地 CLI 无替代，维持「待接入外部资源」；结论记入 `docs/00_project/41_evaluation_remediation_plan.md`。
+独立第三方评估（工程 + 读者陪审团双视角）确认的 Top 缺陷已按
+`docs/00_project/41_evaluation_remediation_plan.md` 落地修复（PII 红线测试、续写篇幅对齐、续写原文去重、Review prose 复核、时间锚扩窗，均已并入下方 Features 与 Privacy 段）。F3b（Review 移至 prose 之后的结构设计）另出
+`docs/00_project/42_review_after_prose_design.md`，**仅设计未实施**。V1–V3 评估项依赖外部资源（平台追读率 / 人类标注集 / 人写-AI 写基准语料），维持「待接入」。audit 真实文本端到端实跑记录见 docs/41。
 
 ## Features / 功能特性
 
@@ -72,16 +56,19 @@ F1–F8 之后按「继续未做部分」跟进（2026-08-06，同文档系列�
 - **长程编排**：NarrativeFrameUnit 维护 book/arc/chapter/scene 层级
 - **增量续写**：`--resume` 模式从保存状态继续，自动推进 scene cursor
 - **长文章节级处理**：`chunking` 切章节、`reconcile` 跨章合并、`audit_report` 生成报告；支持 `--range`、`--batch-size`、`--max-chapters`、input hash 校验
+- **续写篇幅对齐**：prompt 注入原文章均目标（±35%），parse_response 低于下界仅告警不阻断
+- **续写原文去重**：`find_overlapping_spans` 检出 ≥30 字符逐字重叠写入 `prose_overlap`
 - **结构概览**：OutlineUnit `--outline-only`；30+ 章长文 audit / extend 自动作为 Rebuild 结构先验
 - **结构一致性**：Reconcile 用 outline 检查角色与 genre 一致性；`check_temporal_contradictions` 做时间矛盾检测（死亡后仍活跃 / 过期事实仍被持有 / 时间感知否定）
+- **Review prose 复核**：伏笔/承诺/后果/角色 issue 做正文兑现标注（不改 route）
 - **信息凭证一致性**：六通道谱系（亲历/转述/书面/公开/推断/记忆）+ P1-P4 凭证约束；`iss_info_*` 弱信号（转述产亲历细节 / 转述时效 / 知识域翻转）
 - **事实时间有效性**：`FactEntry.validity_interval`，`to_prompt_line` 渲染 `(第三章~第五章)` 后缀；旧 state 可反序列化
 - **写作风格**：`novel style` 提炼 StyleProfile（量化分析 + LLM 质性提炼），compose/extend 注入续写 prompt；`--lint` 做 AI 味检查；风格库 `--name` 另存 / `--style` 跨小说引用
 - **状态检索**：以当前 NarrativeState 为 query，从 FactLedger/ForeshadowGraph 检索 top-k 相关条目注入 Continue prompt；零依赖 TF-IDF/关键词；`--retrieval on|off`（默认 on，空语料/空 query 静默降级字节不变）
-- **时间域**：TimeBook 先验模型 + `novel time` 管理（--rebuild 锚提取 / --check 时间线报告 / --status）；FACTTRACK v2 检测时间回退 / 先知逾期 / 季节历法违反；Continue 以【时间上下文】段注入
+- **时间域**：TimeBook 先验模型 + `novel time` 管理（--rebuild 锚提取 / --check 时间线报告 / --status）；FACTTRACK v2 检测时间回退 / 先知逾期 / 季节历法违反；Continue 以【时间上下文】段注入；时间锚首段 800 字符 + 全文相对时间兜底（TimeAnchor.relative）
 - **零成本契约**：无 TimeBook → 无注入、无检测、无产物，prompt 字节与旧版逐字节相同（回归测试锁死）
 - **统一入口**：`novel` 命令管理 `novels/<小说名>/` 工作目录，并调用 audit / extend / compose / style / compliance / rubric / time staged CLI
-- **CLI 拆分**：`src/novel_cli.py` 编排层（NovelArgumentParser / 各流 dispatch / run_config 恢复）保留，常量 + staged JSON/list/gate/approval 校验簇拆入 `src/cli/validation.py`（`__all__` 重导出）；命令名/参数/默认值/退出码/`--help` 逐字节不变
+- **CLI 拆分**：`src/novel_cli.py` 编排层（NovelArgumentParser / 各流 dispatch / run_config 恢复）保留（3851→1480 行），常量 + staged JSON/list/gate/approval 校验簇拆入 `src/cli/validation.py`（2561 行，`__all__` 重导出）；命令名/参数/默认值/退出码/`--help` 逐字节不变
 - **内容合规**：`novel compliance` 单遍扫描，产出合规报告（风险等级/位置锚点/严重级/替换建议）
 - **NSFW 内容分级开关**：compose/extend `--nsfw on|off`（默认 off 正常向，注入禁成人内容分级；on 允许成人向）+ compliance `--nsfw on|off`（on 跳过「涉黄」分类扫描）贯通创作与审核一套语义
 - **离线评测**：`novel rubric` 导出 WebNovelBench 8 维本地 rubric（装配时间一致性后 9 维）
@@ -202,13 +189,6 @@ pytest tests/ -q                     # 跑完整回归测试
 - `Review` is the routing hub of the operational workflows. `Review` 是运营工作流的路由枢纽。
 - Formal `Rewrite` should be issue-driven, not feeling-driven. 正式 `Rewrite` 应由问题驱动，而非感觉驱动。
 
-## Workflow Map / 工作流
-
-- `Rebuild` — reconstruct object state from existing text / 从已有文本重建对象状态
-- `Review` — judge validity, classify failures, route next action / 判定有效性、分类失败、路由下一动作
-- `Continue` — generate the next valid progression / 从当前状态生成下一个有效推进
-- `Rewrite` — apply minimal repair based on formal issues / 基于正式问题做最小修复
-
 ## Privacy & Repository Discipline / 隐私与仓库纪律
 
 All concrete novel information — titles, prose, characters, workspace names, author pen names — stays **out of this repository**. GitHub holds only the tooling framework (code, tests, scripts, rule docs, run configs, and the neutral style-library accumulation).
@@ -217,6 +197,7 @@ All concrete novel information — titles, prose, characters, workspace names, a
 
 - Novel workspaces live locally under `novels/<name>/` and are gitignored（`novels/*/` 已入 `.gitignore`，canary 证据目录反向放行）；正文仅存本地
 - Writing-style accumulation may be committed as neutral files under `style_library/<name>.json`（不含小说名/作者笔名/机器路径）
+- PII 脱敏红线由 `tests/test_privacy_redline.py` 断言锁死（风格库/源码/文档/测试不得含具体小说 PII）
 - If novel-specific content ever lands in git history, rewrite the history with `git filter-repo` before pushing（本项目已按此执行并 force-push）
 
 ## Read First / 新手指引
