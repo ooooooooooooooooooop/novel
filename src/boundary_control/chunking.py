@@ -11,7 +11,7 @@ class ChapterChunk:
     text: str
 
 _CHAPTER_PATTERN = re.compile(
-    r"(?:^|\n)\s*第\s*([一二三四五六七八九十百千零\d]+)\s*章\s+(.+?)(?=\n|$)",
+    r"(?:^|\n)\s*第\s*([一二三四五六七八九十百千零\d]+)\s*章(?:[：:·]\s*|\s+)(.+?)(?=\n|$)",
     re.MULTILINE,
 )
 
