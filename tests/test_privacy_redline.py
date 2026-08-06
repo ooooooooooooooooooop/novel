@@ -95,6 +95,10 @@ def _tracked_texts():
             continue
         if not f.startswith(_SCAN_DIRS):
             continue
+        if f == "tests/test_privacy_redline.py":
+            # 词表登记文件自身豁免：本文件必然包含已知实体名（KNOWN_ENTITY_TERMS
+            # 与脱敏函数的用例数据）。红线约束的是其他 tracked 文件，非本登记文件。
+            continue
         try:
             content = (PROJECT_ROOT / f).read_text(encoding="utf-8")
         except (OSError, UnicodeDecodeError):

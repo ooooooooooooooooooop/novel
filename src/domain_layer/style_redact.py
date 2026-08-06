@@ -28,7 +28,7 @@ _PATH_SEP = re.compile(r"[\\/]")
 def sanitize_source_ref(ref: str) -> str:
     """去机器路径，仅保留文件名（含扩展名）。
 
-    例：`D:\\Desktop\\novel\\novels\\续写作B\\input.txt` -> `input.txt`。
+    例：`D:\\x\\novels\\示例\\input.txt` -> `input.txt`。
     空串或无法取尾段时原样返回。
     """
     if not ref:

@@ -63,12 +63,12 @@
 
 ## F2 · 风格库 / 源码 PII 脱敏 + CI 红线（缺陷#2，D7）
 
-**根因**：风格档案的质性字段（`narrative_pov`、`key_signatures`）把「以主角为锚」「湖畔的体量」原样入库。`git grep 主角 HEAD` 命中 6 个 tracked 文件：`style_library/manifest.json`、`style_library/style_001.json`、`src/domain_layer/info_warrant_knowledge.py`、`docs/03_rules/09_information_warrant_rules.md`、`tests/test_info_warrant.py`、`tests/test_failure_emission.py`。**与 CLAUDE.md「风格库中性命名、不含小说名/作者笔名」红线直接冲突。**
+**根因**：风格档案的质性字段（`narrative_pov`、`key_signatures`）把「以主角为锚」「配角的体量」原样入库。`git grep 主角 HEAD` 命中 6 个 tracked 文件：`style_library/manifest.json`、`style_library/style_001.json`、`src/domain_layer/info_warrant_knowledge.py`、`docs/03_rules/09_information_warrant_rules.md`、`tests/test_info_warrant.py`、`tests/test_failure_emission.py`。**与 CLAUDE.md「风格库中性命名、不含小说名/作者笔名」红线直接冲突。**
 
 ### 修改点
 1. **脱敏工具**：新增 `src/domain_layer/style_redact.py`
    - `redact_profile(profile, entity_terms: list[str]) -> profile`：对 `narrative_pov` / `key_signatures` / 质性笔记字段做实体替换（角色名→`角色A/B…`、专名→`<专名>`），用占位符映射表
-   - `entity_terms` 来源：提炼阶段的 `CharacterModel` 名 + WorkSpec 关键词，或 `--redact "主角,湖畔,外地"` 显式传入
+   - `entity_terms` 来源：提炼阶段的 `CharacterModel` 名 + WorkSpec 关键词，或 `--redact "主角,配角,<地名>"` 显式传入
 2. **接入入库路径**：`src/style_short_form.py:298-306`（写 `style_library/<id>.json` + `upsert_style_manifest`）与 `src/workflow_action/style.py:686 upsert_style_manifest` 之前调用 `redact_profile`
 3. **存量清洗**：重写 `style_library/style_001.json` / `style_001_v2.json` / `manifest.json` 为脱敏版
 4. **历史信息源**：`info_warrant_knowledge.py:15`、`09_information_warrant_rules.md`、`test_info_warrant.py`、`test_failure_emission.py` 中的真实角色名替换为中性占位（这些是把真实事故复盘直接当注释/测试用例，属同类泄漏）
@@ -86,7 +86,7 @@
 
 ## F4 · 续写篇幅对齐硬约束（缺陷#4，D10/D9）
 
-**根因**：CLAUDE.md 自述「约 6,500 字符/章、对齐原文章均、不得明显偏短」，但全代码库 grep 不到任何数值锁。`src/workflow_action/prose.py:77` 仅软文案「篇幅与上下文风格匹配，不得明显偏短」，`prose.py:18 MIN_PROSE_CHARS=200` 下限形同虚设。实测漂移：`续写作A` 20→23 章 10730/5177/3663/2283，`官路 1198` 4458——主编陪审员（#4）判「上架即因注水彩蛋」。
+**根因**：CLAUDE.md 自述「约 6,500 字符/章、对齐原文章均、不得明显偏短」，但全代码库 grep 不到任何数值锁。`src/workflow_action/prose.py:77` 仅软文案「篇幅与上下文风格匹配，不得明显偏短」，`prose.py:18 MIN_PROSE_CHARS=200` 下限形同虚设。实测漂移：`《示例万物》` 20→23 章 10730/5177/3663/2283，`示例官商 1198` 4458——主编陪审员（#4）判「上架即因注水彩蛋」。
 
 ### 修改点
 1. **算原文章均**：`src/workflow_action/prose.py` 新增
@@ -106,7 +106,7 @@
 
 ## F5 · 续写意象 / 原文长段去重（缺陷#5，D10/D9）
 
-**根因**：`续写作A chapter_24.txt`（续写）把 `chapter_01.txt` 的「蟹青色套装、白衬衫、紫藤镶领、紫晶耳坠」段落近乎逐字复用，且「叙事者回忆」与「角色丑口述」两视角各用一遍。这是「被 AI 味劝退读者（#7）唯一能一眼认出的破绽」，--lint（无外部基准，盲点④）拦不住。
+**根因**：`《示例万物》 chapter_24.txt`（续写）把 `chapter_01.txt` 的「蟹青色套装、白衬衫、紫藤镶领、紫晶耳坠」段落近乎逐字复用，且「叙事者回忆」与「角色B口述」两视角各用一遍。这是「被 AI 味劝退读者（#7）唯一能一眼认出的破绽」，--lint（无外部基准，盲点④）拦不住。
 
 ### 修改点
 1. **检测**：`src/workflow_action/prose.py` 新增 `find_overlapping_spans(draft: str, source: str, n: int = 30) -> list[str]`：滑窗取 draft 的连续 n 字符子串，命中 source 即记录。复用 `review.py:134 _bigram_jaccard` 的 bigram 思路做初筛降复杂度（draft 通常 <10k 字，O(len) 可接受）
@@ -115,14 +115,14 @@
 
 ### 验证
 - 新增 `tests/test_prose_overlap.py`：①构造 draft 含 source 的 40 字相同段 → 检出 ②无 overlap → 空表 ③build_prompt 含去重约束文案
-- 实跑 extend：对 `续写作A` 类输入检出「套装/耳坠」段
+- 实跑 extend：对 `《示例万物》` 类输入检出「套装/耳坠」段
 - 守纪门
 
 ---
 
 ## F3a · Review 挂 prose 复核（缺陷#3，D3/D10，最贵最后做）
 
-**根因**：`review.py` 运行在 PlotUnit 层、prose 成文**之前**（`prose.py:3-4`「review 通过后新增成文」），`review.py:720/849` 诚实标注「对象层无正文」。导致「正文已兑现的伏笔仍被报未推进」——`官路 extend_result.json` 12 条 warning 中多条（伏笔未显式推进 / 张力未解）在 1197/1198 正文里实际已处理。review 信号与正文质量脱节，老粉陪审员（#9）被一堆 warning 吓出「要崩」误判。这是 handoff:69 自列的「建议下一步 #1」。
+**根因**：`review.py` 运行在 PlotUnit 层、prose 成文**之前**（`prose.py:3-4`「review 通过后新增成文」），`review.py:720/849` 诚实标注「对象层无正文」。导致「正文已兑现的伏笔仍被报未推进」——`示例官商 extend_result.json` 12 条 warning 中多条（伏笔未显式推进 / 张力未解）在 1197/1198 正文里实际已处理。review 信号与正文质量脱节，老粉陪审员（#9）被一堆 warning 吓出「要崩」误判。这是 handoff:69 自列的「建议下一步 #1」。
 
 ### 修改点
 1. **复核函数**：`review.py` 新增 `recheck_against_prose(issues: list, prose_text: str) -> list`
@@ -135,7 +135,7 @@
 
 ### 验证
 - 新增 `tests/test_review_prose_recheck.py`：①伏笔 issue + prose 含该伏笔关键词 → 标 resolved_in_prose ②prose 不含 → 原样 ③3a 路径下 route 不变
-- 实跑：对 `官路 1197` 复核，12 条 warning 中 prose 已处理的被标注/降级
+- 实跑：对 `示例官商 1197` 复核，12 条 warning 中 prose 已处理的被标注/降级
 - 守纪门
 
 ---
@@ -234,6 +234,6 @@ F1 (止血, 无依赖)
 1. `PYTHONIOENCODING=utf-8 pytest tests/ -q` 全绿，且文档「N passed」== 实测
 2. `python scripts/tier0_canary_regression.py` 绿
 3. `git grep 主角 HEAD -- style_library/ src/ docs/ tests/` 空
-4. 重跑一次 `官路` extend：prose prompt 含篇幅目标 + 去重约束；`extend_result.json` 的 prose 已兑现伏笔被标注、warning 噪声下降
+4. 重跑一次 `示例官商` extend：prose prompt 含篇幅目标 + 去重约束；`extend_result.json` 的 prose 已兑现伏笔被标注、warning 噪声下降
 5. 时间标识密集作品 `novel time --rebuild` 锚点数高于改动前（F6 生效）
 6. `novel --help` 及各流 `--help` 输出与 F8 拆分前一致（F8 若做）
