@@ -16,6 +16,9 @@
 - 信息凭证一致性：`09_information_warrant_rules.md` 定义"角色凭什么知道"（通道/时效/来源）；`info_warrant_knowledge.py` 存六通道谱系（亲历/转述/书面/公开/推断/记忆）+ P1-P4 凭证约束；review 弱信号检测 iss_info_channel（转述产亲历细节）/ iss_info_relay（转述时效）/ iss_info_scope（知识域翻转），与 `05_information_release_rules.md`（该不该知道）正交互补
 - 事实时间有效性：`FactEntry.validity_interval`（ValidityInterval，None=始终有效），to_prompt_line 渲染 `(第三章~第五章)` 后缀；旧 state（无该字段）可反序列化
 - 写作风格：`novel style` 提炼 StyleProfile（量化分析 + LLM 质性提炼），compose/extend 注入续写 prompt；`--lint` 做 AI 味检查；风格库（`--name` 另存 / `--style` 跨小说引用）
+- 读者体验：`10_reader_experience_rules.md` 定义正文层 7 维判定标准（开头/现场感/解释/对白/情绪/反馈/钩子）；`novel reader` 做分级标注（good/needs_work/weak，route=none 不阻断）+ 派生读者预期台账（ReaderExpectationLedger：读者在等什么，waiting/advanced/overdue/stale）；与一致性审查（ReviewUnit 可阻断）并行分离
+- 动态角色建模：CharacterModel 支持 current_pressure（当前压力）/ change_trajectory（变化轨迹）/ relation_behaviors（关系→行为差异，同一角色对不同人行为不同）；Optional/default 向后兼容，空字段不渲染零回归
+- 场景体验中间层：PlotUnit.scene_experience（SceneExperience：主角看见/阻碍/选择依据/结果/认知变化五维），Continue 生成、Prose 展开注入，让结构扩写带现场感
 - 状态检索：以当前 NarrativeState 为 query，从 FactLedger/ForeshadowGraph 检索 top-k 相关条目注入 Continue prompt（【相关事实检索】段）；零依赖 TF-IDF/关键词（档 1）；`--retrieval on|off` 开关（默认 on，空语料/空 query 静默降级字节不变）
 - 时间域：TimeBook 先验模型（`novels/<名>/output/time/time_book.json`），`novel time` 管理（--rebuild 锚提取 / --check 时间线报告 / --status）；FACTTRACK v2 检测 4/5/6（时间回退 / 先知逾期 / 季节历法违反）；extend/compose 的 Continue 以【时间上下文】段注入上章/本章/时代背景/时间规则；rubric 装配时间一致性维（8→9 维）
 - 零成本契约：无 TimeBook → 无注入、无检测、无产物，prompt 字节与旧版逐字节相同（回归测试锁死）
@@ -25,7 +28,7 @@
 - 章节正文目录：续写/创作的章节正文统一存 `novels/<小说名>/chapters/`（如 `chapters/chapter_1197.txt`），与 `output/` 系统产物分离；小说工作区一律不提交 GitHub（`novels/*/` 已入 `.gitignore`，canary 证据目录 `novels/tier0-*-canary/` 反向放行），GitHub 仅保留工具框架（代码/测试/脚本/规则文档/运行配置/风格库积累）
 - 续写篇幅与原文参考：有原文时，原文按章拆分入 `chapters/chapter_01.txt` 起（保留章节标题行），续写从下一编号续（原文 23 章 → 续写从 `chapter_24` 起），目录内编号连续；续写章节篇幅对齐原文章均（参考值：《示例小说丁》约 6,500 字符/章），不得明显偏短；续写须参考原文语感、意象系统（杨柳/水/套装/信等）与事件细节，不能凭空脱离原文
 - 隐私纪律：所有具体小说信息（标题、正文、角色、工作区名、作者笔名）一律不提交 GitHub；git 历史中如有此类内容，push 前须用 `git filter-repo --path-*` 完整重写历史剔除（本项目已按此重写并 force-push）；正文仅存本地 `novels/<小说名>/chapters/`；写作风格综合积累可入库，统一放仓库根 `style_library/<name>.json`（中性文件名，不含小说名/作者笔名/机器路径）
-- 测试：1829 passed
+- 测试：1873 passed
 
 ## 怎么用（在 Codex 中）
 
@@ -143,6 +146,20 @@ novel rubric 某作
 - 把 ReviewUnit domain rules + `web_fiction.py` 领域知识按 WebNovelBench 8 维（arXiv:2505.14818）映射，`offline:true`
 - 诚实标注：角色一致性 / 跨场景衔接 strong，意境 / 语境 moderate，修辞 weak（负向代理），感官 / 角色平衡 / 对白独特 none（LLM-judge 维，对象层无正文文本）
 - 若有 `output/time/timeline_report.json`，自动装配时间一致性维（wnb_09），8 维 → 9 维
+
+### Reader 流（读者体验审查：章节正文 7 维分级标注）
+
+```bash
+novel reader 某作 --input novels/某作/chapters/chapter_1.txt   # 对第一章做读者体验审查
+novel reader 某作 --input ... --no-expectations                 # 跳过读者预期台账
+novel reader 某作 --input ... --style 克制风                    # 引用风格库档案辅助判断
+```
+
+- **两遍式**（对齐 style：量化代理分析纯代码 + LLM 质性分级标注的 [WAITING] 循环）：产出 `novels/某作/output/reader_experience/reader_report.json`
+- 7 维判定标准（`docs/03_rules/10_reader_experience_rules.md`）：开头拖沓 / 场景现场感 / 解释过多 / 对白自然 / 情绪落地 / 高潮反馈 / 章末钩子，每维 good/needs_work/weak 分级 + 位置锚点 + 诊断 + 改法方向
+- **route 恒为 none 不阻断**——正文质量是连续光谱，供人工/精修参考（与一致性审查 ReviewIssue 可阻断分离）
+- 默认自动派生读者预期台账：从该小说 `output/extend/extend_rebuild_package.json` 的 ForeshadowGraph 生成「读者在等什么」清单（waiting/advanced/overdue/stale），写入 `reader_expectations.json`
+- 复用：`recheck_against_prose`（F3a 正文相关度）为雏形、`analyze_style_metrics` 量化代理、`load_style_context` 风格档案
 
 ### Time 流（时间域：锚提取 / 时间线报告 / 状态查看）
 

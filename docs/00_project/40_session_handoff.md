@@ -6,7 +6,23 @@
 - 仓库：`https://github.com/ooooooooooooooooooop/novel`（公开，origin）
 - 当前 `main`：checkpoint tag `v0.1.2-tier0`（指向本交接记录所在提交）
 - checkpoint tag：`v0.1.2-tier0`（F1-F8 落地后的再认证；`v0.1.1-tier0` 指向修复前 9009353）
-- 测试基线：**1829 passed**
+- 测试基线：**1873 passed**（1829 → 1873：阶段二三四新增 44 个测试，见下「本会话变更」）
+
+---
+
+## 〇、本会话变更（1829 → 1873）
+
+按方向文档「一致性≠质量，三大核心」推进了核心2（读者体验）的落地，共四个阶段：
+
+1. **阶段一（已提交 4f10473）**：review 弱信号解耦到 `src/domain_layer/review_signals.py`（19 个 detect_*）+ `review_signal_knowledge.py`（纯数据表）；`review.py` 1258→575 行纯编排；新增 `docs/03_rules/10_reader_experience_rules.md`（读者体验 7 维判定标准）
+2. **阶段二A：读者体验审查** —— `novel reader` 命令：对章节正文做 7 维分级标注（open/presence/info/dialogue/emotion/payoff/hook，各 good/needs_work/weak，route=none 不阻断）。新文件：`src/object_state/readerreport.py`、`src/domain_layer/reader_experience_rules.py`、`src/workflow_action/reader_experience.py`、`src/reader_short_form.py`
+3. **阶段二B：读者预期管理** —— `src/object_state/readerexpectation.py`：从 ForeshadowGraph 派生「读者在等什么」台账（waiting/advanced/overdue/stale），随 reader 命令写入 `reader_expectations.json`
+4. **阶段三：动态角色建模** —— CharacterModel 加 `current_pressure`/`change_trajectory`/`relation_behaviors`（Optional/default，旧 state 兼容，空字段不渲染零回归）；rebuild prompt 注入字段说明
+5. **阶段四：场景体验中间层** —— `src/object_state/scene_experience.py`：PlotUnit 可选字段 `scene_experience`（主角看见/阻碍/选择依据/结果/认知变化），Continue 生成、Prose 展开注入，让结构扩写带现场感
+
+新增测试：`test_reader_experience.py`(17) + `test_reader_expectation.py`(12) + `test_charactermodel_v4.py`(7) + `test_scene_experience.py`(8) = 44 个。
+
+对《碑下》第一章实测：reader 报告 overall=needs_work（唯一弱项「解释过多」的三年前回忆段，与人工审读判断一致），读者预期 6 条。
 
 ---
 
@@ -153,6 +169,8 @@ F1–F8 之后按「继续未做部分」完成三项：
 ### 基线迁移纪律（踩过坑）
 - 测试数变化时同步**两处常量**：`tests/test_cli_runtime_contract.py::EXPECTED_TEST_BASELINE` **和** `tests/test_release_record.py::EXPECTED_BASELINE`（曾漏改后一处导致 21 个 release_record 测试全挂）
 - 6 个文档被 `test_deployment_docs_are_consistent` 锁一致（README/AGENTS/brief/scope/quickstart/status 的 "tests passing" 数字）；改动用字节级替换、避开损坏文档
+- release_record 相关的**额外同步点**（本会话 1829→1873 新增验证）：`docs/00_project/tier0_release_record.example.json`（baseline_tests_passing + full_pytest_result，被 test_cli_runtime_contract 断言 `== int(EXPECTED_TEST_BASELINE)`）、`docs/00_project/30_production_readiness_checklist.md` 与 `32_tier0_release_record_contract.md`（命令行示例里的 `--expected-baseline`）、已提交的 `docs/00_project/releases/tier0-release.json`（baseline_tests_passing + full_pytest_result；**勿改 git_commit**——release record 的 commit 必须能由 `release_tag_or_checkpoint` tag 解析，改 commit 会触发 `tag must resolve to git_commit`）
+- 基线文档之外的 35/40/41 是历史快照（记录当时基线），未被测试锁定，不应改写历史
 
 ### 编码/mojibake 教训
 - 修 GBK 乱码文档**不要**用 gb18030 整篇重编码（会把合法 UTF-8 文件误判损坏，0xe3 字节破坏 UTF-8 结构）；正确做法是字节级替换目标子串后验证仍合法 UTF-8
