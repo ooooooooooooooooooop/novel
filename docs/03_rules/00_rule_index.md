@@ -52,6 +52,7 @@
 - `03_rules/07_review_rules.md`
 - `03_rules/08_failure_types.md`
 - `03_rules/09_information_warrant_rules.md`
+- `03_rules/10_reader_experience_rules.md`
 
 ---
 
@@ -216,6 +217,30 @@
 
 ---
 
+## 3.10 `10_reader_experience_rules.md`
+### 作用
+定义正文层的读者体验审查——判断「读者为什么愿意继续看」，与 `07_review_rules.md`（对象层一致性审查）并行互补。
+
+### 主要回答
+- 开头是否拖沓、有没有让人进入事件
+- 场景是否具有现场感（感官细节/动作/白描 vs 概述）
+- 解释是否打断叙事
+- 对白是否自然（性格化/潜文本）
+- 情绪是否真正落地（身体反应 vs 直白声明）
+- 高潮是否得到可见反馈
+- 章末钩子是否有足够信息量
+
+### 核心服务对象
+- `chapters/` 正文文本
+- 该章 `PlotUnit`
+- `StyleProfile`（量化基线作为辅助证据）
+
+### 与 07 的边界
+- 07（一致性）：对象层审查，输出 `ReviewIssue` + route（可阻断）——「故事对不对」
+- 10（读者体验）：正文层审查，输出分级标注（不阻断）——「好不好看」
+
+---
+
 ## 4. 规则层的三大类别
 
 为了方便后续使用，建议把规则层分成三类。
@@ -248,6 +273,7 @@
 - `06_foreshadow_rules.md`
 - `07_review_rules.md`
 - `09_information_warrant_rules.md`
+- `10_reader_experience_rules.md`（正文层读者体验审查，分级标注不阻断）
 
 ### 特点
 - 直接服务审查与修复
