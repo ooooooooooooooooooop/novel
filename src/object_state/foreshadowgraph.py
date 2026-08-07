@@ -137,6 +137,25 @@ class ForeshadowGraph(BaseModel):
                 return True
         return False
 
+    def set_status(self, thread_id: str, status: str) -> bool:
+        """按 Review 声明把伏笔线程置为指定状态（active/resolved/…）.
+
+        用于「正文已兑现但线程仍标 active」的状态 reconcile——被 LLM 审查
+        判定已回收的承诺在此落为 resolved，后续 Review 不再误报 promise_loss。
+        未知线程 id 或非法状态返回 False（不抛错，静默跳过）。
+        """
+        allowed = {
+            "active", "resolved", "abandoned", "transformed",
+            "open", "delayed", "false_path",
+        }
+        if status not in allowed:
+            return False
+        for e in self.entries:
+            if e.thread_id == thread_id:
+                e.current_status = status
+                return True
+        return False
+
     def to_prompt_context(self) -> str:
         """生成给 LLM 的上下文描述."""
         active = self.get_active()

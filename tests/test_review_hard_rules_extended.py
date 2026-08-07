@@ -326,3 +326,49 @@ def test_layering_rule_clean():
     )
     issues = ReviewUnit()._domain_rules([pu])
     assert not any(i.issue_id.startswith("iss_layering_") for i in issues)
+
+
+def test_foreshadow_set_status_valid_and_invalid():
+    """set_status 支持合法状态，拒绝非法状态/未知 id（静默）."""
+    from src.object_state import ForeshadowGraph, ForeshadowEntry
+
+    fg = ForeshadowGraph(entries=[
+        ForeshadowEntry(thread_id="th_001", content="伏笔一", setup_point="第1章", visibility_level="explicit", expected_payoff="回收"),
+    ])
+    assert fg.set_status("th_001", "resolved") is True
+    assert fg.get_active() == []  # 不再 active
+    assert fg.set_status("th_001", "bogus") is False  # 非法状态
+    assert fg.set_status("th_nope", "resolved") is False  # 未知 id
+
+
+def test_review_parse_response_applies_foreshadow_updates():
+    """review 声明 resolved 的线程就地更新——消除 promise_loss 重复误报."""
+    from src.object_state import ForeshadowGraph, ForeshadowEntry
+    from src.workflow_action.review import ReviewUnit
+
+    fg = ForeshadowGraph(entries=[
+        ForeshadowEntry(thread_id="th_002", content="伏笔二", setup_point="第1章", visibility_level="explicit", expected_payoff="回收"),
+    ])
+    resp = (
+        '{"issues": [], "reminders": [], "route": "pass",'
+        ' "foreshadow_updates": [{"thread_id": "th_002", "status": "resolved",'
+        ' "note": "正文已兑现"}]}'
+    )
+    issues, reminders, route = ReviewUnit().parse_response(resp, foreshadows=[fg])
+    assert route == "pass"
+    assert fg.get_active() == []  # th_002 已从活跃承诺移除
+
+
+def test_review_parse_response_rejects_unknown_field_still():
+    """未知字段仍被拒绝（foreshadow_updates 是新允许的可选字段）."""
+    from src.workflow_action.review import ReviewUnit
+
+    with _raises_valueerror("unexpected field"):
+        ReviewUnit().parse_response(
+            '{"issues": [], "reminders": [], "route": "pass", "bogus": 1}'
+        )
+
+
+def _raises_valueerror(substr):
+    import pytest
+    return pytest.raises(ValueError, match=substr)

@@ -6,9 +6,9 @@
   "created_at_utc": "2026-07-06T00:00:00Z",
   "release_tag_or_checkpoint": "git tag or immutable checkpoint id",
   "git_commit": "0123456789abcdef0123456789abcdef01234567",
-  "baseline_tests_passing": 2123,
+  "baseline_tests_passing": 2126,
   "full_pytest_command": "python -m pytest -q --basetemp .pytest-tmp-current-tier0-release-evidence-full -p no:cacheprovider",
-  "full_pytest_result": "2123 passed",
+  "full_pytest_result": "2126 passed",
   "canary_runbook": "docs/00_project/31_tier0_canary_runbook.md",
   "canary_result": "pass",
   "canary_commands": [

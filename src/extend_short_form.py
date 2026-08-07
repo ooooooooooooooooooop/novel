@@ -22,6 +22,7 @@ from src.boundary_control.runtime_state import require_continue_runtime_state
 from src.boundary_control.response_file import reset_consumed_responses
 from src.boundary_control.serialization import SerializationBoundaryUnit
 from src.boundary_control.validation import NoRegressionValidationUnit
+from src.object_state.foreshadowgraph import ForeshadowGraph
 from src.domain_layer.compliance_rules import build_nsfw_context
 from src.domain_layer.rules import get_structure_template
 from src.workflow_action.frame import NarrativeFrameUnit
@@ -648,7 +649,12 @@ def main() -> int:
     review_prompt_path = output_dir / "review_prompt.txt"
     if review_response_path.exists():
         response = _read_response_text(review_response_path)
-        llm_issues, reminders, route = review.parse_response(response)
+        _review_foreshadows = [
+            o for o in review_objects if isinstance(o, ForeshadowGraph)
+        ]
+        llm_issues, reminders, route = review.parse_response(
+            response, foreshadows=_review_foreshadows
+        )
 
         # 合并代码预检 issues
         hard_issues = review._hard_rules(review_objects)
@@ -725,7 +731,12 @@ def main() -> int:
                 return 0
 
             response = _read_response_text(extend_rereview_response_path)
-            llm_issues, reminders, route = review.parse_response(response)
+            _rereview_foreshadows = [
+                o for o in review_objects if isinstance(o, ForeshadowGraph)
+            ]
+            llm_issues, reminders, route = review.parse_response(
+                response, foreshadows=_rereview_foreshadows
+            )
             hard_issues = review._hard_rules(review_objects)
             domain_issues = review._domain_rules(review_objects)
             temporal_issues = _extend_temporal_issues(objects)

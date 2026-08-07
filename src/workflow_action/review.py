@@ -199,8 +199,18 @@ class ReviewUnit:
         domain_issues = self._domain_rules(objects)
         return self._build_prompt(objects, hard_issues, domain_issues, context)
 
-    def parse_response(self, response: str) -> tuple[list[ReviewIssue], list[ReviewReminder], str]:
+    def parse_response(
+        self,
+        response: str,
+        foreshadows: list | None = None,
+    ) -> tuple[list[ReviewIssue], list[ReviewReminder], str]:
         """解析 LLM 审查响应.
+
+        Args:
+            response: LLM 返回的 JSON 文本。
+            foreshadows: 可选 ForeshadowGraph 列表；响应含 foreshadow_updates 时，
+                就地更新对应线程状态（正文已兑现的承诺在此落为 resolved，消除
+                后续 promise_loss 重复误报）。
 
         Returns:
             (ReviewIssue 列表, ReviewReminder 列表, 路由推荐)
@@ -212,7 +222,8 @@ class ReviewUnit:
             raise ValueError(
                 f"Review response missing required field(s): {', '.join(missing)}"
             )
-        extra = sorted(set(data) - set(required_fields))
+        allowed_fields = required_fields + ("foreshadow_updates",)
+        extra = sorted(set(data) - set(allowed_fields))
         if extra:
             raise ValueError(
                 f"Review response has unexpected field(s): {', '.join(extra)}"
@@ -226,7 +237,27 @@ class ReviewUnit:
         route = data["route"]
         if route not in self.VALID_ROUTES:
             raise ValueError(f"Invalid review route: {route}")
+        if foreshadows:
+            updates = data.get("foreshadow_updates") or []
+            if not isinstance(updates, list):
+                raise ValueError("Review response field foreshadow_updates must be a list")
+            self._apply_foreshadow_updates(foreshadows, updates)
         return issues, reminders, route
+
+    @staticmethod
+    def _apply_foreshadow_updates(foreshadows: list, updates: list) -> None:
+        """把 review 声明的线程状态更新落到 ForeshadowGraph（unknown id 静默跳过）."""
+        for item in updates:
+            if not isinstance(item, dict):
+                continue
+            thread_id = item.get("thread_id")
+            status = item.get("status")
+            if not isinstance(thread_id, str) or not thread_id.strip():
+                continue
+            if not isinstance(status, str) or not status.strip():
+                continue
+            for fg in foreshadows:
+                fg.set_status(thread_id.strip(), status.strip())
 
     def resolve_route(self, issues: list[ReviewIssue], route: str) -> str:
         """Resolve final route after code and LLM issues are merged."""
@@ -565,10 +596,20 @@ class ReviewUnit:
       "priority": "medium"
     }}
   ],
-  "route": "pass"
+  "route": "pass",
+  "foreshadow_updates": [
+    {{
+      "thread_id": "th_002",
+      "status": "resolved",
+      "note": "该伏笔在正文已兑现/回收，从活跃承诺中移除"
+    }}
+  ]
 }}
 
-如无问题，返回空 issues 和 "pass" 路由。"""
+如无问题，返回空 issues 和 "pass" 路由。
+foreshadow_updates 可选：仅当某 active 伏笔在本章（含其后果/正文）已被兑现或
+明确推进时列出，status 取 active/resolved/abandoned/transformed/open/delayed/
+false_path 之一；仍开放的承诺不要列入（保持 active）。"""
 
     def is_pass(self, issues: list[ReviewIssue]) -> bool:
         """判断是否通过（无阻断性问题）."""

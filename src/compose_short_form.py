@@ -549,7 +549,12 @@ def main() -> int:
     review_response_path = output_dir / "compose_review_response.txt"
     if review_response_path.exists():
         response = _read_response_text(review_response_path)
-        llm_issues, reminders, route = review.parse_response(response)
+        _review_foreshadows = [
+            o for o in review_objects if isinstance(o, ForeshadowGraph)
+        ]
+        llm_issues, reminders, route = review.parse_response(
+            response, foreshadows=_review_foreshadows
+        )
         hard_issues = review._hard_rules(review_objects)
         domain_issues = review._domain_rules(review_objects)
         issues = hard_issues + domain_issues + llm_issues
@@ -627,7 +632,12 @@ def main() -> int:
                 return 0
 
             response = _read_response_text(compose_rereview_response_path)
-            llm_issues, reminders, route = review.parse_response(response)
+            _rereview_foreshadows = [
+                o for o in review_objects if isinstance(o, ForeshadowGraph)
+            ]
+            llm_issues, reminders, route = review.parse_response(
+                response, foreshadows=_rereview_foreshadows
+            )
             hard_issues = review._hard_rules(review_objects)
             domain_issues = review._domain_rules(review_objects)
             issues = hard_issues + domain_issues + llm_issues
