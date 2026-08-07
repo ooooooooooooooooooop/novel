@@ -11,7 +11,7 @@ from src.object_state import (
     NarrativeState,
 )
 from src.workflow_action.continuation import ContinueUnit
-from src.workflow_action.excerpt import load_recent_excerpts
+from src.workflow_action.excerpt import append_generated_chapters, load_recent_excerpts
 
 
 def _state() -> NarrativeState:
@@ -202,3 +202,77 @@ def test_load_recent_excerpts_preserves_layout():
     out = load_recent_excerpts(text, tail_chapters=1)
     assert "接续段。" in out  # 最近一章正文在场
     assert "\n" in out  # 段落结构未压扁
+
+
+# --- append_generated_chapters：续写多章后锚点应落在最后生成章 ---
+
+
+def test_append_generated_chapters_no_chapters_dir(tmp_path):
+    """无 chapters 目录时原样返回 source_text."""
+    src = "第1章 一\n原书正文。"
+    assert append_generated_chapters(src, tmp_path / "none") == src
+
+
+def test_append_generated_chapters_appends_generated_tail(tmp_path):
+    """源文本只有首章，chapters/ 已有续写章时，追加后 recent excerpt 应含续写章."""
+    src = "第一章 一\n原书首章正文内容。"
+    chapters = tmp_path / "chapters"
+    chapters.mkdir()
+    (chapters / "chapter_1.txt").write_text(src, encoding="utf-8")  # 与 input 同章
+    (chapters / "chapter_2.txt").write_text(
+        "第二章 二\n续写第二章正文。", encoding="utf-8"
+    )
+    (chapters / "chapter_3.txt").write_text(
+        "第三章 三\n续写第三章正文。", encoding="utf-8"
+    )
+
+    combined = append_generated_chapters(src, chapters)
+
+    out = load_recent_excerpts(combined, tail_chapters=2)
+    assert "续写第三章正文" in out   # 最近章来自已续写内容
+    assert "续写第二章正文" in out
+    # 首章不重复追加（chapter_1 内容已在 source_text 中）
+    assert combined.count("原书首章正文内容。") == 1
+
+
+def test_append_generated_chapters_recent_excerpt_not_stuck_on_input(tmp_path):
+    """回归防线：只喂 input（首章）时 recent excerpt 只有首章——这正是 bug 形态."""
+    src = "第一章 一\n原书首章正文内容。"
+    chapters = tmp_path / "chapters"
+    chapters.mkdir()
+    (chapters / "chapter_1.txt").write_text(src, encoding="utf-8")
+    (chapters / "chapter_2.txt").write_text(
+        "第二章 二\n续写第二章正文。", encoding="utf-8"
+    )
+    (chapters / "chapter_3.txt").write_text(
+        "第三章 三\n续写第三章正文。", encoding="utf-8"
+    )
+
+    # bug 形态：只用 src → 锚点锁死首章
+    stale = load_recent_excerpts(src, tail_chapters=2)
+    assert "原书首章正文内容" in stale
+    assert "续写第三章正文" not in stale
+
+    # 修复形态：combined → 锚点含最后生成章
+    fixed = load_recent_excerpts(
+        append_generated_chapters(src, chapters), tail_chapters=2
+    )
+    assert "续写第三章正文" in fixed
+
+
+def test_append_generated_chapters_prev_tail_lands_on_last_generated(tmp_path):
+    """prev_chapter_tail(combined) 取到的是最后生成章结尾，而非首章结尾."""
+    from src.workflow_action.prose import prev_chapter_tail
+
+    src = "第一章 一\n原书首章正文内容。这是首章结尾。"
+    chapters = tmp_path / "chapters"
+    chapters.mkdir()
+    (chapters / "chapter_1.txt").write_text(src, encoding="utf-8")
+    (chapters / "chapter_2.txt").write_text(
+        "第二章 二\n续写第二章正文。这是第二章结尾。", encoding="utf-8"
+    )
+
+    combined = append_generated_chapters(src, chapters)
+    tail = prev_chapter_tail(combined, max_chars=20)
+    assert "第二章结尾" in tail
+    assert "首章结尾" not in tail

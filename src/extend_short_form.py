@@ -42,7 +42,7 @@ from src.workflow_action.author_selection import (
     resolve_kernel,
     run_author_selection,
 )
-from src.workflow_action.excerpt import load_recent_excerpts
+from src.workflow_action.excerpt import append_generated_chapters, load_recent_excerpts
 from src.workflow_action.proposal_generator import (
     build_proposal_prompt,
     parse_proposals_response,
@@ -247,6 +247,10 @@ def main() -> int:
     text = _read_text(text_path)
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
+    # 文风锚点/前章结尾应基于『原书 + 已续写章节』，否则多章续写后仍锁死原书首章
+    continuation_text = append_generated_chapters(
+        text, output_dir.parent.parent / "chapters"
+    )
 
     rebuild_prompt_path = output_dir / "rebuild_prompt.txt"
     rebuild_response_path = output_dir / "rebuild_response.txt"
@@ -569,7 +573,7 @@ def main() -> int:
                     retrieval_context=retrieval_context,
                     timeline_context=facts.to_timeline_context(include_header=False),
                     time_context=build_time_context(load_time_book(output_dir)),
-                    excerpt_context=load_recent_excerpts(text),
+                    excerpt_context=load_recent_excerpts(continuation_text),
                     nsfw_context=build_nsfw_context(args.nsfw == "on"),
                 ),
                 encoding="utf-8",
@@ -592,7 +596,7 @@ def main() -> int:
                     retrieval_context=retrieval_context,
                     timeline_context=facts.to_timeline_context(include_header=False),
                     time_context=build_time_context(load_time_book(output_dir)),
-                    excerpt_context=load_recent_excerpts(text),
+                    excerpt_context=load_recent_excerpts(continuation_text),
                     nsfw_context=build_nsfw_context(args.nsfw == "on"),
                 ),
                 encoding="utf-8",
@@ -790,10 +794,10 @@ def main() -> int:
                     new_state,
                     workspec_context=workspec.to_prompt_context(),
                     style_context=style_context,
-                    excerpt_context=load_recent_excerpts(text),
+                    excerpt_context=load_recent_excerpts(continuation_text),
                     timeline_context=facts.to_timeline_context(include_header=False),
                     time_context=build_time_context(load_time_book(output_dir)),
-                    prev_chapter_end=prose_action.prev_chapter_tail(text),
+                    prev_chapter_end=prose_action.prev_chapter_tail(continuation_text),
                     target_chapter_chars=prose_action.average_chapter_chars(chunks),
                     reuse_source=text,
                 ),

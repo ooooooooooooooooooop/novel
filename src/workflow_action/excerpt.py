@@ -12,6 +12,36 @@
 from pathlib import Path
 
 
+def _chapter_num(path: Path) -> int:
+    """chapter_N.txt → N；解析失败返回大数（排最后）。"""
+    try:
+        return int(path.stem[len("chapter_"):])
+    except ValueError:
+        return 10**9
+
+
+def append_generated_chapters(source_text: str, chapters_dir: Path) -> str:
+    """把已续写章节追加到源文本后，供文风锚点/前章结尾使用.
+
+    source_text 是原书文本；chapters_dir 里可能已有续写生成的 chapter_N.txt。
+    续写多章后，『最近章节』应是最后生成的章，而不是原书首章——否则：
+    - 【原文锚点与文风样例】永远锁死在原书第一章，文风不随故事演进（自我模仿/停滞）；
+    - 【前章结尾】永远取原书尾段，续写衔接点错误。
+    若生成章内容已在 source_text 中（如 input 即 chapter_1），不重复追加。
+    """
+    if not chapters_dir.exists():
+        return source_text
+    parts = [source_text]
+    for path in sorted(chapters_dir.glob("chapter_*.txt"), key=_chapter_num):
+        txt = path.read_text(encoding="utf-8").strip()
+        if not txt:
+            continue
+        if txt in source_text:
+            continue
+        parts.append(txt)
+    return "\n\n".join(p for p in parts if p)
+
+
 def load_recent_excerpts(
     source_text: str,
     tail_chapters: int = 2,
