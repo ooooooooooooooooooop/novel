@@ -406,6 +406,12 @@ Shadow 通过后只允许部分任务启用 `Proposal → Author-aware Selection
 > - **CLI 全链路透传** ✅ `--proposals N` / `--author-mode on` / `--kernel PATH` / `--shadow on` / `--drift-review on` 接入 `src/compose_short_form.py` + `src/extend_short_form.py` + `src/novel_cli.py` + `src/cli/validation.py`（`run_config.json` 新键校验放行）；`--proposals 1` 默认零成本（prompt 字节不变，`proposals_prompt.txt` 不写）
 > - **共享助手** ✅ `src/workflow_action/author_selection.py` 的 `run_author_selection`（多视角评估 → 选择 → ChoiceLedger → Shadow → Drift Review 四 sidecar 按 decision_id 幂等落盘）；`load_style_profile`/`resolve_kernel` 解析风格档案与作者内核
 > - **测试** ✅ `tests/test_author_selection.py` 10→14 用例（sidecar 落盘/幂等/active_break challenge/CLI 合约/短表单 --help/resume 配置键/Phase 8→9 接线），全量基线同步 2112 → 2116
+>
+> **Gate A/D 实证（2026-08-07 · 自洽 LLM-oracle 方案）**：仓库无 LLM provider（DirectAPI 为 stub、默认运行时人工在环），实证用「当前会话 LLM 充任 oracle」自洽完成（驱动与报告在 `novels/author-kernel-research/output/research/`，gitignored；指标公式移植自 twin_character/twin_author harness，sanity 对照真实 harness 逐项全过）：
+> - **离线确定性**：Gate A（规范 + 鲁棒未见场景）与 Gate D（规范 + 鲁棒）在确定性 oracle 下均 PASS（4 份报告落盘）
+> - **LLM oracle 迭代 1（规范单原则 kernel）**：Gate A PASS（分叉/遮蔽保留/适应全确认）；Gate D 的 generalization/cross_domain 由 1.0 掉到 0.0——确定性 oracle 的 1.0 是声明标签在全部场景镜像制造，真语义下单原则 kernel 在跨域问题上收敛；override 0.0（两边满格 strength 均抵抗，配合 adaptation 1.0 恰是「非 Persona + 可演化」的最强信号，`0 < flip` 门限无法区分固化与已成形）
+> - **LLM oracle 迭代 2（富化，按 §46「改一层→重跑」纪律）**：kernel_b 历史加 1 反例 → `no_instant_forgiveness` 降为 weak（strength 0.67），unseen/cross 场景换成两原则真对立的『即时和解 vs 需要过程』轴（novel/design/photography/dialogue/structure，文本自承载语义，不靠标签）→ **Gate D 8/8 全过 PASS**（divergence 1.0 / gen 1.0 / cross 1.0 / occlusion 1.0 / override 0.5（弱侧被撬动、强侧抵抗）/ adaptation 1.0 / costly 1.0 / reward 1.0）；`kernel_a_adapted` 真实演示 Growth（4 反例把价值打到 contested、长出新的稳定禁忌）
+> - **结论**：管线确实能从选择史压缩出 kernel 并驱动稳定分叉（LLM 语义确认）；跨域迁移的真伪取决于 kernel 原则是否真对立 + 场景文本是否触及，确定性 oracle 的 100% 泛化/跨域是标签伪象。真实生产数据 Shadow（Phase 12）/ 盲评（Phase 13）/ 生产授权（Gate E）仍待接入 provider 后推进
 
 第一阶段成功后（§49）才做 `Proposal Generator + ChoiceLedger`（第二大工作包）。
 
