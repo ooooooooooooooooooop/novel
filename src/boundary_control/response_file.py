@@ -767,3 +767,31 @@ class StagedResponseRunner:
                 else slot.prompt_hash
             ),
         )
+
+
+# 单章周期内被消费、不允许泄漏到下一章的 staged 响应。
+# rebuild_response / outline_response 是跨章输入解析，不在此列。
+CYCLE_RESPONSE_FILES: tuple[str, ...] = (
+    "continue_response.txt",
+    "proposals_response.txt",
+    "character_update_response.txt",
+    "review_response.txt",
+    "prose_response.txt",
+)
+
+
+def reset_consumed_responses(output_dir: Path) -> list[str]:
+    """移除已消费的本章 staged 响应，使下一章从全新 prompt 开始.
+
+    防止重跑已完成章时，Continue/Prose/Review 复用上一章的 response，
+    把当前章 PlotUnit 逐字节重渲染成重复的下章文件（已知腐蚀真实作品
+    的 bug：重跑已完成章 → 生成逐字节重复的 chapter_N+1）。
+    """
+    output_dir = Path(output_dir)
+    removed: list[str] = []
+    for name in CYCLE_RESPONSE_FILES:
+        path = output_dir / name
+        if path.exists():
+            path.unlink()
+            removed.append(name)
+    return removed

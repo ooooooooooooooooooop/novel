@@ -18,6 +18,7 @@ if str(PROJECT_ROOT) not in sys.path:
 from src.boundary_control.handoff import HandoffBoundaryUnit
 from src.boundary_control.runtime_identity import model_content_hash, validate_run_hash
 from src.boundary_control.runtime_state import require_continue_runtime_state
+from src.boundary_control.response_file import reset_consumed_responses
 from src.boundary_control.serialization import SerializationBoundaryUnit
 from src.boundary_control.validation import NoRegressionValidationUnit
 from src.domain_layer.compliance_rules import build_nsfw_context
@@ -679,6 +680,7 @@ def main() -> int:
         return 1
 
     # Step 6: Prose（章节正文成文落盘；--no-prose 跳过）
+    chapter_written = False
     if not args.no_prose:
         prose_prompt_path = output_dir / "prose_prompt.txt"
         prose_response_path = output_dir / "prose_response.txt"
@@ -714,6 +716,7 @@ def main() -> int:
             chapters_dir, prose_action.next_chapter_number(chapters_dir)
         )
         chapter_file.write_text(chapter_text, encoding="utf-8")
+        chapter_written = True
         print(f"Saved chapter: {chapter_file}")
 
     final_objects = objects + [plotunit, new_state]
@@ -731,6 +734,14 @@ def main() -> int:
 
     serializer.save(final_package, compose_state_path)
     print(f"Saved: {compose_state_path}")
+
+    if chapter_written:
+        reset_consumed_responses(output_dir)
+        print(
+            f"[CYCLE] 本章 staged 响应已消费，下一章将从全新 prompt 开始"
+            f"（避免重跑复用上一章响应产生重复章节）"
+        )
+
     print("\nCompose complete: PASS")
 
     return 0

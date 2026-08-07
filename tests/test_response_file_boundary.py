@@ -13,8 +13,10 @@ from src.boundary_control.automation_contracts import (
     validate_response_materialization_metadata_in_payload,
 )
 from src.boundary_control.response_file import (
+    CYCLE_RESPONSE_FILES,
     PendingResponseSlot,
     ResponseFileBoundaryUnit,
+    reset_consumed_responses,
     StagedResponseRunner,
     StagedResponseResult,
 )
@@ -2049,3 +2051,44 @@ def test_require_pending_slot_rejects_invalid_slot_id(tmp_path):
             tmp_path,
             slot_id="../review",
         )
+
+
+# ---------------------------------------------------------------------------
+# 章节周期响应清理（重跑已完成章不产生重复章节的回归防线）
+# ---------------------------------------------------------------------------
+
+
+def test_reset_consumed_responses_removes_cycle_files_keeps_rebuild(tmp_path):
+    """清理本章已消费的 staged 响应，保留跨章的 rebuild_response.
+
+    重跑已完成章时，若 continue/prose/review 响应被复用，会把当前章
+    PlotUnit 逐字节重渲染成重复的下章文件——reset 是防这道 bug 的闸门。
+    """
+    (tmp_path / "rebuild_response.txt").write_text("rebuild", encoding="utf-8")
+    (tmp_path / "outline_response.txt").write_text("outline", encoding="utf-8")
+    for name in CYCLE_RESPONSE_FILES:
+        (tmp_path / name).write_text("cycle", encoding="utf-8")
+
+    removed = reset_consumed_responses(tmp_path)
+
+    assert sorted(removed) == sorted(CYCLE_RESPONSE_FILES)
+    for name in CYCLE_RESPONSE_FILES:
+        assert not (tmp_path / name).exists()
+    # 跨章输入解析的响应不受影响
+    assert (tmp_path / "rebuild_response.txt").exists()
+    assert (tmp_path / "outline_response.txt").exists()
+
+
+def test_reset_consumed_responses_idempotent_when_absent(tmp_path):
+    """空目录/已清理目录调用不报错，返回空列表."""
+    assert reset_consumed_responses(tmp_path) == []
+    assert reset_consumed_responses(tmp_path) == []
+
+
+def test_cycle_response_files_exclude_cross_chapter_prompts():
+    """周期响应清单不得包含跨章输入解析（rebuild/outline）的响应."""
+    assert "rebuild_response.txt" not in CYCLE_RESPONSE_FILES
+    assert "outline_response.txt" not in CYCLE_RESPONSE_FILES
+    assert "continue_response.txt" in CYCLE_RESPONSE_FILES
+    assert "prose_response.txt" in CYCLE_RESPONSE_FILES
+    assert "review_response.txt" in CYCLE_RESPONSE_FILES
