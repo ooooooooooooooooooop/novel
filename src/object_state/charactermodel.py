@@ -175,3 +175,19 @@ class CharacterModel(BaseModel):
                 ]
                 changed.append(f"-{claim}")
         return changed
+
+    def resolve_pressures(self, items: list[str]) -> list[str]:
+        """把已解决/不再当前的当前压力从 current_pressure 移除.
+
+        只追加不清理会让已兑现的压力（如『处决文书今日到期』在获赦后仍残留）
+        一直注入后续 prompt，误导生成把旧冲突当现状。返回被移除的条目。
+        """
+        removed: list[str] = []
+        keep: list[str] = []
+        for item in self.current_pressure:
+            if item.strip() in [i.strip() for i in (items or [])]:
+                removed.append(item)
+            else:
+                keep.append(item)
+        self.current_pressure = keep
+        return removed

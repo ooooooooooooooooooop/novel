@@ -432,3 +432,36 @@ def test_review_parse_response_knowledge_unknown_id_skipped():
     )
     ReviewUnit().parse_response(resp, character_models=[cm])
     assert cm.knowledge_state == ["不知道X"]  # 未受影响
+
+
+def test_character_resolve_pressures_removes_only_listed():
+    """resolve_pressures 只移除声明的压力，其余保留."""
+    from src.object_state import CharacterModel
+
+    cm = CharacterModel(
+        character_id="c1", name="测试", identity="身份", outer_goal="目标",
+        inner_need="需求", fear="恐惧", flaw="缺陷", strength="优势", stance="中立",
+        current_pressure=["处决文书今日到期", "苏观使已锁定", "墨痕未知代价"],
+    )
+    removed = cm.resolve_pressures(["处决文书今日到期"])
+    assert removed == ["处决文书今日到期"]
+    assert cm.current_pressure == ["苏观使已锁定", "墨痕未知代价"]
+
+
+def test_review_parse_response_applies_pressure_updates():
+    """review 声明已解决压力——从 current_pressure 移除，其余保留."""
+    from src.object_state import CharacterModel
+    from src.workflow_action.review import ReviewUnit
+
+    cm = CharacterModel(
+        character_id="c001", name="林烬", identity="抄碑人", outer_goal="生存",
+        inner_need="被认可", fear="暴露", flaw="执念", strength="谨慎", stance="中立",
+        current_pressure=["沈望处决文书今日到期，改写是否生效未知", "苏观使已锁定改写者"],
+    )
+    resp = (
+        '{"issues": [], "reminders": [], "route": "pass",'
+        ' "character_pressure_updates": [{"character_id": "c001",'
+        ' "resolve": ["沈望处决文书今日到期，改写是否生效未知"]}]}'
+    )
+    ReviewUnit().parse_response(resp, character_models=[cm])
+    assert cm.current_pressure == ["苏观使已锁定改写者"]  # 已解决压力移除，仍成立保留

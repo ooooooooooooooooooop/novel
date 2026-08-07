@@ -229,6 +229,7 @@ class ReviewUnit:
         allowed_fields = required_fields + (
             "foreshadow_updates",
             "character_knowledge_updates",
+            "character_pressure_updates",
         )
         extra = sorted(set(data) - set(allowed_fields))
         if extra:
@@ -256,6 +257,12 @@ class ReviewUnit:
                     "Review response field character_knowledge_updates must be a list"
                 )
             self._apply_knowledge_updates(character_models, updates)
+            updates = data.get("character_pressure_updates") or []
+            if not isinstance(updates, list):
+                raise ValueError(
+                    "Review response field character_pressure_updates must be a list"
+                )
+            self._apply_pressure_updates(character_models, updates)
         return issues, reminders, route
 
     @staticmethod
@@ -290,6 +297,21 @@ class ReviewUnit:
                 cm.reconcile_knowledge(learn=learn)
             if isinstance(drop_unknown, list) and drop_unknown:
                 cm.reconcile_knowledge(drop_unknown=drop_unknown)
+
+    @staticmethod
+    def _apply_pressure_updates(character_models: list, updates: list) -> None:
+        """把 review 声明的『已解决压力』从 current_pressure 移除（unknown id 静默跳过）."""
+        by_id = {cm.character_id: cm for cm in character_models}
+        for item in updates:
+            if not isinstance(item, dict):
+                continue
+            character_id = item.get("character_id")
+            resolve = item.get("resolve")
+            if not isinstance(character_id, str) or character_id.strip() not in by_id:
+                continue
+            if not isinstance(resolve, list) or not resolve:
+                continue
+            by_id[character_id.strip()].resolve_pressures(resolve)
 
     def resolve_route(self, issues: list[ReviewIssue], route: str) -> str:
         """Resolve final route after code and LLM issues are merged."""
@@ -651,7 +673,10 @@ foreshadow_updates 可选：仅当某 active 伏笔在本章（含其后果/正�
 false_path 之一；仍开放的承诺不要列入（保持 active）。
 character_knowledge_updates 可选：仅当某角色在本章得知了新信息（情节揭示给了他），
 把对应的『不知道X』断言从 drop_unknown 移除、把新得知的信息加入 learn；角色仍
-不知道的不要列入。"""
+不知道的不要列入。
+character_pressure_updates 可选：仅当某角色在本章的某条当前压力已被解决/不再
+成立（如目标达成、威胁解除），把它列进 resolve 从 current_pressure 移除；仍成立
+的压力不要列入。"""
 
     def is_pass(self, issues: list[ReviewIssue]) -> bool:
         """判断是否通过（无阻断性问题）."""
