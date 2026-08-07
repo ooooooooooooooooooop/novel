@@ -22,6 +22,16 @@
 
 ---
 
+## 〇、本会话变更（2026-08-07 下午 · Phase 8→9 生产接线 2112 → 2116）
+
+作者内核全链路的两个收尾（Task 15/16，承接 43_plan 第一大工作包之后）：
+
+1. **修复 authormodule.py 悬空引用**（Task 15）：docstring 里指向不存在 `kernel_store.py` 的存储实现说明，改为 `src/workflow_action/authormemory.py` 的 `save_author_kernel`/`load_author_kernel`（真实落盘 `output_dir/author_kernel.json` 的模块）。
+2. **接线 consolidate → save 生产调用**（Task 16）：`author_selection.py` 新增 `CONSOLIDATION_MIN_CHOICES = 5` 与 `maybe_consolidate_and_save`，在 `run_author_selection` 落 ChoiceLedger 的 append 分支调用——台账攒够且合并后有 stable/weak 原则时 `consolidate_ledger` → `save_author_kernel` 写 `output_dir/author_kernel.json`，使后续 `--author-mode on` 无 `--kernel` 时由 `resolve_kernel` → `load_author_kernel` 自动消费（闭环：Choice → Consolidation → Kernel → 未来选择）。未够阈值 / 无 stable 原则零成本不写文件；重跑已存在 decision_id 跳过 consolidate。
+3. **测试**：`tests/test_author_selection.py` 10 → 14 用例（+4：落盘/阈值下零成本/自动消费/追加强化+重跑幂等）；全量 **2116 passed**（两处常量、6 锁一致文档、30/32 契约、example + 已提交 release record 全同步，`git_commit` 未动）。
+
+---
+
 ## 〇、本会话变更（1829 → 1873）
 
 按方向文档「一致性≠质量，三大核心」推进了核心2（读者体验）的落地，共四个阶段：

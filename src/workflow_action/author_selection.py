@@ -20,7 +20,10 @@ from typing import Optional
 
 from src.object_state.authorkernel import AuthorKernel
 from src.object_state.styleprofile import StyleProfile
-from src.workflow_action.authormemory import load_author_kernel
+from src.workflow_action.authormemory import (
+    load_author_kernel,
+    save_author_kernel,
+)
 from src.workflow_action.author_selector import (
     build_choice_record,
     evaluate_candidates,
@@ -28,6 +31,11 @@ from src.workflow_action.author_selector import (
     select_candidate,
 )
 from src.workflow_action.choiceledger import append_choice_record, load_choice_ledger
+from src.workflow_action.consolidation import (
+    ConsolidationResult,
+    consolidate_ledger,
+    render_consolidation_report,
+)
 from src.workflow_action.drift_review import (
     ChallengeLedger,
     load_challenge_ledger,
@@ -47,9 +55,39 @@ from src.workflow_action.shadow import (
 )
 from src.workflow_action.style import resolve_style_library_path
 
+# 攒够 N 条 ChoiceRecord 才开始归纳内核（§22：攒 N 个 ChoiceRecord 后；禁止 5：
+# 短期压力与长期身份分离——不每条选择都改 Kernel）。
+CONSOLIDATION_MIN_CHOICES = 5
+
 
 def _utc_now() -> str:
     return datetime.datetime.now(datetime.timezone.utc).isoformat()
+
+
+def maybe_consolidate_and_save(
+    output_dir: Path,
+    *,
+    timestamp: str,
+) -> Optional[ConsolidationResult]:
+    """台账攒够后 consolidate → save（Phase 8→9 接线）.
+
+    让真实 ChoiceLedger 能自动长成可消费内核：后续 `--author-mode on` 无 `--kernel`
+    时由 `resolve_kernel` → `load_author_kernel` 自动读取（闭环：Choice → Consolidation
+    → Kernel → 未来选择）。
+
+    台账不足 / 合并后无 stable/weak 原则时返回 None（零成本，不写文件）。
+    """
+    ledger = load_choice_ledger(output_dir)
+    if len(ledger.choices) < CONSOLIDATION_MIN_CHOICES:
+        return None
+    existing = load_author_kernel(output_dir)
+    result = consolidate_ledger(ledger, kernel=existing, timestamp=timestamp)
+    if not any(p.status in ("stable", "weak") for p in result.kernel.all_principles()):
+        return None
+    path = save_author_kernel(output_dir, result.kernel)
+    print(render_consolidation_report(result))
+    print(f"AuthorKernel: {path}")
+    return result
 
 
 def load_style_profile(output_dir: Path, style_name: str = "") -> Optional[StyleProfile]:
@@ -163,6 +201,9 @@ def run_author_selection(
         )
         ledger_path = append_choice_record(output_dir, record)
         print(f"ChoiceLedger: {ledger_path}")
+        # Phase 8→9：台账攒够后 consolidate → save，使后续 --author-mode on
+        # 无 --kernel 时能自动消费 output_dir/author_kernel.json（resolve_kernel 读它）
+        maybe_consolidate_and_save(output_dir, timestamp=ts)
     else:
         print(f"ChoiceLedger: {decision_id} 已记录，跳过重复落盘")
 

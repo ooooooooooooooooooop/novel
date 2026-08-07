@@ -4,7 +4,7 @@ An automatic novel narrative system that parses narrative structure, maintains n
 
 一个自动小说叙事系统：解析叙事结构、维护叙事状态、规划故事推进、审查生成结果。
 
-> **Tier 0 production-ready** — local staged CLI, operator-in-the-loop · **2112 tests passing** · checkpoint tag `v0.1.2-tier0`
+> **Tier 0 production-ready** — local staged CLI, operator-in-the-loop · **2116 tests passing** · checkpoint tag `v0.1.2-tier0`
 
 ---
 
@@ -31,7 +31,7 @@ The repository is **Tier 0 production-ready — three-flow daily-production hard
 Tier 0 生产就绪判定（2026-07-28 宣布）：
 
 - production tier: `local staged CLI v0`（本地分阶段 CLI v0）
-- full pytest baseline: 2112 tests passing（完整回归基线 2112 个测试通过）
+- full pytest baseline: 2116 tests passing（完整回归基线 2116 个测试通过）
 - release record: `docs/00_project/releases/tier0-release.json`
 - immutable checkpoint: git tag `v0.1.2-tier0`
 - extend / compose canaries 均通过 `novel gate` 同四标准；聚合证据在 `docs/00_project/releases/tier0-three-flow-canary-aggregation.json`
@@ -218,4 +218,4 @@ New to the repository? Read in this order:
 pytest tests/ -q
 ```
 
-Baseline: **2112 tests passing**（Windows 下测试请带 `PYTHONIOENCODING=utf-8`）。
+Baseline: **2116 tests passing**（Windows 下测试请带 `PYTHONIOENCODING=utf-8`）。

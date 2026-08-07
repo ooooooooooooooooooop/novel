@@ -16,8 +16,9 @@ kernel 为空时零成本：不渲染、不注入、字节不变，等价于现�
 kernel 长出来后挂进同一个档案。
 
 隐私：kernel 含作品语境（supporting_choices 引作品内 decision_id），
-存本地 gitignored 的 sidecar；风格库只放中性方法论（style）。存储拆分见
-src/workflow_action/kernel_store.py。
+存本地 gitignored 的 sidecar（`output_dir/author_kernel.json`）；风格库只放中性
+方法论（style）。存储实现见 `src/workflow_action/authormemory.py`
+（save_author_kernel / load_author_kernel）。
 """
 
 from typing import Optional

@@ -239,6 +239,71 @@ def test_resolve_kernel_explicit_path(tmp_path):
 
 
 # ---------------------------------------------------------------------------
+# Phase 8→9 接线：台账攒够 → consolidate → save author_kernel.json
+# ---------------------------------------------------------------------------
+
+def _consolidation_package(cid: str) -> list[dict]:
+    """一组候选：选中 A 命中 trust_earned_over_time 支持证据（冲突含『坦白』）."""
+    return [
+        _package(cid, "他选择当众摊牌"),
+        _package(cid + "_b", "他隐瞒并继续调查"),
+    ]
+
+
+def test_consolidation_writes_kernel_after_threshold(tmp_path):
+    """攒够 CONSOLIDATION_MIN_CHOICES 条选择 → author_kernel.json 自动落盘."""
+    for cid in "ABCDE":
+        _run(tmp_path, _consolidation_package(cid), author_mode_on=True)
+    kernel_path = tmp_path / "author_kernel.json"
+    assert kernel_path.exists()
+    kernel = AuthorKernel.model_validate_json(kernel_path.read_text(encoding="utf-8"))
+    assert any(p.status in ("stable", "weak") for p in kernel.all_principles())
+
+
+def test_consolidation_below_threshold_no_kernel(tmp_path):
+    """未攒够阈值 → 零成本不写 kernel 文件，resolve_kernel 仍返回 None."""
+    for cid in "ABC":  # 3 < CONSOLIDATION_MIN_CHOICES(5)
+        _run(tmp_path, _consolidation_package(cid), author_mode_on=True)
+    assert not (tmp_path / "author_kernel.json").exists()
+    assert resolve_kernel(tmp_path, "") is None
+
+
+def test_consolidated_kernel_auto_consumed_by_resolve_kernel(tmp_path):
+    """Phase 8→9 闭环：kernel 落盘后，后续 --author-mode on 无 --kernel 自动消费."""
+    for cid in "ABCDE":
+        _run(tmp_path, _consolidation_package(cid), author_mode_on=True)
+    resolved = resolve_kernel(tmp_path, "")
+    assert resolved is not None
+    assert resolved.status == "formed"
+    assert any(p.status in ("stable", "weak") for p in resolved.all_principles())
+
+
+def test_consolidation_grows_and_is_idempotent(tmp_path):
+    """追加选择 → 原则强化（supporting 增多）；重跑同一 decision 不重复计入."""
+    for cid in "ABCDEF":
+        _run(tmp_path, _consolidation_package(cid), author_mode_on=True)
+    kernel = AuthorKernel.model_validate_json(
+        (tmp_path / "author_kernel.json").read_text(encoding="utf-8")
+    )
+    trust = next(
+        p for p in kernel.all_principles()
+        if p.vocab_key == "trust_earned_over_time"
+    )
+    assert len(trust.supporting_choices) == 6
+    # 重跑已有决策（decision_id 已存在）→ 台账不重复、支持证据不膨胀
+    _run(tmp_path, _consolidation_package("A"), author_mode_on=True)
+    assert len(load_choice_ledger(tmp_path).choices) == 6
+    kernel2 = AuthorKernel.model_validate_json(
+        (tmp_path / "author_kernel.json").read_text(encoding="utf-8")
+    )
+    trust2 = next(
+        p for p in kernel2.all_principles()
+        if p.vocab_key == "trust_earned_over_time"
+    )
+    assert len(trust2.supporting_choices) == 6
+
+
+# ---------------------------------------------------------------------------
 # CLI 合约：默认 off / 接受 flag / 短表单 --help
 # ---------------------------------------------------------------------------
 def _build_parser():

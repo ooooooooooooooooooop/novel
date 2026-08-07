@@ -397,13 +397,15 @@ Shadow 通过后只允许部分任务启用 `Proposal → Author-aware Selection
 > - Task 2 ✅ `src/workflow_action/character_updates.py`（`admit_character_updates` 镜像 `admit_new_facts` + `apply_update_to_character` 写回 + sidecar 台账 + prompt/parse）；`compose/extend_short_form.py` 新增 `--character-update on|off`（默认 off 零成本）阶段，`novel_cli` 全链路透传；测试 `tests/test_character_updates_workflow.py`
 > - Task 3 ✅ `SceneExperience.cognition_states`（Optional 五态，空不渲染零回归）；测试 `tests/test_scene_experience.py`
 > - Task 4 ✅ `src/experiment/twin_character.py`（`CharacterFieldOracle` 离线代理 + `run_twin_character_experiment` 五指标 + Gate A 判定 + `python -m src.experiment.twin_character --spec --report` 离线自动跑）；测试 `tests/test_twin_character.py`
-> - 测试基线：1873 → 1937 → 2102 → 2112（两处常量 `EXPECTED_TEST_BASELINE`/`EXPECTED_BASELINE` 与文档/发布记录已同步）
+> - 测试基线：1873 → 1937 → 2102 → 2112 → 2116（两处常量 `EXPECTED_TEST_BASELINE`/`EXPECTED_BASELINE` 与文档/发布记录已同步）
+>
+> **Phase 8→9 生产接线（2026-08-07 下午补）**：`run_author_selection` 落 ChoiceLedger 后调用 `maybe_consolidate_and_save`——台账攒够 `CONSOLIDATION_MIN_CHOICES(5)` 且合并后有 stable/weak 原则时 `consolidate_ledger` → `save_author_kernel` 写 `output_dir/author_kernel.json`，使后续 `--author-mode on` 无 `--kernel` 时由 `resolve_kernel` 自动消费（闭环 Choice→Consolidation→Kernel→未来选择）；未够阈值/无 stable 原则零成本不写文件。新增 4 测试（落盘/阈值下零成本/自动消费/追加强化+重跑幂等），`tests/test_author_selection.py` 10→14 用例，基线 2112→2116；`authormodule.py` 悬空 `kernel_store` 文档引用修正为 `authormemory.save/load_author_kernel`（Task 15/16 关闭）。
 
 第一大工作包（§48）完成后的 AuthorKernel 全链路落地（第二大工作包 + 6B-6E，2026-08-07）：
 
 > - **CLI 全链路透传** ✅ `--proposals N` / `--author-mode on` / `--kernel PATH` / `--shadow on` / `--drift-review on` 接入 `src/compose_short_form.py` + `src/extend_short_form.py` + `src/novel_cli.py` + `src/cli/validation.py`（`run_config.json` 新键校验放行）；`--proposals 1` 默认零成本（prompt 字节不变，`proposals_prompt.txt` 不写）
 > - **共享助手** ✅ `src/workflow_action/author_selection.py` 的 `run_author_selection`（多视角评估 → 选择 → ChoiceLedger → Shadow → Drift Review 四 sidecar 按 decision_id 幂等落盘）；`load_style_profile`/`resolve_kernel` 解析风格档案与作者内核
-> - **测试** ✅ `tests/test_author_selection.py` 10 用例（sidecar 落盘/幂等/active_break challenge/CLI 合约/短表单 --help/resume 配置键），全量基线同步 2112
+> - **测试** ✅ `tests/test_author_selection.py` 10→14 用例（sidecar 落盘/幂等/active_break challenge/CLI 合约/短表单 --help/resume 配置键/Phase 8→9 接线），全量基线同步 2112 → 2116
 
 第一阶段成功后（§49）才做 `Proposal Generator + ChoiceLedger`（第二大工作包）。
 
