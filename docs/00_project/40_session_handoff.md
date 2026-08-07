@@ -10,6 +10,18 @@
 
 ---
 
+## 〇、本会话变更（2026-08-07 · 作者内核全链路 2102 → 2112）
+
+按 `docs/00_project/43_author_kernel_implementation_plan.md` 完成作者内核全链路（2A-2B / 3A-3B / 4A-4C / 5A-5C / 6B-6E + CLI 透传），全部有测试，全量 `pytest -q` **2112 passed**：
+
+- **数据/选择链**：`proposal_generator.py`（多候选 prompt/parse，`--proposals 1` 字节不变零成本）、`choicerecord.py`/`choiceledger.py`（全候选+拒绝理由+tradeoff 留痕）、`authorkernel.py`/`author_selector.py`（六类原则 + 多视角非总分选择）
+- **演进/记忆**：`consolidation.py`（Choice Consolidation 有来由地变）、`characterupdate.py`/`character_updates.py`（五态六维）、`SceneExperience.cognition_states`、`authormemory.py`（四级记忆 + 受控注入 + Value-Mediated Retrieval）
+- **监管/实验**：`shadow.py`（Twin Author 影子选择，B 不进入正文）、`drift_review.py`（active_break → KernelChallenge 台账）、`experiment/twin_author.py`、`experiment/twin_character.py`（离线五指标实验）
+- **CLI 透传**（Task 14）：`--proposals/--author-mode/--kernel/--shadow/--drift-review` 接入 `compose_short_form`/`extend_short_form`/`novel_cli`/`cli/validation`；共享助手 `author_selection.run_author_selection`（ChoiceLedger/ShadowLedger/DriftReview/ChallengeLedger 四 sidecar 按 decision_id 幂等落盘）；`run_config.json` 新键校验放行
+- **测试基线**：2102 → **2112**（+10 `tests/test_author_selection.py`）；两处常量、6 锁一致文档、example/checklist/32 契约、已提交 release record 全同步（`git_commit` 未动）
+
+---
+
 ## 〇、本会话变更（1829 → 1873）
 
 按方向文档「一致性≠质量，三大核心」推进了核心2（读者体验）的落地，共四个阶段：

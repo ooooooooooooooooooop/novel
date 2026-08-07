@@ -111,3 +111,53 @@ def test_plotunit_serialization_backward_compat():
     }
     pu = PlotUnit(**old_data)
     assert pu.scene_experience is None
+
+
+# ---- 作者性 Phase A：cognition 五态（纲领 §8）----
+
+
+def test_cognition_states_default_none():
+    """旧 dict（无 cognition_states 键）反序列化为 None，不报错（向后兼容）."""
+    se = _mk_se()
+    assert se.cognition_states is None
+
+
+def test_cognition_states_construction():
+    se = _mk_se(cognition_states=["destabilized", "unresolved"])
+    assert se.cognition_states == ["destabilized", "unresolved"]
+
+
+def test_cognition_states_five_literal():
+    for s in ("changed", "reinforced", "destabilized", "unresolved", "misinterpreted"):
+        se = _mk_se(cognition_states=[s])
+        assert se.cognition_states == [s]
+    with pytest.raises(ValueError):
+        _mk_se(cognition_states=["grew"])
+
+
+def test_cognition_states_entries_non_blank():
+    with pytest.raises(ValueError):
+        _mk_se(cognition_states=["", "changed"])
+
+
+def test_cognition_states_empty_render_zero_cost():
+    """空 cognition_states 不渲染——与旧版逐字节一致（零成本契约）."""
+    se = _mk_se()
+    ctx = se.to_prompt_context()
+    assert "认知状态" not in ctx
+    assert "认知变化: 从以为眼花到确认真能改写" in ctx
+
+
+def test_cognition_states_render_when_present():
+    se = _mk_se(cognition_states=["destabilized", "unresolved"])
+    ctx = se.to_prompt_context()
+    assert "认知状态: destabilized / unresolved" in ctx
+    # 原五维仍渲染
+    assert "认知变化: 从以为眼花到确认真能改写" in ctx
+
+
+def test_cognition_states_json_round_trip():
+    pu = _mk_pu(scene_experience=_mk_se(cognition_states=["unresolved"]))
+    data = json.loads(pu.model_dump_json())
+    pu2 = PlotUnit(**data)
+    assert pu2.scene_experience.cognition_states == ["unresolved"]

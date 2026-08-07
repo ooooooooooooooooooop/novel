@@ -12,9 +12,13 @@ Continue 生成 PlotUnit 时同时生成 SceneExperience；Prose 展开时注入
 让结构扩写带现场感（避免「解释充分但缺乏现场感的正文」）。
 """
 
-from typing import Optional
+from typing import Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validator
+
+CognitionState = Literal[
+    "changed", "reinforced", "destabilized", "unresolved", "misinterpreted"
+]
 
 
 class SceneExperience(BaseModel):
@@ -41,6 +45,13 @@ class SceneExperience(BaseModel):
         description="情绪和认知如何变化——从『之前怎么想』到『现在怎么想』，"
         "读者看到思考链条而非结论",
     )
+    cognition_states: Optional[list[CognitionState]] = Field(
+        default=None,
+        description="事件对人物认知产生的状态影响（五态，纲领 §8）。"
+        "用于破除『每次事件人物必须悟到什么』的 AI 成长流水线：允许 changed / "
+        "reinforced / destabilized / unresolved / misinterpreted。"
+        "旧 JSON 无此键反序列化为 None（Optional 向后兼容），空不渲染（零回归）。",
+    )
 
     @field_validator("protagonist_sees", "choice_grounding", "outcome", "cognition_shift")
     @classmethod
@@ -56,6 +67,17 @@ class SceneExperience(BaseModel):
             raise ValueError(f"{info.field_name} entries must be non-empty")
         return values
 
+    @field_validator("cognition_states")
+    @classmethod
+    def _cognition_states_must_be_non_blank(
+        cls, values: Optional[list[CognitionState]], info: ValidationInfo
+    ) -> Optional[list[CognitionState]]:
+        if values is None:
+            return None
+        if any(not value.strip() for value in values):
+            raise ValueError(f"{info.field_name} entries must be non-empty")
+        return values
+
     def to_prompt_context(self, unit_id: str = "") -> str:
         """生成给 LLM 的上下文描述（Prose 展开时注入）."""
         header = f"【场景体验: {unit_id}】" if unit_id else "【场景体验】"
@@ -66,4 +88,6 @@ class SceneExperience(BaseModel):
         lines.append(f"选择依据: {self.choice_grounding}")
         lines.append(f"结果: {self.outcome}")
         lines.append(f"认知变化: {self.cognition_shift}")
+        if self.cognition_states:
+            lines.append(f"认知状态: {' / '.join(self.cognition_states)}")
         return "\n".join(lines)

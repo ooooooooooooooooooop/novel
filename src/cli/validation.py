@@ -97,6 +97,12 @@ VALID_CONFIG_FIELDS = {
     "lexicon",
     "retrieval",
     "nsfw",
+    "character_update",
+    "proposals",
+    "author_mode",
+    "kernel",
+    "shadow",
+    "drift_review",
     "rebuild",
     "check",
 }

@@ -32,7 +32,22 @@ from src.object_state import (
     WorldModel,
 )
 from src.workflow_action.continuation import ContinueUnit, admit_new_facts
+from src.workflow_action.character_updates import (
+    admit_character_updates,
+    append_character_updates,
+    build_character_update_prompt,
+    parse_character_updates_response,
+)
+from src.workflow_action.author_selection import (
+    load_style_profile,
+    resolve_kernel,
+    run_author_selection,
+)
 from src.workflow_action.frame import NarrativeFrameUnit
+from src.workflow_action.proposal_generator import (
+    build_proposal_prompt,
+    parse_proposals_response,
+)
 from src.workflow_action.review import ReviewUnit
 from src.workflow_action.rewrite import RewriteUnit
 from src.domain_layer.style_rules import build_temperament_guidance
@@ -214,6 +229,49 @@ def main() -> int:
         help="成人向（NSFW）开关（默认 off 正常向：注入禁成人内容分级；on：允许成人向内容）",
     )
     parser.add_argument(
+        "--character-update",
+        default="off",
+        choices=["on", "off"],
+        help="角色变更提案开关（默认 off 零成本；on：Continue 后新增角色更新阶段，"
+        "产物落 output/character_updates.json 并 apply 到角色动态字段）",
+    )
+    parser.add_argument(
+        "--proposals",
+        type=int,
+        default=1,
+        metavar="N",
+        help="Continue 多候选生成数（默认 1 零成本：单 PlotUnit 与原路径 prompt 字节一致；"
+        "N>=2 启用多候选选择链：Proposal → Consistency Gate → 多视角评估 → 选择 → "
+        "ChoiceLedger 留痕）",
+    )
+    parser.add_argument(
+        "--author-mode",
+        default="off",
+        choices=["on", "off"],
+        help="生产选择是否作者感知（默认 off：基线字典序 style→reader；on=Canary 6D，"
+        "用 AuthorKernel 做生产选择）",
+    )
+    parser.add_argument(
+        "--kernel",
+        default="",
+        metavar="PATH",
+        help="AuthorKernel JSON 路径（默认读 <output_dir>/author_kernel.json；无则 kernel 未形成）",
+    )
+    parser.add_argument(
+        "--shadow",
+        default="off",
+        choices=["on", "off"],
+        help="影子选择开关（默认 off；on=6C：生产照常出结果，作者感知影子结果 B 不进正文，"
+        "分叉记入 output/shadow/shadow_ledger.json）",
+    )
+    parser.add_argument(
+        "--drift-review",
+        default="off",
+        choices=["on", "off"],
+        help="作者漂移审查开关（默认 off；on=6E：选择后审查选中文本是否无因果漂移，"
+        "active_break 记入 output/drift_review/challenge_ledger.json）",
+    )
+    parser.add_argument(
         "--no-prose",
         action="store_true",
         help="跳过章节正文落盘（只产出 PlotUnit 结构；默认自动成文落盘 chapters/）",
@@ -336,9 +394,13 @@ def main() -> int:
         print(f"Error: {exc}")
         return 1
 
+    proposals_n = max(1, args.proposals)
+    multi_proposals = proposals_n >= 2
     continue_prompt_path = output_dir / "compose_continue_prompt.txt"
     continue_response_path = output_dir / "compose_continue_response.txt"
-    if continue_response_path.exists():
+    proposals_prompt_path = output_dir / "proposals_prompt.txt"
+    proposals_response_path = output_dir / "proposals_response.txt"
+    if not multi_proposals and continue_response_path.exists():
         response = _read_response_text(continue_response_path)
         plotunit, new_state, new_facts, gaps = cont.parse_response(response)
         try:
@@ -346,6 +408,38 @@ def main() -> int:
         except ValueError as exc:
             print(f"Error: {exc}")
             return 1
+    elif multi_proposals and proposals_response_path.exists():
+        print(f"Multi-proposal Continue (--proposals {proposals_n})")
+        response = _read_response_text(proposals_response_path)
+        packages = parse_proposals_response(response, proposals_n)
+        kernel = resolve_kernel(output_dir, args.kernel)
+        style_profile = load_style_profile(output_dir, args.style or "")
+        selection = run_author_selection(
+            packages,
+            objects,
+            output_dir=output_dir,
+            decision_context=narrative_state.current_situation or "Compose 续写决策",
+            state_ref=narrative_state.state_id,
+            current_state_ref=narrative_state.state_id,
+            kernel=kernel,
+            style_profile=style_profile,
+            style_profile_id=args.style or None,
+            author_mode_on=args.author_mode == "on",
+            shadow_on=args.shadow == "on",
+            drift_review_on=args.drift_review == "on",
+            review=review,
+        )
+        selected_package = selection["selected"]
+        plotunit = selected_package["plotunit"]
+        new_state = selected_package["new_state"]
+        try:
+            new_facts = admit_new_facts(
+                facts, selected_package["new_facts"], plotunit.unit_id
+            )
+        except ValueError as exc:
+            print(f"Error: {exc}")
+            return 1
+        gaps = selected_package["confidence_gaps"]
     else:
         retrieval_context = ""
         if args.retrieval == "on":
@@ -363,32 +457,87 @@ def main() -> int:
             temperament = args.temperament or (workspec.temperament or "")
             if temperament:
                 style_context = build_temperament_guidance(temperament)
-        continue_prompt_path.write_text(
-            cont.build_prompt(
-                state=narrative_state,
-                characters=characters,
-                facts=facts,
-                foreshadows=foreshadows,
-                workspec_context=workspec.to_prompt_context(),
-                frame_context=frame_context,
-                structure_template=structure_template_name,
-                platform=workspec.platform,
-                genre=workspec.genre,
-                style_context=style_context,
-                retrieval_context=retrieval_context,
-                timeline_context=facts.to_timeline_context(include_header=False),
-                time_context=build_time_context(load_time_book(output_dir)),
-                nsfw_context=build_nsfw_context(args.nsfw == "on"),
-            ),
-            encoding="utf-8",
-        )
-        print(f"[STEP: CONTINUE] Prompt saved: {continue_prompt_path}")
-        print(f"[WAITING] Generate response to: {continue_response_path}")
+        if multi_proposals:
+            proposals_prompt_path.write_text(
+                build_proposal_prompt(
+                    cont,
+                    proposals_n,
+                    narrative_state,
+                    characters,
+                    facts,
+                    foreshadows,
+                    workspec_context=workspec.to_prompt_context(),
+                    frame_context=frame_context,
+                    structure_template=structure_template_name,
+                    platform=workspec.platform,
+                    genre=workspec.genre,
+                    style_context=style_context,
+                    retrieval_context=retrieval_context,
+                    timeline_context=facts.to_timeline_context(include_header=False),
+                    time_context=build_time_context(load_time_book(output_dir)),
+                    nsfw_context=build_nsfw_context(args.nsfw == "on"),
+                ),
+                encoding="utf-8",
+            )
+            print(f"[STEP: PROPOSALS] Prompt saved: {proposals_prompt_path}")
+            print(f"[WAITING] Generate response to: {proposals_response_path}")
+        else:
+            continue_prompt_path.write_text(
+                cont.build_prompt(
+                    state=narrative_state,
+                    characters=characters,
+                    facts=facts,
+                    foreshadows=foreshadows,
+                    workspec_context=workspec.to_prompt_context(),
+                    frame_context=frame_context,
+                    structure_template=structure_template_name,
+                    platform=workspec.platform,
+                    genre=workspec.genre,
+                    style_context=style_context,
+                    retrieval_context=retrieval_context,
+                    timeline_context=facts.to_timeline_context(include_header=False),
+                    time_context=build_time_context(load_time_book(output_dir)),
+                    nsfw_context=build_nsfw_context(args.nsfw == "on"),
+                ),
+                encoding="utf-8",
+            )
+            print(f"[STEP: CONTINUE] Prompt saved: {continue_prompt_path}")
+            print(f"[WAITING] Generate response to: {continue_response_path}")
         print("[RESUME] Re-run this script after saving response")
         return 0
     print(f"Generated PlotUnit: {plotunit.unit_id}")
     print(f"Goal: {plotunit.goal}")
     print(f"New facts: {len(new_facts)}")
+
+    # Step 2.5: Character Update（可选，--character-update on；默认 off 零成本）
+    character_updates: list[dict] = []
+    if args.character_update == "on":
+        print("\n" + "=" * 50)
+        print("Step 2.5: Character Update")
+        print("=" * 50)
+        cu_prompt_path = output_dir / "character_update_prompt.txt"
+        cu_response_path = output_dir / "character_update_response.txt"
+        if cu_response_path.exists():
+            response = _read_response_text(cu_response_path)
+            updates = parse_character_updates_response(response)
+            try:
+                character_updates = admit_character_updates(
+                    characters, updates, plotunit.unit_id, apply=True
+                )
+            except ValueError as exc:
+                print(f"Error: {exc}")
+                return 1
+            append_character_updates(output_dir, character_updates)
+        else:
+            cu_prompt_path.write_text(
+                build_character_update_prompt(characters, plotunit, new_state),
+                encoding="utf-8",
+            )
+            print(f"[STEP: CHARACTER UPDATE] Prompt saved: {cu_prompt_path}")
+            print(f"[WAITING] Generate response to: {cu_response_path}")
+            print("[RESUME] Re-run this script after saving response")
+            return 0
+        print(f"Generated CharacterUpdates: {len(character_updates)}")
 
     # Step 3: Review
     print("\n" + "=" * 50)
@@ -505,6 +654,8 @@ def main() -> int:
         "rewrite_applied": len(fixes) > 0,
         "applied_fixes": fixes,
     }
+    if args.character_update == "on":
+        result["character_updates"] = character_updates
     compose_result_path = output_dir / "compose_result.json"
     compose_result_path.write_text(
         json.dumps(result, ensure_ascii=False, indent=2),

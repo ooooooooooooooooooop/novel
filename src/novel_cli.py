@@ -297,6 +297,47 @@ def _capture_long_config(args: argparse.Namespace) -> dict:
     }
 
 
+def _author_config_fields(args: argparse.Namespace) -> dict:
+    """作者感知选择链的 config 字段（--proposals/--author-mode/--kernel/--shadow/--drift-review）."""
+    return {
+        "proposals": getattr(args, "proposals", 1),
+        "author_mode": getattr(args, "author_mode", "off"),
+        "kernel": getattr(args, "kernel", "") or "",
+        "shadow": getattr(args, "shadow", "off"),
+        "drift_review": getattr(args, "drift_review", "off"),
+    }
+
+
+def _append_author_options(command: list[str], args: argparse.Namespace) -> None:
+    """把作者感知选择链选项追加到 extend/compose 子命令（默认值不追加，零成本）."""
+    proposals = getattr(args, "proposals", 1)
+    if proposals > 1:
+        command.extend(["--proposals", str(proposals)])
+    if getattr(args, "author_mode", "off") == "on":
+        command.extend(["--author-mode", "on"])
+    if getattr(args, "kernel", ""):
+        command.extend(["--kernel", args.kernel])
+    if getattr(args, "shadow", "off") == "on":
+        command.extend(["--shadow", "on"])
+    if getattr(args, "drift_review", "off") == "on":
+        command.extend(["--drift-review", "on"])
+
+
+def _append_configured_author_options(command: list[str], config: dict) -> None:
+    """resume 从 config 重建作者感知选择链选项（缺省零成本）."""
+    proposals = config.get("proposals") or 1
+    if proposals > 1:
+        command.extend(["--proposals", str(proposals)])
+    if config.get("author_mode") == "on":
+        command.extend(["--author-mode", "on"])
+    if config.get("kernel"):
+        command.extend(["--kernel", config["kernel"]])
+    if config.get("shadow") == "on":
+        command.extend(["--shadow", "on"])
+    if config.get("drift_review") == "on":
+        command.extend(["--drift-review", "on"])
+
+
 def _run_child(command: list[str]) -> int:
     completed = subprocess.run(command, cwd=PROJECT_ROOT)
     return completed.returncode
@@ -364,7 +405,9 @@ def _run_extend(args: argparse.Namespace) -> int:
         {"mode": "extend", **_capture_long_config(args)}
         | ({"style": args.style} if getattr(args, "style", None) else {})
         | {"retrieval": getattr(args, "retrieval", "on")}
-        | {"nsfw": getattr(args, "nsfw", "off")},
+        | {"nsfw": getattr(args, "nsfw", "off")}
+        | {"character_update": getattr(args, "character_update", "off")}
+        | _author_config_fields(args),
     )
 
     command = [
@@ -381,6 +424,8 @@ def _run_extend(args: argparse.Namespace) -> int:
         command.extend(["--temperament", args.temperament])
     command.extend(["--retrieval", getattr(args, "retrieval", "on")])
     command.extend(["--nsfw", getattr(args, "nsfw", "off")])
+    command.extend(["--character-update", getattr(args, "character_update", "off")])
+    _append_author_options(command, args)
     if getattr(args, "no_prose", False):
         command.append("--no-prose")
     return _run_child(command)
@@ -417,7 +462,9 @@ def _run_compose(args: argparse.Namespace) -> int:
             novel_dir,
             {"mode": "compose", "workspec": "workspec.json"}
             | ({"style": args.style} if getattr(args, "style", None) else {})
-            | {"nsfw": getattr(args, "nsfw", "off")},
+            | {"nsfw": getattr(args, "nsfw", "off")}
+            | {"character_update": getattr(args, "character_update", "off")}
+            | _author_config_fields(args),
         )
     elif source_workspec_path is not None:
         command.append(str(novel_dir / "workspec.json"))
@@ -426,7 +473,9 @@ def _run_compose(args: argparse.Namespace) -> int:
             {"mode": "compose", "workspec": "workspec.json"}
             | ({"style": args.style} if getattr(args, "style", None) else {})
             | {"retrieval": getattr(args, "retrieval", "on")}
-            | {"nsfw": getattr(args, "nsfw", "off")},
+            | {"nsfw": getattr(args, "nsfw", "off")}
+            | {"character_update": getattr(args, "character_update", "off")}
+            | _author_config_fields(args),
         )
     else:
         _write_config(
@@ -434,7 +483,9 @@ def _run_compose(args: argparse.Namespace) -> int:
             {"mode": "compose", "workspec": None}
             | ({"style": args.style} if getattr(args, "style", None) else {})
             | {"retrieval": getattr(args, "retrieval", "on")}
-            | {"nsfw": getattr(args, "nsfw", "off")},
+            | {"nsfw": getattr(args, "nsfw", "off")}
+            | {"character_update": getattr(args, "character_update", "off")}
+            | _author_config_fields(args),
         )
     command.extend(["--output-dir", str(output_dir)])
     if getattr(args, "style", None):
@@ -443,6 +494,8 @@ def _run_compose(args: argparse.Namespace) -> int:
         command.extend(["--temperament", args.temperament])
     command.extend(["--retrieval", getattr(args, "retrieval", "on")])
     command.extend(["--nsfw", getattr(args, "nsfw", "off")])
+    command.extend(["--character-update", getattr(args, "character_update", "off")])
+    _append_author_options(command, args)
     if getattr(args, "no_prose", False):
         command.append("--no-prose")
     return _run_child(command)
@@ -692,6 +745,8 @@ def _run_resume(args: argparse.Namespace) -> int:
             command.extend(["--style", config["style"]])
         command.extend(["--retrieval", config.get("retrieval", "on")])
         command.extend(["--nsfw", config.get("nsfw", "off")])
+        command.extend(["--character-update", config.get("character_update", "off")])
+        _append_configured_author_options(command, config)
         return _run_child(command)
     if mode == "compose":
         output_dir = _output_dir(novel_dir, "compose")
@@ -706,6 +761,8 @@ def _run_resume(args: argparse.Namespace) -> int:
             command.extend(["--style", config["style"]])
         command.extend(["--retrieval", config.get("retrieval", "on")])
         command.extend(["--nsfw", config.get("nsfw", "off")])
+        command.extend(["--character-update", config.get("character_update", "off")])
+        _append_configured_author_options(command, config)
         return _run_child(command)
     if mode == "style":
         output_dir = _output_dir(novel_dir, "style")
@@ -1321,6 +1378,40 @@ def _add_long_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--max-chapters", type=int, help="无 --range 时的最大允许章节数")
 
 
+def _add_author_arguments(parser: argparse.ArgumentParser) -> None:
+    """extend / compose 共用的作者感知选择链参数（全部默认零成本）."""
+    parser.add_argument(
+        "--proposals",
+        type=int,
+        default=1,
+        metavar="N",
+        help="Continue 多候选生成数（默认 1 零成本；N>=2 启用多候选选择链）",
+    )
+    parser.add_argument(
+        "--author-mode",
+        choices=["on", "off"],
+        default="off",
+        help="生产选择是否作者感知（默认 off 基线；on=Canary 6D 用 AuthorKernel 选择）",
+    )
+    parser.add_argument(
+        "--kernel",
+        metavar="PATH",
+        help="AuthorKernel JSON 路径（默认读工作区 author_kernel.json）",
+    )
+    parser.add_argument(
+        "--shadow",
+        choices=["on", "off"],
+        default="off",
+        help="影子选择开关（默认 off；on=6C 作者感知影子结果不进正文）",
+    )
+    parser.add_argument(
+        "--drift-review",
+        choices=["on", "off"],
+        default="off",
+        help="作者漂移审查开关（默认 off；on=6E active_break 记 KernelChallenge）",
+    )
+
+
 def build_parser(*, emit_json_errors: bool = False) -> argparse.ArgumentParser:
     parser = NovelArgumentParser(
         description="统一小说工作流入口",
@@ -1367,6 +1458,13 @@ def build_parser(*, emit_json_errors: bool = False) -> argparse.ArgumentParser:
         help="成人向（NSFW）开关（默认 off 正常向：注入禁成人内容分级；on：允许成人向内容）",
     )
     extend.add_argument(
+        "--character-update",
+        choices=["on", "off"],
+        default="off",
+        help="角色变更提案开关（默认 off 零成本；on：Continue 后新增角色更新阶段）",
+    )
+    _add_author_arguments(extend)
+    extend.add_argument(
         "--no-prose",
         action="store_true",
         help="跳过章节正文落盘（只产出 PlotUnit 结构）",
@@ -1393,6 +1491,13 @@ def build_parser(*, emit_json_errors: bool = False) -> argparse.ArgumentParser:
         default="off",
         help="成人向（NSFW）开关（默认 off 正常向：注入禁成人内容分级；on：允许成人向内容）",
     )
+    compose.add_argument(
+        "--character-update",
+        choices=["on", "off"],
+        default="off",
+        help="角色变更提案开关（默认 off 零成本；on：Continue 后新增角色更新阶段）",
+    )
+    _add_author_arguments(compose)
     compose.add_argument(
         "--no-prose",
         action="store_true",
