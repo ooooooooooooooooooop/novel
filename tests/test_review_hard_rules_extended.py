@@ -372,3 +372,63 @@ def test_review_parse_response_rejects_unknown_field_still():
 def _raises_valueerror(substr):
     import pytest
     return pytest.raises(ValueError, match=substr)
+
+
+def test_character_reconcile_knowledge_adds_and_drops():
+    """reconcile_knowledge：learn 追加去重，drop_unknown 移除断言未知."""
+    from src.object_state import CharacterModel
+
+    cm = CharacterModel(
+        character_id="c1", name="测试", identity="身份", outer_goal="目标",
+        inner_need="需求", fear="恐惧", flaw="缺陷", strength="优势", stance="中立",
+        knowledge_state=["知道甲", "不知道乙的来历"],
+    )
+    changed = cm.reconcile_knowledge(
+        learn=["苏观使找了十二年", "苏观使找了十二年"],  # 重复只加一次
+        drop_unknown=["不知道乙的来历"],
+    )
+    assert "苏观使找了十二年" in cm.knowledge_state
+    assert "不知道乙的来历" not in cm.knowledge_state
+    assert "知道甲" in cm.knowledge_state
+    assert cm.knowledge_state.count("苏观使找了十二年") == 1
+    assert len(changed) == 2  # +1 追加, -1 移除
+
+
+def test_review_parse_response_applies_knowledge_updates():
+    """review 声明角色新得知的信息——移除过期『不知道X』断言."""
+    from src.object_state import CharacterModel
+    from src.workflow_action.review import ReviewUnit
+
+    cm = CharacterModel(
+        character_id="c001", name="林烬", identity="抄碑人", outer_goal="生存",
+        inner_need="被认可", fear="暴露", flaw="执念", strength="谨慎", stance="中立",
+        knowledge_state=["不知道苏观使找了十二年", "不知道墨痕的来历与后果"],
+    )
+    resp = (
+        '{"issues": [], "reminders": [], "route": "pass",'
+        ' "character_knowledge_updates": [{"character_id": "c001",'
+        ' "learn": ["苏观使找了十二年"],'
+        ' "drop_unknown": ["不知道苏观使找了十二年"]}]}'
+    )
+    ReviewUnit().parse_response(resp, character_models=[cm])
+    assert "苏观使找了十二年" in cm.knowledge_state
+    assert "不知道苏观使找了十二年" not in cm.knowledge_state
+    # 未声明的不动（墨痕来历仍未知——亲历≠知来历，正确保留）
+    assert "不知道墨痕的来历与后果" in cm.knowledge_state
+
+
+def test_review_parse_response_knowledge_unknown_id_skipped():
+    """character_knowledge_updates 指向未知角色 id 时静默跳过."""
+    from src.object_state import CharacterModel
+    from src.workflow_action.review import ReviewUnit
+
+    cm = CharacterModel(character_id="c001", name="林烬", identity="抄碑人", outer_goal="生存",
+        inner_need="被认可", fear="暴露", flaw="执念", strength="谨慎", stance="中立",
+        knowledge_state=["不知道X"])
+    resp = (
+        '{"issues": [], "reminders": [], "route": "pass",'
+        ' "character_knowledge_updates": [{"character_id": "c999",'
+        ' "learn": ["Y"], "drop_unknown": ["不知道X"]}]}'
+    )
+    ReviewUnit().parse_response(resp, character_models=[cm])
+    assert cm.knowledge_state == ["不知道X"]  # 未受影响

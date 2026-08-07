@@ -145,3 +145,33 @@ class CharacterModel(BaseModel):
             ]
             lines.append(f"关系行为差异: {'; '.join(rel_behav)}")
         return "\n".join(lines)
+
+    def reconcile_knowledge(
+        self,
+        learn: list[str] | None = None,
+        drop_unknown: list[str] | None = None,
+    ) -> list[str]:
+        """按 Review 声明更新已知信息（knowledge_state）.
+
+        - learn: 本章角色新得知的信息，追加（去重）。
+        - drop_unknown: 被确证的『不知道X』断言，从 knowledge_state 移除。
+
+        用途：正文/情节已把某信息揭示给角色后，把知识域与叙事同步，
+        避免信息凭证检测对已过期的『不知道X』反复误报。返回变化条目。
+        """
+        learn = learn or []
+        drop_unknown = drop_unknown or []
+        changed: list[str] = []
+        for item in learn:
+            item = str(item).strip()
+            if item and item not in self.knowledge_state:
+                self.knowledge_state.append(item)
+                changed.append(f"+{item}")
+        for claim in drop_unknown:
+            claim = str(claim).strip()
+            if claim in self.knowledge_state:
+                self.knowledge_state = [
+                    k for k in self.knowledge_state if k != claim
+                ]
+                changed.append(f"-{claim}")
+        return changed

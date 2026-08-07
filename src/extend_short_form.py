@@ -22,6 +22,7 @@ from src.boundary_control.runtime_state import require_continue_runtime_state
 from src.boundary_control.response_file import reset_consumed_responses
 from src.boundary_control.serialization import SerializationBoundaryUnit
 from src.boundary_control.validation import NoRegressionValidationUnit
+from src.object_state.charactermodel import CharacterModel
 from src.object_state.foreshadowgraph import ForeshadowGraph
 from src.domain_layer.compliance_rules import build_nsfw_context
 from src.domain_layer.rules import get_structure_template
@@ -652,8 +653,13 @@ def main() -> int:
         _review_foreshadows = [
             o for o in review_objects if isinstance(o, ForeshadowGraph)
         ]
+        _review_chars = [
+            o for o in review_objects if isinstance(o, CharacterModel)
+        ]
         llm_issues, reminders, route = review.parse_response(
-            response, foreshadows=_review_foreshadows
+            response,
+            foreshadows=_review_foreshadows,
+            character_models=_review_chars,
         )
 
         # 合并代码预检 issues
@@ -734,8 +740,13 @@ def main() -> int:
             _rereview_foreshadows = [
                 o for o in review_objects if isinstance(o, ForeshadowGraph)
             ]
+            _rereview_chars = [
+                o for o in review_objects if isinstance(o, CharacterModel)
+            ]
             llm_issues, reminders, route = review.parse_response(
-                response, foreshadows=_rereview_foreshadows
+                response,
+                foreshadows=_rereview_foreshadows,
+                character_models=_rereview_chars,
             )
             hard_issues = review._hard_rules(review_objects)
             domain_issues = review._domain_rules(review_objects)

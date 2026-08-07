@@ -203,6 +203,7 @@ class ReviewUnit:
         self,
         response: str,
         foreshadows: list | None = None,
+        character_models: list | None = None,
     ) -> tuple[list[ReviewIssue], list[ReviewReminder], str]:
         """解析 LLM 审查响应.
 
@@ -211,6 +212,9 @@ class ReviewUnit:
             foreshadows: 可选 ForeshadowGraph 列表；响应含 foreshadow_updates 时，
                 就地更新对应线程状态（正文已兑现的承诺在此落为 resolved，消除
                 后续 promise_loss 重复误报）。
+            character_models: 可选 CharacterModel 列表；响应含
+                character_knowledge_updates 时，就地同步角色已知信息（移除已过期
+                的『不知道X』断言，消除信息凭证重复误报）。
 
         Returns:
             (ReviewIssue 列表, ReviewReminder 列表, 路由推荐)
@@ -222,7 +226,10 @@ class ReviewUnit:
             raise ValueError(
                 f"Review response missing required field(s): {', '.join(missing)}"
             )
-        allowed_fields = required_fields + ("foreshadow_updates",)
+        allowed_fields = required_fields + (
+            "foreshadow_updates",
+            "character_knowledge_updates",
+        )
         extra = sorted(set(data) - set(allowed_fields))
         if extra:
             raise ValueError(
@@ -242,6 +249,13 @@ class ReviewUnit:
             if not isinstance(updates, list):
                 raise ValueError("Review response field foreshadow_updates must be a list")
             self._apply_foreshadow_updates(foreshadows, updates)
+        if character_models:
+            updates = data.get("character_knowledge_updates") or []
+            if not isinstance(updates, list):
+                raise ValueError(
+                    "Review response field character_knowledge_updates must be a list"
+                )
+            self._apply_knowledge_updates(character_models, updates)
         return issues, reminders, route
 
     @staticmethod
@@ -258,6 +272,24 @@ class ReviewUnit:
                 continue
             for fg in foreshadows:
                 fg.set_status(thread_id.strip(), status.strip())
+
+    @staticmethod
+    def _apply_knowledge_updates(character_models: list, updates: list) -> None:
+        """把 review 声明的角色已知信息更新落到 CharacterModel（unknown id 静默跳过）."""
+        by_id = {cm.character_id: cm for cm in character_models}
+        for item in updates:
+            if not isinstance(item, dict):
+                continue
+            character_id = item.get("character_id")
+            if not isinstance(character_id, str) or character_id.strip() not in by_id:
+                continue
+            cm = by_id[character_id.strip()]
+            learn = item.get("learn")
+            drop_unknown = item.get("drop_unknown")
+            if isinstance(learn, list) and learn:
+                cm.reconcile_knowledge(learn=learn)
+            if isinstance(drop_unknown, list) and drop_unknown:
+                cm.reconcile_knowledge(drop_unknown=drop_unknown)
 
     def resolve_route(self, issues: list[ReviewIssue], route: str) -> str:
         """Resolve final route after code and LLM issues are merged."""
@@ -603,13 +635,23 @@ class ReviewUnit:
       "status": "resolved",
       "note": "该伏笔在正文已兑现/回收，从活跃承诺中移除"
     }}
+  ],
+  "character_knowledge_updates": [
+    {{
+      "character_id": "c001",
+      "learn": ["苏观使找了十二年"],
+      "drop_unknown": ["不知道苏观使找了十二年"]
+    }}
   ]
 }}
 
 如无问题，返回空 issues 和 "pass" 路由。
 foreshadow_updates 可选：仅当某 active 伏笔在本章（含其后果/正文）已被兑现或
 明确推进时列出，status 取 active/resolved/abandoned/transformed/open/delayed/
-false_path 之一；仍开放的承诺不要列入（保持 active）。"""
+false_path 之一；仍开放的承诺不要列入（保持 active）。
+character_knowledge_updates 可选：仅当某角色在本章得知了新信息（情节揭示给了他），
+把对应的『不知道X』断言从 drop_unknown 移除、把新得知的信息加入 learn；角色仍
+不知道的不要列入。"""
 
     def is_pass(self, issues: list[ReviewIssue]) -> bool:
         """判断是否通过（无阻断性问题）."""
