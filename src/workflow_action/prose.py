@@ -65,6 +65,40 @@ def chapter_path(chapters_dir: Path, n: int) -> Path:
     return chapters_dir / f"chapter_{n}.txt"
 
 
+def is_duplicate_of_last(
+    chapter_text: str,
+    chapters_dir: Path,
+    threshold: float = 0.7,
+) -> bool:
+    """新正文与最后一章几乎逐句相同 → 判定为重复章（staged 响应被复用/陈旧）.
+
+    用句集重叠率（按 。！？ 切句，跳过 <8 字短句）判断：新章句子中 ≥threshold
+    的比例出现在上一章 → 视为把当前章逐字重渲染成新文件（真实出现的复发：
+    ch5 整章复制 ch4）。在落盘点兜底——无论 staged 响应为何被复用都拒绝写盘。
+    """
+    import re
+
+    def _sentence_set(text: str) -> set[str]:
+        return {
+            s.strip()
+            for s in re.split(r"[。！？]", text)
+            if len(s.strip()) > 8
+        }
+
+    n = next_chapter_number(chapters_dir)
+    if n <= 1:
+        return False
+    last_path = chapter_path(chapters_dir, n - 1)
+    if not last_path.exists():
+        return False
+    current = _sentence_set(chapter_text)
+    if not current:
+        return False
+    previous = _sentence_set(last_path.read_text(encoding="utf-8"))
+    overlap = len(current & previous)
+    return overlap / len(current) >= threshold
+
+
 def prev_chapter_tail(text: str, max_chars: int = PREV_CHAPTER_TAIL_CHARS) -> str:
     """取文本末尾片段作续写衔接（extend 用；无原文则空串）。"""
     if not text:

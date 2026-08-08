@@ -21,6 +21,7 @@ from src.workflow_action.prose import (
     MIN_PROSE_CHARS,
     build_prompt,
     chapter_path,
+    is_duplicate_of_last,
     next_chapter_number,
     parse_response,
     prev_chapter_tail,
@@ -195,3 +196,44 @@ def test_compose_cli_passes_no_prose(tmp_path, monkeypatch):
     ret = cli_main(["compose", "示例小说丁", "--no-prose"])
     assert ret == 0
     assert "--no-prose" in captured["command"]
+
+
+# --- is_duplicate_of_last：防重复章闸门 ---
+
+
+def test_duplicate_of_last_identical(tmp_path):
+    """新正文与最后一章完全相同 → 判定重复."""
+    chapters = tmp_path / "chapters"
+    chapters.mkdir()
+    text = "第一章 一\n开头句。中间一段叙述。结尾收束。"
+    (chapters / "chapter_1.txt").write_text(text, encoding="utf-8")
+    # 同文本再写一章 → 应被判定为重复
+    assert is_duplicate_of_last(text, chapters) is True
+
+
+def test_duplicate_of_last_distinct(tmp_path):
+    """新正文与最后一章完全不同 → 不判定重复."""
+    chapters = tmp_path / "chapters"
+    chapters.mkdir()
+    (chapters / "chapter_1.txt").write_text(
+        "第一章 一\n首章正文。第一个情节。", encoding="utf-8"
+    )
+    new = "第二章 二\n完全不同的续写。新的场景。新的对话。"
+    assert is_duplicate_of_last(new, chapters) is False
+
+
+def test_duplicate_of_last_no_last_chapter(tmp_path):
+    """目录为空 → 不判定重复（首章正常写盘）."""
+    chapters = tmp_path / "chapters"
+    chapters.mkdir()
+    assert is_duplicate_of_last("第一章 一\n首章正文。", chapters) is False
+
+
+def test_duplicate_of_last_short_sentences_ignored(tmp_path):
+    """<8 字短句不计入重叠（避免『他走了。』这类通用短句误判）."""
+    chapters = tmp_path / "chapters"
+    chapters.mkdir()
+    prev = "第一章 一\n他走了。天亮了。雨下了。长句承载的内容各不相同。"
+    (chapters / "chapter_1.txt").write_text(prev, encoding="utf-8")
+    new = "第二章 二\n他走了。天亮了。雨下了。完全不同的长句推进新情节。"
+    assert is_duplicate_of_last(new, chapters) is False

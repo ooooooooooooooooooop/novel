@@ -835,6 +835,12 @@ def main() -> int:
         )
         chapters_dir = output_dir.parent.parent / "chapters"
         chapters_dir.mkdir(parents=True, exist_ok=True)
+        if prose_action.is_duplicate_of_last(chapter_text, chapters_dir):
+            print(
+                "Error: candidate prose is nearly identical to the last chapter; "
+                "refusing to write a duplicate (staged response may have been reused)."
+            )
+            return 1
         chapter_file = prose_action.chapter_path(
             chapters_dir, prose_action.next_chapter_number(chapters_dir)
         )
