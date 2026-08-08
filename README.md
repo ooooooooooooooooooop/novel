@@ -4,7 +4,7 @@ An automatic novel narrative system that parses narrative structure, maintains n
 
 一个自动小说叙事系统：解析叙事结构、维护叙事状态、规划故事推进、审查生成结果。
 
-> **Tier 0 production-ready** — local staged CLI, operator-in-the-loop · **2135 tests passing** · checkpoint tag `v0.1.2-tier0`
+> **Tier 0 production-ready** — local staged CLI, operator-in-the-loop · **2203 tests passing** · checkpoint tag `v0.1.2-tier0`
 
 ---
 
@@ -31,7 +31,7 @@ The repository is **Tier 0 production-ready — three-flow daily-production hard
 Tier 0 生产就绪判定（2026-07-28 宣布）：
 
 - production tier: `local staged CLI v0`（本地分阶段 CLI v0）
-- full pytest baseline: 2135 tests passing（完整回归基线 2135 个测试通过）
+- full pytest baseline: 2203 tests passing（完整回归基线 2203 个测试通过）
 - release record: `docs/00_project/releases/tier0-release.json`
 - immutable checkpoint: git tag `v0.1.2-tier0`
 - extend / compose canaries 均通过 `novel gate` 同四标准；聚合证据在 `docs/00_project/releases/tier0-three-flow-canary-aggregation.json`
@@ -46,8 +46,8 @@ Tier 0 边界仍然生效：
 ## 近期落地（2026-08-06）
 
 独立第三方评估（工程 + 读者陪审团双视角）确认的 Top 缺陷已按
-`docs/00_project/41_evaluation_remediation_plan.md` 落地修复（PII 红线测试、续写篇幅对齐、续写原文去重、Review prose 复核、时间锚扩窗，均已并入下方 Features 与 Privacy 段）。F3b（Review 移至 prose 之后的结构设计）另出
-`docs/00_project/42_review_after_prose_design.md`，**仅设计未实施**。V1–V3 评估项依赖外部资源（平台追读率 / 人类标注集 / 人写-AI 写基准语料），维持「待接入」。audit 真实文本端到端实跑记录见 docs/41。
+`docs/00_project/41_evaluation_remediation_plan.md` 落地修复（PII 红线测试、续写篇幅对齐、续写原文去重、Review prose 复核、时间锚扩窗，均已并入下方 Features 与 Privacy 段）。F3b（Review 移至 prose 之后的结构设计，见
+`docs/00_project/42_review_after_prose_design.md`）**已于 2026-08-08 实施**（Post-Prose Review，见 Features）。V1–V3 评估项依赖外部资源（平台追读率 / 人类标注集 / 人写-AI 写基准语料），维持「待接入」。audit 真实文本端到端实跑记录见 docs/41。
 
 ## Features / 功能特性
 
@@ -61,6 +61,11 @@ Tier 0 边界仍然生效：
 - **结构概览**：OutlineUnit `--outline-only`；30+ 章长文 audit / extend 自动作为 Rebuild 结构先验
 - **结构一致性**：Reconcile 用 outline 检查角色与 genre 一致性；`check_temporal_contradictions` 做时间矛盾检测（死亡后仍活跃 / 过期事实仍被持有 / 时间感知否定）
 - **Review prose 复核**：伏笔/承诺/后果/角色 issue 做正文兑现标注（不改 route）
+- **Post-Prose Review（先成文、后审查）**：extend/compose 时序 = Continue → Pre-Review（代码闸，零 LLM，结构硬错误成文前拦截）→ Prose → Review（读正文）；Review prompt 注入【本章正文】+ 正文层 7 维审查（兑现 / 人物忠实 / 情绪落地 / 解读空间 / 场景在场 / 对白 / AI 味），正文层独有缺陷（同章对白逐字重复、AI 味、情绪靠声明）第一次可被审查发现；route=rewrite 时正文已存在 → 正文层修订优先（`prose_revise`）；`--no-prose` 保持对象层修复；`output/.flow_version=2` + 旧版残留 fail-fast 迁移（42 设计 F3b 落地）
+- **Draft/Commit 分离 + Post-Prose 修订 A/B 台账**：PASS 前正文只是 staged draft（`output/prose_draft.txt`），PASS 后才提交为正式 `chapters/chapter_N.txt`（下游不消费未提交稿）；正文层修订把 `{version_a, version_b, which_is_original, issue_types, detection, revision_gain}` 记入 `prose_revision_ledger.json`，`novel ab` 盲评（Revision Agent ≠ Judge，多 Judge 共识 + 分层统计 + net_rate + Wilson CI + Abstain，分离 Detection Precision 与 Revision Gain）
+- **PASS Blind Audit（测漏检率）**：`novel audit-pass` 独立盲审 route=pass 章节（不透露 PASS 身份）；**True Miss 口径**——每章对比原 Review issues（O）与 audit findings（A），匹配（issue_type+文本）的算复现不算漏检；输出 audit_finding_rate / true_miss_rate / actionable / blocking / severity_disagreement，按审核世代分 cohort
+- **Style Drift 测量（measurement-only）**：`novel drift` 产出 `output/drift/drift_report.json`（AI 章 vs 人类 baseline 的 AI 化 drift + Draft vs Committed homogenization 检查，含 formula_node 叙事阶段标注），只测不改
+- **misinformation 生命周期**：Review 可声明 `misinformation_updates`（`disproven` 移除被击穿信念 / `corrected` 用 `[{from,to}]` 替换）；belief state 与 knowledge truth 分离——事实被证伪 ≠ 人物心理已接受
 - **信息凭证一致性**：六通道谱系（亲历/转述/书面/公开/推断/记忆）+ P1-P4 凭证约束；`iss_info_*` 弱信号（转述产亲历细节 / 转述时效 / 知识域翻转）
 - **事实时间有效性**：`FactEntry.validity_interval`，`to_prompt_line` 渲染 `(第三章~第五章)` 后缀；旧 state 可反序列化
 - **写作风格**：`novel style` 提炼 StyleProfile（量化分析 + LLM 质性提炼），compose/extend 注入续写 prompt；`--lint` 做 AI 味检查；风格库 `--name` 另存 / `--style` 跨小说引用
@@ -107,7 +112,7 @@ novel extend 示例小说乙 --input 示例小说乙.txt
 novel extend 示例小说乙 --input 示例小说乙.txt --nsfw on   # 允许成人向（默认 off 正常向）
 ```
 
-- 三次重跑（Rebuild → Continue → Review）；章节正文写入 `novels/示例小说乙/chapters/chapter_<编号>.txt`
+- 三次重跑（Rebuild → Continue → Prose → Review，**先成文、后审查**——Review 注入【本章正文】做正文层审查）；章节正文写入 `novels/示例小说乙/chapters/chapter_<编号>.txt`
 - 续写从原文章节后一编号续起，篇幅对齐原文章均，参考原文语感与意象系统
 
 ### Compose 从 WorkSpec 创作
@@ -218,4 +223,4 @@ New to the repository? Read in this order:
 pytest tests/ -q
 ```
 
-Baseline: **2135 tests passing**（Windows 下测试请带 `PYTHONIOENCODING=utf-8`）。
+Baseline: **2203 tests passing**（Windows 下测试请带 `PYTHONIOENCODING=utf-8`）。

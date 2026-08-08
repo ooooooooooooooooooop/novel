@@ -44,32 +44,32 @@ def _initial(**overrides) -> CharacterModel:
 
 
 def _seq_a() -> list[dict]:
-    """Twin A：设防 / 独立 经历."""
+    """Twin A：设防 / 独立 经历（formative——长期写回门禁需 permanence=long）. """
     return [
         {"character_id": "c_twin", "observed_consequence": "主动坦白后被人利用",
          "affected_dimension": "self_image", "update_type": "shift",
-         "proposed_after": "独自扛下一切"},
+         "proposed_after": "独自扛下一切", "permanence": "long", "confidence": 0.9},
         {"character_id": "c_twin", "observed_consequence": "再次被利用",
          "affected_dimension": "fear", "update_type": "reinforce",
-         "proposed_after": "被利用"},
+         "proposed_after": "被利用", "permanence": "long", "confidence": 0.9},
         {"character_id": "c_twin", "observed_consequence": "求助被羞辱",
          "affected_dimension": "goal", "update_type": "shift",
-         "proposed_after": "自保优先"},
+         "proposed_after": "自保优先", "permanence": "long", "confidence": 0.9},
     ]
 
 
 def _seq_b() -> list[dict]:
-    """Twin B：信任 / 开放 经历."""
+    """Twin B：信任 / 开放 经历（formative——长期写回门禁需 permanence=long）. """
     return [
         {"character_id": "c_twin", "observed_consequence": "主动坦白后被理解",
          "affected_dimension": "self_image", "update_type": "shift",
-         "proposed_after": "信任他人"},
+         "proposed_after": "信任他人", "permanence": "long", "confidence": 0.9},
         {"character_id": "c_twin", "observed_consequence": "求助获得帮助",
          "affected_dimension": "goal", "update_type": "shift",
-         "proposed_after": "建立可信赖关系"},
+         "proposed_after": "建立可信赖关系", "permanence": "long", "confidence": 0.9},
         {"character_id": "c_twin", "observed_consequence": "及时沟通修复了关系",
          "affected_dimension": "trajectory", "update_type": "shift",
-         "proposed_after": "从孤立到愿意托付"},
+         "proposed_after": "从孤立到愿意托付", "permanence": "long", "confidence": 0.9},
     ]
 
 
@@ -93,17 +93,17 @@ def _scenarios() -> list:
 
 
 def _adaptation() -> list[dict]:
-    """给 A 的大量新正向沟通经验."""
+    """给 A 的大量新正向沟通经验（formative——长期写回门禁需 permanence=long）."""
     return [
         {"character_id": "c_twin", "observed_consequence": "多次求助被接纳",
          "affected_dimension": "self_image", "update_type": "shift",
-         "proposed_after": "可以信任他人"},
+         "proposed_after": "可以信任他人", "permanence": "long", "confidence": 0.9},
         {"character_id": "c_twin", "observed_consequence": "托付得到回报",
          "affected_dimension": "trajectory", "update_type": "shift",
-         "proposed_after": "从设防到愿意托付"},
+         "proposed_after": "从设防到愿意托付", "permanence": "long", "confidence": 0.9},
         {"character_id": "c_twin", "observed_consequence": "关系修复成功",
          "affected_dimension": "goal", "update_type": "shift",
-         "proposed_after": "建立可信赖关系"},
+         "proposed_after": "建立可信赖关系", "permanence": "long", "confidence": 0.9},
     ]
 
 

@@ -9,6 +9,7 @@ compose/extend 的 PlotUnit 只产出结构，不产出正文（frame.py 明确
 不写 chapters/），prompt 字节不变。
 """
 
+import json
 from pathlib import Path
 
 from src.object_state.narrativestate import NarrativeState
@@ -99,6 +100,22 @@ def is_duplicate_of_last(
     return overlap / len(current) >= threshold
 
 
+def is_same_as_last(chapter_text: str, chapters_dir: Path) -> bool:
+    """候选正文是否与最后一章逐字相同（同一 prose_response 的重复读入，非重复章）.
+
+    新时序（先成文、后审查）下，正文已落盘后 operator 重跑以提供 review_response，
+    prose_response 尚未被 reset 消费——本步会再次读入同一正文。若与最后一章逐字
+    相同，说明是同一章的重读（应复用既有章节，跳过落盘），而非重复章。
+    """
+    n = next_chapter_number(chapters_dir)
+    if n <= 1:
+        return False
+    last_path = chapter_path(chapters_dir, n - 1)
+    if not last_path.exists():
+        return False
+    return last_path.read_text(encoding="utf-8").strip() == chapter_text.strip()
+
+
 def prev_chapter_tail(text: str, max_chars: int = PREV_CHAPTER_TAIL_CHARS) -> str:
     """取文本末尾片段作续写衔接（extend 用；无原文则空串）。"""
     if not text:
@@ -171,6 +188,7 @@ def build_prompt(
     workspec_context: str = "",
     style_context: str = "",
     excerpt_context: str = "",
+    original_style_context: str = "",
     timeline_context: str = "",
     time_context: str = "",
     prev_chapter_end: str = "",
@@ -211,6 +229,8 @@ def build_prompt(
         lines += ["", "【作品约束】", workspec_context]
     if style_context:
         lines += ["", "【写作风格】", style_context]
+    if original_style_context:
+        lines += ["", "【原文文风参考】", original_style_context]
     if excerpt_context:
         lines += ["", "【上下文摘录】", excerpt_context]
     if timeline_context:
@@ -224,6 +244,223 @@ def build_prompt(
         "【输出格式】直接输出章节正文（纯文本，不要 JSON、不要前后缀说明）。",
     ]
     return "\n".join(lines)
+
+
+def build_revision_prompt(
+    blocking_issues: list,
+    chapter_text: str,
+    *,
+    plotunit: PlotUnit | None = None,
+    target_chapter_chars: int | None = None,
+) -> str:
+    """正文修订 prompt（post-prose Review 的 rewrite 路径）.
+
+    Review 移到成文后，若正文层审查发现阻断性问题，正文已存在——不再重走
+    PlotUnit→Prose，而是带阻断 issue 直接修订已有章节正文（正文层修复，
+    不重建对象层）。LLM 返回修订后的完整章节正文（纯文本）。
+    """
+    lines = [
+        "你是一位小说改写作者。以下章节正文在审查中发现阻断性问题，"
+        "请修订正文以解决这些问题（保持情节结构、人物与既有事件一致）。",
+        "",
+        "【阻断性问题】",
+    ]
+    for issue in blocking_issues:
+        desc = getattr(issue, "description", str(issue))
+        issue_type = getattr(issue, "issue_type", "issue")
+        severity = getattr(issue, "severity", "warning")
+        lines.append(f"- [{severity}] {issue_type}: {desc}")
+        suggested = getattr(issue, "suggested_fix", None)
+        if suggested:
+            lines.append(f"  建议: {suggested}")
+    if plotunit is not None:
+        lines += ["", "【PlotUnit（结构依据）】", plotunit.to_prompt_context()]
+    lines += ["", "【当前章节正文】", chapter_text]
+    if target_chapter_chars:
+        lines.append(
+            f"篇幅保持约 {target_chapter_chars} 字符（去空白），"
+            f"允许 ±{int(CHAPTER_LEN_TOLERANCE * 100)}% 浮动。"
+        )
+    lines += [
+        "",
+        "【输出格式】直接输出修订后的完整章节正文（纯文本，不要 JSON、不要前后缀说明）。",
+    ]
+    return "\n".join(lines)
+
+
+def record_chapter_provenance(
+    output_dir: Path,
+    chapter_number: int,
+    *,
+    prose_review_enabled: bool = True,
+    draft_commit_enabled: bool = True,
+    review_version: str = "post-prose-v1",
+    review_issues: list | None = None,
+    final_draft_chars: int | None = None,
+    first_draft_chars: int | None = None,
+    expansion_required: bool | None = None,
+    active_frame_id: str | None = None,
+    active_formula_node: str | None = None,
+) -> Path:
+    """记录已提交章节的审核世代 + 原始 Review issues + 篇幅/Frame 观测.
+
+    用途：所有测量（PASS Audit / A/B / Drift / Draft-Committed / 篇幅）都必须
+    version-aware + 人工介入可溯源。**操作者扩写也是 provenance**——否则几章后
+    分不清 Committed 质量来自 Prose / Review / 人工扩写。
+
+    `review_issues`：该章 Review 报出的 issues（O）。PASS ≠ Review 没发现 issue。
+
+    `final_draft_chars` / `first_draft_chars` / `expansion_required`：篇幅观测。
+    初稿是否偏短、是否需操作者主动扩写，连续几章可判断『偏短』是偶发还是
+    Prose Generator 的稳定 attractor。
+
+    `active_frame_id` / `active_formula_node`：生成该章时 frame_context 注入的
+    当前帧——用于观测终止型节点（resolution 等）在多少个新 committed chapter
+    后仍被消费（Frame 生命周期频率证据）。
+    """
+    path = output_dir / "chapter_provenance.json"
+    if path.exists():
+        data = json.loads(path.read_text(encoding="utf-8"))
+    else:
+        data = {"schema_version": 1, "chapters": {}}
+
+    flow_version_path = output_dir / ".flow_version"
+    flow_version = "2"
+    if flow_version_path.exists():
+        flow_version = flow_version_path.read_text(encoding="utf-8").strip() or "2"
+
+    issues = []
+    for i in review_issues or []:
+        d = i.model_dump(mode="json") if hasattr(i, "model_dump") else i
+        issues.append({
+            "issue_id": d.get("issue_id"),
+            "issue_type": d.get("issue_type"),
+            "severity": d.get("severity"),
+            "location": d.get("location"),
+            "description": d.get("description"),
+        })
+
+    data["chapters"][f"chapter_{chapter_number}"] = {
+        "chapter_number": chapter_number,
+        "flow_version": flow_version,
+        "review_version": review_version,
+        "prose_review_enabled": bool(prose_review_enabled),
+        "draft_commit_enabled": bool(draft_commit_enabled),
+        "review_issues": issues,
+        # 篇幅观测（操作者扩写也如实记录）
+        "first_draft_chars": first_draft_chars,
+        "final_draft_chars": final_draft_chars,
+        "expansion_required": expansion_required,
+        "expansion_delta": (
+            (final_draft_chars - first_draft_chars)
+            if (final_draft_chars is not None and first_draft_chars is not None)
+            else None
+        ),
+        # Frame 生命周期观测
+        "active_frame_id": active_frame_id,
+        "active_formula_node": active_formula_node,
+        "committed_at_utc": None,
+    }
+    path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    return path
+
+
+def archive_draft(output_dir: Path, chapter_number: int, draft_text: str) -> Path:
+    """归档已提交章的 draft（output/prose_history/draft_chapter_<N>.txt）.
+
+    用途：Style Drift 测量比较 Draft vs Committed——若 Draft 有变化、Review 一修就
+    统一，罪魁祸首是 Review（homogenization），而不是 Prose。draft 在提交后仍保留
+    于此（prose_draft.txt 会被下一章覆盖，归档留史）。
+    """
+    hist = output_dir / "prose_history"
+    hist.mkdir(parents=True, exist_ok=True)
+    path = hist / f"draft_chapter_{chapter_number}.txt"
+    path.write_text(draft_text, encoding="utf-8")
+    return path
+
+
+def archive_raw_prose(output_dir: Path, chapter_number: int, raw_text: str) -> Path:
+    """归档首次解析的 raw prose（output/prose_history/raw_chapter_<N>.txt）.
+
+    用途：Operator Expansion 入 provenance——文本阶段拆清：
+        raw →（操作者扩写）→ draft →（Review 修订）→ committed
+    Style Drift / Draft quality / Review Gain 比较时能区分功劳来自 Prose / 人工扩写
+    / Review。只在首次解析时写（后续重跑不覆盖已归档的 raw）。
+    """
+    hist = output_dir / "prose_history"
+    hist.mkdir(parents=True, exist_ok=True)
+    path = hist / f"raw_chapter_{chapter_number}.txt"
+    if not path.exists():
+        path.write_text(raw_text, encoding="utf-8")
+    return path
+
+
+def record_prose_revision(
+    output_dir: Path,
+    *,
+    cycle_id: str,
+    issues: list,
+    original: str,
+    revision: str,
+) -> Path:
+    """把一次正文层修订记入 A/B 台账（output/prose_revision_ledger.json，schema v2）.
+
+    目的：测量 Post-Prose Review 的 **Detection Precision**（说有问题时真有问题吗）
+    vs **Revision Gain**（按它改真的更好吗），而不是默认「Review 成功」。为防
+    **评审自证**（Review 生成修订、又自己偏好自己的写法），台账只存无标注的
+    A/B 对 + 哪个是原文（`which_is_original` 随机，盲评时隐藏），并记录 issue
+    类型/严重度供分层统计。
+
+    Args:
+        output_dir: 工作区 output 目录。
+        cycle_id: 本轮 PlotUnit unit_id。
+        issues: 触发修订的阻断性 ReviewIssue 列表。
+        original: 修订前 draft。
+        revision: 修订后 draft。
+    """
+    import random
+
+    issue_types = sorted({getattr(i, "issue_type", "unknown") for i in issues})
+    severities = [getattr(i, "severity", "warning") for i in issues]
+    issue_severity = "blocking" if "blocking" in severities or "critical" in severities else (
+        "critical" if "critical" in severities else "warning"
+    )
+    # 随机化 A/B 顺序：Judge 不知道『哪个是原文』
+    which_is_original = random.choice(("a", "b"))
+    if which_is_original == "a":
+        version_a, version_b = original, revision
+    else:
+        version_a, version_b = revision, original
+
+    ledger_path = output_dir / "prose_revision_ledger.json"
+    if ledger_path.exists():
+        ledger = json.loads(ledger_path.read_text(encoding="utf-8"))
+    else:
+        ledger = {"schema_version": 1, "revisions": []}
+    ledger["schema_version"] = 2
+    flow_version_path = output_dir / ".flow_version"
+    flow_version = "2"
+    if flow_version_path.exists():
+        flow_version = flow_version_path.read_text(encoding="utf-8").strip() or "2"
+    entry = {
+        "cycle_id": cycle_id,
+        "issue_types": issue_types,
+        "issue_severity": issue_severity,
+        "flow_version": flow_version,
+        "version_a": version_a,
+        "version_b": version_b,
+        "which_is_original": which_is_original,  # 盲评时隐藏
+        # Detection Precision：原文是否确实存在被标记的缺陷（separate pass，多 Judge）
+        "detection": {"judgments": [], "original_has_flaw": None},
+        # Revision Gain：A/B 偏好（judge 独立于 Revision Agent，多 Judge 可区分 3/3、2/3、split）
+        "revision_gain": {"judgments": [], "preference": None, "confidence": None},
+    }
+    ledger["revisions"].append(entry)
+    ledger_path.write_text(
+        json.dumps(ledger, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    return ledger_path
 
 
 def parse_response(text: str, target_chars: int | None = None) -> str:

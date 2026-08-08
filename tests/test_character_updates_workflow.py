@@ -82,6 +82,19 @@ def _mk_update(**overrides) -> dict:
     return base
 
 
+def _mk_long_identity_update(**overrides) -> dict:
+    """构造能通过长期写回门禁的身份提案（long + 高置信 + 方向变化）."""
+    base = dict(
+        affected_dimension="self_image",
+        update_type="shift",
+        proposed_after="可以有限度求助",
+        permanence="long",
+        confidence=0.85,
+    )
+    base.update(overrides)
+    return _mk_update(**base)
+
+
 # ---- apply_update_to_character ----
 
 
@@ -118,7 +131,7 @@ def test_apply_trajectory_appends():
 def test_apply_replace_records_before():
     c = _mk_character(fear="重蹈被逐的覆辙")
     u = CharacterUpdate(
-        **_mk_update(
+        **_mk_long_identity_update(
             affected_dimension="fear",
             proposed_after="改写真相对方识破",
         )
@@ -126,20 +139,109 @@ def test_apply_replace_records_before():
     before = apply_update_to_character(c, u)
     assert before == "重蹈被逐的覆辙"
     assert c.fear == "改写真相对方识破"
+    assert u.status == "applied"
 
 
 def test_apply_goal_and_self_image_replace():
     c = _mk_character(outer_goal="为师父洗刷冤屈", self_image="必须独自承担")
     g = CharacterUpdate(
-        **_mk_update(affected_dimension="goal", proposed_after="先保全自己再图复仇")
+        **_mk_long_identity_update(
+            affected_dimension="goal", proposed_after="先保全自己再图复仇"
+        )
     )
     s = CharacterUpdate(
-        **_mk_update(affected_dimension="self_image", proposed_after="可以有限度求助")
+        **_mk_long_identity_update(proposed_after="可以有限度求助")
     )
     assert apply_update_to_character(c, g) == "为师父洗刷冤屈"
     assert apply_update_to_character(c, s) == "必须独自承担"
     assert c.outer_goal == "先保全自己再图复仇"
     assert c.self_image == "可以有限度求助"
+
+
+# ---- 长期写回门禁：一次场景不能轻易重新定义一个人 ----
+
+
+def test_apply_long_term_gate_medium_permanence_rejected():
+    """medium 持续性的身份提案不写回长期字段（只留 sidecar 记录）."""
+    c = _mk_character(fear="重蹈被逐的覆辙")
+    u = CharacterUpdate(
+        **_mk_update(
+            affected_dimension="fear",
+            update_type="shift",
+            proposed_after="改写真相对方识破",
+            permanence="medium",
+            confidence=0.8,
+        )
+    )
+    assert apply_update_to_character(c, u) is None
+    assert c.fear == "重蹈被逐的覆辙"  # 未污染
+    assert u.status == "rejected"
+    assert u.before is None
+
+
+def test_apply_long_term_gate_transient_permanence_rejected():
+    c = _mk_character(outer_goal="为师父洗刷冤屈")
+    u = CharacterUpdate(
+        **_mk_update(
+            affected_dimension="goal",
+            update_type="shift",
+            proposed_after="先保全自己再图复仇",
+            permanence="transient",
+            confidence=0.9,
+        )
+    )
+    assert apply_update_to_character(c, u) is None
+    assert c.outer_goal == "为师父洗刷冤屈"
+
+
+def test_apply_long_term_gate_low_confidence_rejected():
+    """long 但置信不足 → 不写回（需要足够 evidence）."""
+    c = _mk_character(self_image="必须独自承担")
+    u = CharacterUpdate(
+        **_mk_update(
+            affected_dimension="self_image",
+            update_type="shift",
+            proposed_after="可以有限度求助",
+            permanence="long",
+            confidence=0.5,
+        )
+    )
+    assert apply_update_to_character(c, u) is None
+    assert c.self_image == "必须独自承担"
+
+
+def test_apply_long_term_gate_destabilize_rejected():
+    """destabilize（动摇但无新答案）不硬覆盖长期身份——不确定性不是新信念."""
+    c = _mk_character(self_image="必须独自承担")
+    u = CharacterUpdate(
+        **_mk_update(
+            affected_dimension="self_image",
+            update_type="destabilize",
+            proposed_after="不确定自己是否还能独自承担",
+            permanence="long",
+            confidence=0.9,
+        )
+    )
+    assert apply_update_to_character(c, u) is None
+    assert c.self_image == "必须独自承担"
+    assert u.status == "rejected"
+
+
+def test_apply_long_term_gate_medium_only_dynamic_fields():
+    """medium 身份提案虽被拦截，但同周期 pressure/trajectory 动态字段照常写."""
+    c = _mk_character(current_pressure=[], fear="重蹈被逐的覆辙")
+    u = CharacterUpdate(
+        **_mk_update(
+            affected_dimension="fear",
+            update_type="shift",
+            proposed_after="改写真相对方识破",
+            permanence="medium",
+            confidence=0.8,
+        )
+    )
+    apply_update_to_character(c, u)
+    assert c.fear == "重蹈被逐的覆辙"  # 长期字段未变
+    assert c.current_pressure == []    # 未跨维度迁移，仅记录
 
 
 def test_apply_relation_record_only():
@@ -225,11 +327,70 @@ def test_append_ledger_persists(tmp_path):
 def test_append_accumulates(tmp_path):
     chars = [_mk_character()]
     a = admit_character_updates(chars, [_mk_update()], "pu_001", apply=True)
-    b = admit_character_updates(chars, [_mk_update()], "pu_002", apply=True)
+    b = admit_character_updates(
+        chars,
+        [_mk_update(proposed_after="另一条新压力")],
+        "pu_002",
+        apply=True,
+    )
     append_character_updates(tmp_path, a)
     append_character_updates(tmp_path, b)
     ledger = load_character_updates(tmp_path)
     assert [u["trigger"] for u in ledger["updates"]] == ["pu_001", "pu_002"]
+
+
+def test_append_dedupes_identical_proposal(tmp_path):
+    """同一逻辑提案（char+dimension+proposed_after 相同）跨章只登记一次."""
+    chars = [_mk_character()]
+    a = admit_character_updates(chars, [_mk_update()], "pu_001", apply=True)
+    b = admit_character_updates(chars, [_mk_update()], "pu_002", apply=True)
+    c = admit_character_updates(chars, [_mk_update()], "pu_003", apply=True)
+    append_character_updates(tmp_path, a)
+    append_character_updates(tmp_path, b)
+    append_character_updates(tmp_path, c)
+    ledger = load_character_updates(tmp_path)
+    assert len(ledger["updates"]) == 1
+
+
+def test_apply_pressure_marks_applied():
+    c = _mk_character(current_pressure=[])
+    u = CharacterUpdate(**_mk_update())
+    apply_update_to_character(c, u)
+    assert u.status == "applied"
+
+
+def test_admit_gated_identity_not_applied():
+    """admit apply=True 时，medium 身份提案被门禁拦截，角色长期字段不被污染."""
+    chars = [_mk_character(fear="重蹈被逐的覆辙")]
+    admitted = admit_character_updates(
+        chars,
+        [
+            _mk_update(
+                affected_dimension="fear",
+                update_type="shift",
+                proposed_after="改写真相对方识破",
+                permanence="medium",
+                confidence=0.8,
+            )
+        ],
+        "pu_001",
+        apply=True,
+    )
+    assert admitted[0]["status"] == "rejected"
+    assert chars[0].fear == "重蹈被逐的覆辙"
+
+
+def test_admit_long_identity_applied():
+    """long + 高置信 + 方向变化 → 长期身份字段确实写回."""
+    chars = [_mk_character(self_image="必须独自承担")]
+    admitted = admit_character_updates(
+        chars,
+        [_mk_long_identity_update()],
+        "pu_001",
+        apply=True,
+    )
+    assert admitted[0]["status"] == "applied"
+    assert chars[0].self_image == "可以有限度求助"
 
 
 # ---- prompt / parse ----

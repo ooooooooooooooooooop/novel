@@ -20,7 +20,7 @@
 - 建立最小工作流
 - 准备样例与决策记�?
 当前阶段重点�?- 运行并验�?audit / extend / compose 三个 bounded slice
-- 维护 2135 tests passing 的回归基�?- 保持文档与实现同�?- �?Codex-native staged CLI v0 上稳定文�?/ 状态契约，DirectAPI provider 调用仍未实现
+- 维护 2203 tests passing 的回归基�?- 保持文档与实现同�?- �?Codex-native staged CLI v0 上稳定文�?/ 状态契约，DirectAPI provider 调用仍未实现
 
 ## 为什么现在做
 当前关于自动写小说的想法很多，但如果没有稳定的底层定义，后续实现会出现这些问题：

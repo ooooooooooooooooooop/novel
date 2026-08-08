@@ -44,6 +44,7 @@ def build_proposal_prompt(
     timeline_context: str = "",
     time_context: str = "",
     excerpt_context: str = "",
+    original_style_context: str = "",
     nsfw_context: str = "",
 ) -> str:
     """构建 N 候选续写 prompt.
@@ -68,6 +69,7 @@ def build_proposal_prompt(
         timeline_context=timeline_context,
         time_context=time_context,
         excerpt_context=excerpt_context,
+        original_style_context=original_style_context,
         nsfw_context=nsfw_context,
     )
     marker = "【输出格式】"

@@ -88,6 +88,12 @@ FAILURE_TYPE_LEXICON: tuple[tuple[str, str, str], ...] = (
     ("redundancy", "low/medium", "通常不阻断"),
     ("style_drift", "low/medium", "通常不阻断"),
     ("generative_indicia", "low/medium", "通常不阻断"),
+    # 正文层（post-prose Review 有【本章正文】可读时新增的判定维度）：
+    # 方向文档第五节的 7 维正文审查（兑现/人物/情绪/解读空间/在场/对白/AI味）。
+    ("emotion_landing", "low/medium", "通常不阻断"),
+    ("interpretive_space", "low/medium", "通常不阻断"),
+    ("scene_presence", "low/medium", "通常不阻断"),
+    ("dialogue_flat", "low/medium", "通常不阻断"),
 )
 
 # --- 失败类型四层分类（docs/03_rules/08_failure_types.md §4） ---
@@ -106,6 +112,7 @@ FAILURE_LAYERS: tuple[tuple[str, frozenset[str]], ...] = (
     })),
     ("expression_surface", frozenset({
         "redundancy", "style_drift", "generative_indicia",
+        "emotion_landing", "interpretive_space", "scene_presence", "dialogue_flat",
     })),
 )
 

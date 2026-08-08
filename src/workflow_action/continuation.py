@@ -69,6 +69,7 @@ class ContinueUnit:
         timeline_context: str = "",
         time_context: str = "",
         excerpt_context: str = "",
+        original_style_context: str = "",
         nsfw_context: str = "",
     ) -> str:
         """生成续写 prompt."""
@@ -87,6 +88,7 @@ class ContinueUnit:
             timeline_context,
             time_context,
             excerpt_context,
+            original_style_context,
             nsfw_context,
         )
 
@@ -145,6 +147,7 @@ class ContinueUnit:
         timeline_context: str = "",
         time_context: str = "",
         excerpt_context: str = "",
+        original_style_context: str = "",
         nsfw_context: str = "",
     ) -> str:
         char_ctx = "\n---\n".join(c.to_prompt_context() for c in characters)
@@ -153,27 +156,35 @@ class ContinueUnit:
         frame_section = ""
         emotion_section = ""
         if frame_context is not None:
-            frame_section = (
-                "\n\n【层级上下文】\n"
-                + json.dumps(frame_context, ensure_ascii=False, indent=2)
-            )
-            current_frame = frame_context.get("current_frame", {})
-            formula_node = current_frame.get("formula_node", "")
-            if formula_node:
-                recommended = get_recommended_emotions(formula_node)
-                if recommended:
-                    emotion_lines = [
-                        "\n\n【当前叙事阶段走向】",
-                        f"当前结构节点: {formula_node}",
-                        f"推荐情绪: {' / '.join(recommended)}",
-                        "请让 emotional_shift 体现以上某种情绪变化。",
-                    ]
-                    if is_critical_hook_node(formula_node):
-                        emotion_lines.append(
-                            "【关键节点钩子要求】建议使用 high-effectiveness 钩子"
-                            "（如 cliffhanger / reveal / in_media_res / revelation）。"
-                        )
-                    emotion_section = "\n".join(emotion_lines)
+            if frame_context.get("no_active_frame"):
+                # 终止帧已消费且无 successor：诚实进入 no-active-frame，不注入陈旧帧
+                frame_section = (
+                    "\n\n【层级上下文】\n"
+                    '{"current_frame": null, "note": "无活跃叙事帧——当前结构已结束，'
+                    '下一幕需由人工/规划层指定。"}'
+                )
+            else:
+                frame_section = (
+                    "\n\n【层级上下文】\n"
+                    + json.dumps(frame_context, ensure_ascii=False, indent=2)
+                )
+                current_frame = frame_context.get("current_frame", {}) or {}
+                formula_node = current_frame.get("formula_node", "")
+                if formula_node:
+                    recommended = get_recommended_emotions(formula_node)
+                    if recommended:
+                        emotion_lines = [
+                            "\n\n【当前叙事阶段走向】",
+                            f"当前结构节点: {formula_node}",
+                            f"推荐情绪: {' / '.join(recommended)}",
+                            "请让 emotional_shift 体现以上某种情绪变化。",
+                        ]
+                        if is_critical_hook_node(formula_node):
+                            emotion_lines.append(
+                                "【关键节点钩子要求】建议使用 high-effectiveness 钩子"
+                                "（如 cliffhanger / reveal / in_media_res / revelation）。"
+                            )
+                        emotion_section = "\n".join(emotion_lines)
         platform_section = ""
         if platform:
             guidance = build_platform_guidance(platform)
@@ -198,7 +209,10 @@ class ContinueUnit:
             timeline_section = f"\n\n【已发生事件时间线】\n{timeline_context}"
         excerpt_section = ""
         if excerpt_context:
-            excerpt_section = f"\n\n【原文锚点与文风样例】\n{excerpt_context}"
+            excerpt_section = f"\n\n【上文锚点（接续）】\n{excerpt_context}"
+        original_style_section = ""
+        if original_style_context:
+            original_style_section = f"\n\n【原文文风参考】\n{original_style_context}"
         nsfw_section = ""
         if nsfw_context:
             nsfw_section = f"\n\n【内容分级】\n{nsfw_context}"
@@ -216,7 +230,7 @@ class ContinueUnit:
         return f"""你是一位叙事续写专家。请基于当前叙事状态，生成下一个 PlotUnit。
 
 【作品约束】
-{workspec_context}{platform_section}{genre_section}{style_section}{time_section}{timeline_section}{excerpt_section}{retrieval_section}{nsfw_section}
+{workspec_context}{platform_section}{genre_section}{style_section}{time_section}{timeline_section}{excerpt_section}{original_style_section}{retrieval_section}{nsfw_section}
 
 【当前叙事状态】
 {state.to_prompt_context()}

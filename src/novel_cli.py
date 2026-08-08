@@ -671,6 +671,75 @@ def _run_rubric(args: argparse.Namespace) -> int:
     return _run_child(command)
 
 
+def _run_ab(args: argparse.Namespace) -> int:
+    """Post-Prose Review 的 A/B 盲评（测量 Detection Precision / Revision Gain）.
+
+    从工作区 A/B 台账取待评审修订对，物化盲评 prompt，operator/独立 Judge 填
+    响应后重跑 → 写回偏好并分层统计。ledger 在 output/extend 或 output/compose。
+    """
+    novel_dir = _novel_dir(args.novel)
+    candidates = [
+        _output_dir(novel_dir, "extend"),
+        _output_dir(novel_dir, "compose"),
+    ]
+    ledger_dir = next(
+        (d for d in candidates if (d / "prose_revision_ledger.json").exists()),
+        None,
+    )
+    if ledger_dir is None:
+        print(f"Error: no prose_revision_ledger.json in {args.novel} (extend/compose)")
+        return 1
+    command = [
+        sys.executable,
+        _script_path("blind_eval_short_form.py"),
+        "--output-dir",
+        str(ledger_dir),
+    ]
+    if args.detection:
+        command.append("--detection")
+    return _run_child(command)
+
+
+def _run_drift(args: argparse.Namespace) -> int:
+    """Style Drift 测量（measurement-only）：AI 章 vs 人类 baseline + Draft vs Committed."""
+    novel_dir = _novel_dir(args.novel)
+    output_dir = _output_dir(novel_dir, "extend")
+    output_dir.mkdir(parents=True, exist_ok=True)
+    command = [
+        sys.executable,
+        _script_path("style_drift_short_form.py"),
+        "--output-dir",
+        str(output_dir),
+        "--chapters-dir",
+        str(novel_dir / "chapters"),
+        "--baseline",
+        str(novel_dir / "input.txt"),
+    ]
+    return _run_child(command)
+
+
+def _run_pass_audit(args: argparse.Namespace) -> int:
+    """PASS Blind Audit：独立盲审 route=pass 章节，估算 Review 漏检率."""
+    novel_dir = _novel_dir(args.novel)
+    output_dir = _output_dir(novel_dir, "extend")
+    output_dir.mkdir(parents=True, exist_ok=True)
+    command = [
+        sys.executable,
+        _script_path("pass_audit_short_form.py"),
+        "--chapters-dir",
+        str(novel_dir / "chapters"),
+        "--output-dir",
+        str(output_dir),
+    ]
+    if args.limit:
+        command.extend(["--limit", str(args.limit)])
+    if args.sample:
+        command.extend(["--sample", str(args.sample)])
+    if args.force:
+        command.append("--force")
+    return _run_child(command)
+
+
 def _run_time(args: argparse.Namespace) -> int:
     """时间域模块：TimeBook 管理 + 时间审计（纯代码，无 LLM 阶段）.
 
@@ -1574,6 +1643,22 @@ def build_parser(*, emit_json_errors: bool = False) -> argparse.ArgumentParser:
     rubric = subparsers.add_parser("rubric", help="导出 WebNovelBench 8 维本地评测 rubric (离线)")
     rubric.add_argument("novel", help="小说名（rubric 为全局知识，novel 仅作容器）")
     rubric.set_defaults(func=_run_rubric)
+
+    ab = subparsers.add_parser("ab", help="Post-Prose Review A/B 盲评（Detection Precision / Revision Gain 测量）")
+    ab.add_argument("novel", help="小说名")
+    ab.add_argument("--detection", action="store_true", help="只跑 Detection Precision pass")
+    ab.set_defaults(func=_run_ab)
+
+    drift = subparsers.add_parser("drift", help="Style Drift 测量（measurement-only）")
+    drift.add_argument("novel", help="小说名")
+    drift.set_defaults(func=_run_drift)
+
+    pass_audit = subparsers.add_parser("audit-pass", help="PASS Blind Audit：独立盲审 route=pass 章节，估算 Review 漏检率")
+    pass_audit.add_argument("novel", help="小说名")
+    pass_audit.add_argument("--limit", type=int, default=0, help="只审前 N 章")
+    pass_audit.add_argument("--sample", type=int, default=0, help="随机抽 N 章")
+    pass_audit.add_argument("--force", action="store_true", help="覆盖已有响应重新物化")
+    pass_audit.set_defaults(func=_run_pass_audit)
 
     time_cmd = subparsers.add_parser("time", help="时间域模块：TimeBook 管理 + 时间审计")
     time_cmd.add_argument("novel", help="小说名")

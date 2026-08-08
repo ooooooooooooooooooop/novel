@@ -191,3 +191,37 @@ class CharacterModel(BaseModel):
                 keep.append(item)
         self.current_pressure = keep
         return removed
+
+    def reconcile_misinformation(
+        self,
+        disproven: list[str] | None = None,
+        corrected: list[dict] | None = None,
+    ) -> list[str]:
+        """按 Review 声明更新错误信念（belief state，与 knowledge truth 分离）.
+
+        - disproven: 被事实击穿的信念，从 misinformation 移除。注意：『知识真值』
+          与『信念接受』是两回事——事实证明父亲没有抛弃他，不等于人物心理上
+          已经接受。disproven 只移除已被证伪且角色不再持有的断言，不追加到
+          knowledge_state（不把信念接受误当已知事实）。
+        - corrected: [{from, to}]，把错误信念替换为修正后的信念（如『被抛弃』
+          →『明白是被迫离开，但仍有怨』）。
+
+        返回变化条目（'-信念' 或 '旧->新'）。
+        """
+        changed: list[str] = []
+        for claim in disproven or []:
+            claim = str(claim).strip()
+            if claim and claim in self.misinformation:
+                self.misinformation = [m for m in self.misinformation if m != claim]
+                changed.append(f"-{claim}")
+        for pair in corrected or []:
+            if not isinstance(pair, dict):
+                continue
+            old = str(pair.get("from") or "").strip()
+            new = str(pair.get("to") or "").strip()
+            if old and new and old in self.misinformation:
+                self.misinformation = [
+                    new if m == old else m for m in self.misinformation
+                ]
+                changed.append(f"{old}->{new}")
+        return changed

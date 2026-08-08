@@ -274,14 +274,43 @@ def test_advance_cursor_moves_to_next_scene():
     assert frames[4]["status"] == "active"
 
 
+def _terminal_frames(unit: NarrativeFrameUnit):
+    """构造真实终态：前 7 个 scene 已逐章完成，scene_008 active（即将消费）."""
+    from src.domain_layer.rules import get_structure_template
+
+    frames = unit.build_frame("mock workspec", get_structure_template("eight_node"))
+    for f in frames:
+        if f.get("level") == "scene" and f.get("frame_id") != "scene_008":
+            f["status"] = "completed"
+    unit.set_cursor(frames, "scene_008")
+    return frames
+
+
 def test_advance_cursor_at_last_scene_returns_none():
     from src.domain_layer.rules import get_structure_template
     from src.workflow_action.frame import NarrativeFrameUnit
 
     unit = NarrativeFrameUnit()
-    frames = unit.build_frame("mock workspec", get_structure_template("eight_node"))
-    unit.set_cursor(frames, "scene_008")
+    frames = _terminal_frames(unit)
 
     result = unit.advance_cursor(frames)
     assert result is None
-    assert frames[-1]["status"] == "active"
+    # 终止帧被消费：last scene 标记 completed，不再保持 active（Frame expiry）
+    assert frames[-1]["status"] == "completed"
+    # 整幕结束 → 无 active frame → get_cursor 返回 None（不再抛错）
+    assert unit.get_cursor(frames) is None
+    # 整个结构完成后是合法终止态（require_valid_frame_state 不抛错、返回 frames）
+    assert unit.require_valid_frame_state(frames) == frames
+
+
+def test_no_active_frame_context_does_not_inject_stale_frame():
+    from src.domain_layer.rules import get_structure_template
+    from src.workflow_action.frame import NarrativeFrameUnit
+
+    unit = NarrativeFrameUnit()
+    frames = _terminal_frames(unit)
+    unit.advance_cursor(frames)  # 消费最后一个终止帧 → 无 active
+
+    ctx = unit.build_continue_context(frames, unit.get_cursor(frames))
+    assert ctx["no_active_frame"] is True
+    assert ctx["current_frame"] is None

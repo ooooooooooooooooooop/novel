@@ -11,7 +11,11 @@ from src.object_state import (
     NarrativeState,
 )
 from src.workflow_action.continuation import ContinueUnit
-from src.workflow_action.excerpt import append_generated_chapters, load_recent_excerpts
+from src.workflow_action.excerpt import (
+    append_generated_chapters,
+    load_original_style_sample,
+    load_recent_excerpts,
+)
 
 
 def _state() -> NarrativeState:
@@ -29,6 +33,7 @@ def _base_prompt(
     timeline_context: str = "",
     excerpt_context: str = "",
     retrieval_context: str = "",
+    original_style_context: str = "",
 ) -> str:
     cont = ContinueUnit()
     return cont.build_prompt(
@@ -42,6 +47,7 @@ def _base_prompt(
         retrieval_context=retrieval_context,
         timeline_context=timeline_context,
         excerpt_context=excerpt_context,
+        original_style_context=original_style_context,
     )
 
 
@@ -148,12 +154,12 @@ def test_timeline_include_header_false_removes_header():
 
 def test_no_excerpt_no_section():
     prompt = _base_prompt()
-    assert "【原文锚点与文风样例】" not in prompt
+    assert "【上文锚点（接续）】" not in prompt
 
 
 def test_excerpt_adds_section():
     prompt = _base_prompt(excerpt_context="【第3章 测试】\n原文逐字……")
-    assert "【原文锚点与文风样例】" in prompt
+    assert "【上文锚点（接续）】" in prompt
     assert "原文逐字" in prompt
 
 
@@ -202,6 +208,88 @@ def test_load_recent_excerpts_preserves_layout():
     out = load_recent_excerpts(text, tail_chapters=1)
     assert "接续段。" in out  # 最近一章正文在场
     assert "\n" in out  # 段落结构未压扁
+
+
+# --- load_original_style_sample：文风参考只取原书（不含已生成章） ---
+
+
+def test_original_style_sample_empty_source():
+    assert load_original_style_sample("") == ""
+    assert load_original_style_sample("   ") == ""
+
+
+def test_original_style_sample_takes_original_tail():
+    text = (
+        "第1章 开头\n第一章正文内容。\n\n"
+        "第2章 中间\n第二章正文内容。\n\n"
+        "第3章 结尾\n第三章正文内容。"
+    )
+    out = load_original_style_sample(text, tail_chapters=2)
+    assert "第3章 结尾" in out
+    assert "第2章 中间" in out
+    assert "第1章 开头" not in out  # 只取原书最近 2 章
+    assert "文风基准" in out
+
+
+def test_original_style_sample_marks_style_purpose_not_continuation():
+    """文风参考段明确是风格基准，与接续锚点语义分离（防 Self-Imitation Drift）."""
+    text = "第1章 一\n原书正文。"
+    style = load_original_style_sample(text)
+    cont = load_recent_excerpts(text)
+    assert "文风基准" in style
+    assert "供接续" in cont
+    assert "不作为文风基准" in cont  # 接续锚点不承担文风
+
+
+def test_original_style_sample_excludes_generated(tmp_path):
+    """文风参考只取『原书』text，而非『原书+已生成章』combined——职责分离."""
+    src = "第一章 一\n原书首章正文内容。\n\n第二章 二\n原书第二章正文。"
+    chapters = tmp_path / "chapters"
+    chapters.mkdir()
+    (chapters / "chapter_3.txt").write_text(
+        "第三章 三\nAI生成的第三章正文。", encoding="utf-8"
+    )
+    combined = append_generated_chapters(src, chapters)
+    # 文风参考：只喂原书 text → 生成章不进文风基准
+    style = load_original_style_sample(src)
+    assert "原书第二章正文" in style
+    assert "AI生成的第三章正文" not in style
+    # 接续锚点：喂 combined（含生成章）→ 生成章作为前文衔接在场
+    cont = load_recent_excerpts(combined)
+    assert "AI生成的第三章正文" in cont
+
+
+def test_original_style_section_in_prompt_when_provided():
+    prompt = _base_prompt(original_style_context="【第2章】\n原书语感示例")
+    assert "【原文文风参考】" in prompt
+    assert "原书语感示例" in prompt
+
+
+def test_original_style_section_absent_by_default():
+    """original_style_context 缺省为空 → 无【原文文风参考】段（零成本）."""
+    prompt = _base_prompt()
+    assert "【原文文风参考】" not in prompt
+
+
+def test_original_style_default_unchanged_prompt():
+    """默认 original_style_context='' 时 prompt 与无此参数时字节一致（防回归）."""
+    cont = ContinueUnit()
+    with_param = cont.build_prompt(
+        state=_state(),
+        characters=[],
+        facts=FactLedger(entries=[]),
+        foreshadows=ForeshadowGraph(entries=[]),
+        workspec_context="作品类型: 仙侠",
+        original_style_context="",
+    )
+    without_param = cont.build_prompt(
+        state=_state(),
+        characters=[],
+        facts=FactLedger(entries=[]),
+        foreshadows=ForeshadowGraph(entries=[]),
+        workspec_context="作品类型: 仙侠",
+    )
+    assert with_param == without_param
 
 
 # --- append_generated_chapters：续写多章后锚点应落在最后生成章 ---

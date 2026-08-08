@@ -771,12 +771,21 @@ class StagedResponseRunner:
 
 # 单章周期内被消费、不允许泄漏到下一章的 staged 响应。
 # rebuild_response / outline_response 是跨章输入解析，不在此列。
+# 含对象层/正文层 rewrite 与 re-review 槽位（42 设计：Pre-Review→Prose→Review→
+# Rewrite→Re-Review，正文层修订 prose_revise 为新增槽位）。
 CYCLE_RESPONSE_FILES: tuple[str, ...] = (
     "continue_response.txt",
     "proposals_response.txt",
     "character_update_response.txt",
     "review_response.txt",
     "prose_response.txt",
+    "prose_revise_response.txt",
+    "extend_pre_rewrite_response.txt",
+    "compose_pre_rewrite_response.txt",
+    "extend_rewrite_response.txt",
+    "compose_rewrite_response.txt",
+    "extend_rereview_response.txt",
+    "compose_rereview_response.txt",
 )
 
 

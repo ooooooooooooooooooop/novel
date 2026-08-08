@@ -193,11 +193,26 @@ class ReviewUnit:
 
     VALID_ROUTES = {"pass", "rewrite", "block"}
 
-    def build_prompt(self, objects: list, context: str = "audit") -> str:
-        """生成审查 prompt."""
+    def build_prompt(
+        self,
+        objects: list,
+        context: str = "audit",
+        prose_text: str | None = None,
+    ) -> str:
+        """生成审查 prompt.
+
+        Args:
+            objects: 待审查对象层。
+            context: 审查上下文标签（audit/extend/compose/…-rereview）。
+            prose_text: 可选正文文本。非空时注入【本章正文】段并激活正文层
+                审查维度（方向文档第五节的 7 维正文审查）。None/空串时不注入，
+                prompt 与旧版逐字节相同（零成本契约，回归测试锁死）。
+        """
         hard_issues = self._hard_rules(objects)
         domain_issues = self._domain_rules(objects)
-        return self._build_prompt(objects, hard_issues, domain_issues, context)
+        return self._build_prompt(
+            objects, hard_issues, domain_issues, context, prose_text
+        )
 
     def parse_response(
         self,
@@ -230,6 +245,7 @@ class ReviewUnit:
             "foreshadow_updates",
             "character_knowledge_updates",
             "character_pressure_updates",
+            "misinformation_updates",
         )
         extra = sorted(set(data) - set(allowed_fields))
         if extra:
@@ -263,6 +279,12 @@ class ReviewUnit:
                     "Review response field character_pressure_updates must be a list"
                 )
             self._apply_pressure_updates(character_models, updates)
+            updates = data.get("misinformation_updates") or []
+            if not isinstance(updates, list):
+                raise ValueError(
+                    "Review response field misinformation_updates must be a list"
+                )
+            self._apply_misinformation_updates(character_models, updates)
         return issues, reminders, route
 
     @staticmethod
@@ -312,6 +334,29 @@ class ReviewUnit:
             if not isinstance(resolve, list) or not resolve:
                 continue
             by_id[character_id.strip()].resolve_pressures(resolve)
+
+    @staticmethod
+    def _apply_misinformation_updates(character_models: list, updates: list) -> None:
+        """把 review 声明的『错误信念被击穿/修正』落到 CharacterModel（unknown id 静默跳过）.
+
+        misinformation 是 belief state，与 knowledge truth 分离：disproven 只移除
+        已被证伪且角色不再持有的断言，不追加到 knowledge_state；corrected 用
+        [{from, to}] 替换为修正后的信念（如『被抛弃』→『明白是被迫离开，仍有怨』）。
+        """
+        by_id = {cm.character_id: cm for cm in character_models}
+        for item in updates:
+            if not isinstance(item, dict):
+                continue
+            character_id = item.get("character_id")
+            if not isinstance(character_id, str) or character_id.strip() not in by_id:
+                continue
+            cm = by_id[character_id.strip()]
+            disproven = item.get("disproven")
+            corrected = item.get("corrected")
+            if isinstance(disproven, list) and disproven:
+                cm.reconcile_misinformation(disproven=disproven)
+            if isinstance(corrected, list) and corrected:
+                cm.reconcile_misinformation(corrected=corrected)
 
     def resolve_route(self, issues: list[ReviewIssue], route: str) -> str:
         """Resolve final route after code and LLM issues are merged."""
@@ -570,6 +615,7 @@ class ReviewUnit:
         hard_issues: list[ReviewIssue],
         domain_issues: list[ReviewIssue],
         context: str,
+        prose_text: str | None = None,
     ) -> str:
         """生成审查 prompt."""
         obj_ctx = []
@@ -597,6 +643,31 @@ class ReviewUnit:
         # D 档：信息凭证指导（09_information_warrant_rules 审查 prompt 注入）
         warrant_section = "\n" + _info_warrant_guidance_text()
 
+        # 正文层审查：prose_text 非空时注入【本章正文】+ 7 维正文审查维度。
+        # 零成本契约：None/空串时不注入，prompt 与旧版逐字节相同。
+        prose_section = ""
+        if prose_text and prose_text.strip():
+            prose_section = (
+                "\n\n【本章正文】\n" + prose_text
+                + "\n\n【正文层审查维度】（对照【本章正文】逐条判定）\n"
+                "- 兑现：PlotUnit 的 goal / conflict / consequences / released_information"
+                " 是否在正文中真实落地，而非仅被提及、绕过或写成另一件事\n"
+                "- 人物忠实：正文对白 / 心理 / 动作是否让角色变成另一个人"
+                "（与 CharacterModel 的身份 / 目标 / 恐惧 / 关系 / 当前压力 / 历史冲突不符）\n"
+                "- 情绪落地：情绪是否由动作 / 物品 / 空间 / 对话 / 停顿产生，"
+                "而非被直接声明（『他很悲伤』）；是否过度自我总结（『那一刻他明白了』）\n"
+                "- 解读空间：象征 / 情绪是否被过度解释；场景已能表达却补一段说明；"
+                "是否允许 unresolved 保持 unresolved\n"
+                "- 场景在场：是否有具体行动 / 物体 / 声音 / 触感 / 空间关系 / 人物微动作，"
+                "让场景真实发生\n"
+                "- 对白：去掉人名后能否区分角色；是否所有人都说同一套腔调；"
+                "是否大量对白只是解释剧情；是否有关系差异与潜文本\n"
+                "- AI 味：句式过度整齐 / 情感总被总结 / 相同转折结构 / 章末模板化 /"
+                " 同章内语句或对白逐字重复 / 每场戏都完整起承转合\n"
+                "\n对每个对象层 issue，对照【本章正文】判定：已被正文自然兑现则降级或撤销，"
+                "被正文坐实则升级；正文层独有问题以新增 issue 形式报告。"
+            )
+
         object_summary = "\n---\n".join(obj_ctx)
 
         return f"""你是一位叙事审查专家。请对以下叙事对象层进行审查。
@@ -605,6 +676,7 @@ class ReviewUnit:
 
 【对象层摘要】
 {object_summary}
+{prose_section}
 
 【审查维度】
 1. 事实一致性: FactLedger 条目是否自洽? 是否有矛盾?
@@ -664,6 +736,19 @@ class ReviewUnit:
       "learn": ["苏观使找了十二年"],
       "drop_unknown": ["不知道苏观使找了十二年"]
     }}
+  ],
+  "character_pressure_updates": [
+    {{
+      "character_id": "c001",
+      "resolve": ["处决文书今日到期"]
+    }}
+  ],
+  "misinformation_updates": [
+    {{
+      "character_id": "c001",
+      "disproven": ["一度怀疑自己看见旧字只是眼花（后自我纠正）"],
+      "corrected": [{{"from": "旧错误信念", "to": "修正后的信念"}}]
+    }}
   ]
 }}
 
@@ -676,7 +761,13 @@ character_knowledge_updates 可选：仅当某角色在本章得知了新信息�
 不知道的不要列入。
 character_pressure_updates 可选：仅当某角色在本章的某条当前压力已被解决/不再
 成立（如目标达成、威胁解除），把它列进 resolve 从 current_pressure 移除；仍成立
-的压力不要列入。"""
+的压力不要列入。
+misinformation_updates 可选：仅当某角色的一条错误信念在本章被事实击穿（证据已
+给出、角色已不再持有该信念）时，把它列进 disproven 移除；若信念被修正为另一种
+形态（如『被抛弃』→『明白是被迫离开但仍有怨』），用 corrected 的 [{{from, to}}]
+替换。注意：错误信念是 belief state，与 knowledge truth 分离——事实被证明不等于
+人物心理上已经接受，只移除确实不再持有的断言，不要因为『事实被证伪』就把信念
+从 misinformation 抹掉。仍成立的错误信念不要列入。"""
 
     def is_pass(self, issues: list[ReviewIssue]) -> bool:
         """判断是否通过（无阻断性问题）."""

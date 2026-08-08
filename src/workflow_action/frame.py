@@ -155,11 +155,15 @@ class NarrativeFrameUnit:
 
         return frames
 
-    def get_cursor(self, frames: list[FrameNode]) -> FrameCursor:
-        """Return the deepest active frame position."""
+    def get_cursor(self, frames: list[FrameNode]) -> FrameCursor | None:
+        """Return the deepest active frame position.
+
+        无 active frame（如整个结构都 completed 后）返回 None——调用方应进入
+        no-active-frame 状态，不得继续注入陈旧的终止帧。
+        """
         active_frames = [frame for frame in frames if frame["status"] == "active"]
         if not active_frames:
-            raise ValueError("No active frame found")
+            return None
 
         current_frame = max(active_frames, key=lambda frame: _LEVEL_RANK[frame["level"]])
         return self._cursor_for_frame(frames, current_frame["frame_id"])
@@ -186,9 +190,12 @@ class NarrativeFrameUnit:
         """将 cursor 从当前 scene 推进到下一个同层级 scene.
 
         将当前 scene 标记为 completed，下一个 scene 标记为 active。
-        如果没有下一个 scene，返回 None。
+        如果没有下一个 scene，同样把当前 scene 标记为 completed（终止帧被消费），
+        返回 None——调用方应进入 no-active-frame 状态，不再注入旧终止帧。
         """
         current_cursor = self.get_cursor(frames)
+        if current_cursor is None:
+            return None
         current_frame = self._require_frame(frames, current_cursor["current_frame_id"])
 
         if current_frame["level"] != "scene":
@@ -204,12 +211,48 @@ class NarrativeFrameUnit:
                 current_idx = i
                 break
 
+        # 终止帧消费：无论有无 successor，当前 scene 都已结束
+        current_frame["status"] = "completed"
+
         if current_idx is None or current_idx + 1 >= len(all_siblings):
+            # 无 successor：父链上不再有 active/planned 的子节点时一并完成
+            self._complete_ancestors_if_done(frames, current_frame)
             return None
 
-        current_frame["status"] = "completed"
         next_frame = all_siblings[current_idx + 1]
         return self.set_cursor(frames, next_frame["frame_id"])
+
+    def _complete_ancestors_if_done(
+        self,
+        frames: list[FrameNode],
+        scene: FrameNode,
+    ) -> None:
+        """scene 结束后，若其父 chapter/arc 不再有 active/planned 子节点则一并完成。
+
+        用于终止帧消费：整幕结束后旧 chapter/arc 不再作为 active 指导后续生成，
+        进入 no-active-frame 状态（不自动造新 arc，由人工/规划层决定下一幕）。
+        """
+        frame_by_id = self._index_frames(frames)
+        child_of: dict[str, list[FrameNode]] = {}
+        for f in frames:
+            pid = f.get("parent_id")
+            if pid:
+                child_of.setdefault(pid, []).append(f)
+
+        cur = scene
+        while parent_id := cur.get("parent_id"):
+            parent = frame_by_id.get(parent_id)
+            if parent is None:
+                break
+            children = child_of.get(parent["frame_id"], [])
+            remaining = [
+                c for c in children
+                if c.get("status") in ("active", "planned")
+            ]
+            if remaining:
+                break
+            parent["status"] = "completed"
+            cur = parent
 
     def get_parent_chain(
         self,
@@ -476,15 +519,9 @@ class NarrativeFrameUnit:
         issues.extend(self.validate_hierarchy(typed_frames))
         active_frames = [frame for frame in typed_frames if frame["status"] == "active"]
         if not active_frames:
-            issues.append(
-                self._issue(
-                    "no_active_frame",
-                    "blocking",
-                    "<frames>",
-                    "Frame state must contain an active cursor chain",
-                )
-            )
-            return issues
+            # 合法的终止态：整个结构都 completed（幕/全书结束）。
+            # 调用方经 get_cursor→None 进入 no-active-frame，不再注入陈旧终止帧。
+            return []
 
         for level in _LEVEL_RANK:
             active_at_level = [frame for frame in active_frames if frame["level"] == level]
@@ -563,9 +600,22 @@ class NarrativeFrameUnit:
     def build_continue_context(
         self,
         frames: list[FrameNode],
-        cursor: FrameCursor,
+        cursor: FrameCursor | None,
     ) -> ContinueFrameContext:
-        """Build frame context for ContinueUnit."""
+        """Build frame context for ContinueUnit.
+
+        cursor 为 None（无 active frame，整个结构已完成）时返回 no-active-frame
+        上下文——不再注入陈旧终止帧；由人工/规划层指定下一幕。
+        """
+        if cursor is None:
+            return {
+                "cursor": None,
+                "current_frame": None,
+                "parent_chain": [],
+                "sibling_context": [],
+                "active_threads": [],
+                "no_active_frame": True,
+            }
         current_frame = self._require_frame(frames, cursor["current_frame_id"])
         parent_chain = self.get_parent_chain(frames, current_frame["frame_id"])
         sibling_context = self.get_sibling_context(frames, current_frame["frame_id"])
@@ -577,6 +627,7 @@ class NarrativeFrameUnit:
             "parent_chain": parent_chain,
             "sibling_context": sibling_context,
             "active_threads": active_threads,
+            "no_active_frame": False,
         }
 
     def _cursor_for_frame(

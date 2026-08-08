@@ -76,20 +76,23 @@ def _read_response_text(path: Path) -> str:
 HELP_TEXT = """Usage:
   python src/compose_short_form.py [workspec_json_file] [--resume]
 
-Compose 流（从 WorkSpec 创作）：
+Compose 流（从 WorkSpec 创作）——时序为 先成文、后审查（42 设计 F3b）：
   1. 无参数时使用默认 WorkSpec；有参数时读取指定 WorkSpec JSON。
   2. 运行脚本，生成 output/compose_continue_prompt.txt 后退出。
   3. Codex 生成 JSON 响应，保存到 output/compose_continue_response.txt。
-  4. 重跑脚本，生成 output/compose_review_prompt.txt 后退出。
-  5. Codex 生成 JSON 响应，保存到 output/compose_review_response.txt。
-  6. 若 route 为 rewrite：生成 output/compose_rewrite_prompt.txt 后退出。
-  7. Codex 生成 JSON 响应，保存到 output/compose_rewrite_response.txt。
-  8. 重跑脚本，生成 output/compose_rereview_prompt.txt 后退出。
-  9. Codex 生成 JSON 响应，保存到 output/compose_rereview_response.txt。
-  10. 再次重跑脚本，生成 output/prose_prompt.txt 后退出。
-  11. Codex 生成纯文本章节正文，保存到 output/prose_response.txt。
-  12. 再次重跑脚本，正文落盘到 chapters/chapter_<N>.txt，输出最终结果。
-  （--no-prose 跳过 10-12，保持旧版纯结构产物。）
+  4. 重跑脚本，Pre-Review（代码闸，无 LLM）。若结构阻断，生成
+     output/compose_pre_rewrite_prompt.txt 后退出 → 保存响应 → 重跑。
+  5. 生成 output/prose_prompt.txt 后退出。
+  6. Codex 生成纯文本章节正文，保存到 output/prose_response.txt。
+  7. 重跑脚本，正文落盘 chapters/chapter_<N>.txt，生成 output/compose_review_prompt.txt
+     （已注入【本章正文】）后退出。
+  8. Codex 生成 JSON 响应，保存到 output/compose_review_response.txt。
+  9. 重跑脚本，若 route=rewrite：正文层修订生成 output/prose_revise_prompt.txt
+     后退出 → 保存修订正文到 output/prose_revise_response.txt → 重跑；
+     （--no-prose 时走对象层 compose_rewrite_prompt.txt）。
+  10. 生成 output/compose_rereview_prompt.txt 后退出 → 保存响应 → 重跑。
+  11. 输出最终结果。
+  （--no-prose 跳过正文落盘，Review 不注入正文，保持纯结构产物。）
 
 Resume 模式：
   1. 从 output/compose_state.json 加载上次保存的对象状态。
@@ -367,6 +370,25 @@ def main() -> int:
         print(f"Error: {exc}")
         return 1
 
+    # ---- 迁移检测（42 设计 §7）：新版时序 = Continue → Pre-Review → Prose → Review ----
+    # 旧版（Review 在成文前）工作区若停在「Review 后、Prose 前」，残留
+    # compose_review_response.txt 且缺 prose_response.txt → fail-fast 提示迁移。
+    # 放在 hash 校验之后：不干扰首次运行的「空目录」判定。
+    flow_version_path = output_dir / ".flow_version"
+    if not flow_version_path.exists():
+        flow_version_path.write_text("2", encoding="utf-8")
+    if (
+        not args.no_prose
+        and (output_dir / "compose_review_response.txt").exists()
+        and not (output_dir / "prose_response.txt").exists()
+    ):
+        print(
+            "Error: 检测到旧版流程（Review 在成文前）残留的 compose_review_response.txt，"
+            "且缺少 prose_response.txt——新版时序为先成文后审查。"
+        )
+        print("请将 compose_review_response.txt 移走/删除后重跑，流程将按新时序继续。")
+        return 1
+
     # 时间域：workspec.time 可选字段 → 初始化 TimeBook 初稿（无该字段 / 已有 TimeBook 时零成本）
     if workspec.time is not None and load_time_book(output_dir) is None:
         tb = TimeBook(initial=workspec.time)
@@ -540,168 +562,67 @@ def main() -> int:
             return 0
         print(f"Generated CharacterUpdates: {len(character_updates)}")
 
-    # Step 3: Review
+    # Step 3: Pre-Review（代码闸，零 LLM 成本）——结构硬错误在成文前拦截
     print("\n" + "=" * 50)
-    print("Step 3: Review")
+    print("Step 3: Pre-Review (code gate)")
     print("=" * 50)
     review_objects = objects + [plotunit, new_state]
-    review_prompt_path = output_dir / "compose_review_prompt.txt"
-    review_response_path = output_dir / "compose_review_response.txt"
-    if review_response_path.exists():
-        response = _read_response_text(review_response_path)
-        _review_foreshadows = [
-            o for o in review_objects if isinstance(o, ForeshadowGraph)
-        ]
-        _review_chars = [
-            o for o in review_objects if isinstance(o, CharacterModel)
-        ]
-        llm_issues, reminders, route = review.parse_response(
-            response,
-            foreshadows=_review_foreshadows,
-            character_models=_review_chars,
-        )
-        hard_issues = review._hard_rules(review_objects)
-        domain_issues = review._domain_rules(review_objects)
-        issues = hard_issues + domain_issues + llm_issues
-        route = review.resolve_route(issues, route)
-    else:
-        review_prompt_path.write_text(
-            review.build_prompt(review_objects, context="compose"),
-            encoding="utf-8",
-        )
-        print(f"[STEP: REVIEW] Prompt saved: {review_prompt_path}")
-        print(f"[WAITING] Generate response to: {review_response_path}")
-        print("[RESUME] Re-run this script after saving response")
-        return 0
-    print(f"Route: {route}")
-    print(f"Issues: {len(issues)}")
-    print(f"Reminders: {len(reminders)}")
-    for reminder in reminders:
-        print(
-            f"  [{reminder.priority}] {reminder.family}: "
-            f"{reminder.trigger_condition} | window={reminder.window} "
-            f"-> {reminder.escalation_issue_type}"
-        )
+    pre_rewrite_prompt_path = output_dir / "compose_pre_rewrite_prompt.txt"
+    pre_rewrite_response_path = output_dir / "compose_pre_rewrite_response.txt"
 
-    fixes = []
+    def _run_code_rules() -> tuple[list, list]:
+        merged = review._hard_rules(review_objects) + review._domain_rules(review_objects)
+        return merged, [i for i in merged if i.is_blocking()]
 
-    # Step 4: Rewrite (if route == "rewrite")
-    if route == "rewrite":
-        blocking_issues = [i for i in issues if i.is_blocking()]
-        if not blocking_issues:
-            print("Route is rewrite but no blocking issues — treating as pass")
-            route = "pass"
-        else:
-            rewrite = RewriteUnit()
-            compose_rewrite_prompt_path = output_dir / "compose_rewrite_prompt.txt"
-            compose_rewrite_response_path = output_dir / "compose_rewrite_response.txt"
-
-            if not compose_rewrite_response_path.exists():
-                compose_rewrite_prompt_path.write_text(
-                    rewrite.build_prompt(blocking_issues, review_objects, context="compose"),
-                    encoding="utf-8",
-                )
-                print(f"\n[STEP: REWRITE] Prompt saved: {compose_rewrite_prompt_path}")
-                print(f"[WAITING] Generate response to: {compose_rewrite_response_path}")
-                print("[RESUME] Re-run this script after saving response")
-                return 0
-
-            response = _read_response_text(compose_rewrite_response_path)
-            fixes = rewrite.parse_response(response)
-            try:
-                applied = rewrite.apply_required_fixes(review_objects, fixes)
-            except ValueError as exc:
-                print(f"Rewrite failed: {exc}")
-                return 1
-            for fix in fixes:
-                print(
-                    f"  Applied: {fix.get('target_type')}.{fix.get('field')} -> {fix.get('action')}"
-                )
-            print(f"\nRewrite applied: {applied}/{len(fixes)}")
-
-            # Step 5: Re-Review
-            print("\n" + "=" * 50)
-            print("Step 5: Re-Review")
-            print("=" * 50)
-            compose_rereview_prompt_path = output_dir / "compose_rereview_prompt.txt"
-            compose_rereview_response_path = output_dir / "compose_rereview_response.txt"
-
-            if not compose_rereview_response_path.exists():
-                compose_rereview_prompt_path.write_text(
-                    review.build_prompt(review_objects, context="compose-rereview"),
-                    encoding="utf-8",
-                )
-                print(f"[STEP: REREVIEW] Prompt saved: {compose_rereview_prompt_path}")
-                print(f"[WAITING] Generate response to: {compose_rereview_response_path}")
-                print("[RESUME] Re-run this script after saving response")
-                return 0
-
-            response = _read_response_text(compose_rereview_response_path)
-            _rereview_foreshadows = [
-                o for o in review_objects if isinstance(o, ForeshadowGraph)
-            ]
-            _rereview_chars = [
-                o for o in review_objects if isinstance(o, CharacterModel)
-            ]
-            llm_issues, reminders, route = review.parse_response(
-                response,
-                foreshadows=_rereview_foreshadows,
-                character_models=_rereview_chars,
-            )
-            hard_issues = review._hard_rules(review_objects)
-            domain_issues = review._domain_rules(review_objects)
-            issues = hard_issues + domain_issues + llm_issues
-            route = review.resolve_route(issues, route)
-            print(f"Re-Review Route: {route}")
-            print(f"Issues: {len(issues)} (blocking: {sum(1 for i in issues if i.is_blocking())})")
-            for i in issues:
-                print(f"  [{i.severity}] {i.issue_type}: {i.description}")
-            print(f"Reminders: {len(reminders)}")
-            for reminder in reminders:
-                print(
-                    f"  [{reminder.priority}] {reminder.family}: "
-                    f"{reminder.trigger_condition} | window={reminder.window} "
-                    f"-> {reminder.escalation_issue_type}"
-                )
-
-    result = {
-        "workspec": workspec.model_dump(mode="json"),
-        "plotunit": plotunit.model_dump(mode="json"),
-        "new_state": new_state.model_dump(mode="json"),
-        "new_facts": new_facts,
-        "issues": [i.model_dump(mode="json") for i in issues],
-        "reminders": [r.model_dump(mode="json") for r in reminders],
-        "route": route,
-        "rewrite_applied": len(fixes) > 0,
-        "applied_fixes": fixes,
+    code_issues, pre_blocking = _run_code_rules()
+    pre_review_result = {
+        "schema_version": 1,
+        "code_issues": [i.model_dump(mode="json") for i in code_issues],
+        "blocking": [i.model_dump(mode="json") for i in pre_blocking],
     }
-    if args.character_update == "on":
-        result["character_updates"] = character_updates
-    compose_result_path = output_dir / "compose_result.json"
-    compose_result_path.write_text(
-        json.dumps(result, ensure_ascii=False, indent=2),
+    (output_dir / "pre_review_result.json").write_text(
+        json.dumps(pre_review_result, ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
-    print(f"\nSaved: {compose_result_path}")
-    route_handoff = HandoffBoundaryUnit().build_review_route(
-        review_target_ref=str(compose_result_path),
-        route=route,
-        issues=result["issues"],
-        reminders=result["reminders"],
-        output_state_ref=new_state.state_id,
-    )
-    (output_dir / "route_handoff.json").write_text(
-        route_handoff.model_dump_json(indent=2),
-        encoding="utf-8",
-    )
+    if pre_blocking:
+        print(f"Pre-Review blocked: {len(pre_blocking)} structural blocking issue(s) "
+              f"-> object-layer rewrite")
+        rewrite = RewriteUnit()
+        if not pre_rewrite_response_path.exists():
+            pre_rewrite_prompt_path.write_text(
+                rewrite.build_prompt(pre_blocking, review_objects, context="compose-preview"),
+                encoding="utf-8",
+            )
+            print(f"\n[STEP: PRE-REWRITE] Prompt saved: {pre_rewrite_prompt_path}")
+            print(f"[WAITING] Generate response to: {pre_rewrite_response_path}")
+            print("[RESUME] Re-run this script after saving response")
+            return 0
+        response = _read_response_text(pre_rewrite_response_path)
+        fixes = rewrite.parse_response(response)
+        try:
+            applied = rewrite.apply_required_fixes(review_objects, fixes)
+        except ValueError as exc:
+            print(f"Rewrite failed: {exc}")
+            return 1
+        for fix in fixes:
+            print(f"  Applied: {fix.get('target_type')}.{fix.get('field')} -> {fix.get('action')}")
+        print(f"\nPre-rewrite applied: {applied}/{len(fixes)}")
+        code_issues, pre_blocking = _run_code_rules()
+        if pre_blocking:
+            print(f"Pre-Review still blocked after object rewrite: "
+                  f"{len(pre_blocking)} blocking issue(s)")
+            return 1
+        print("Pre-Review clear after object rewrite")
+    else:
+        print(f"Pre-Review clear (code issues: {len(code_issues)}, none blocking)")
 
-    if route != "pass":
-        print(f"\nCompose blocked: route={route}; candidate state not saved")
-        return 1
-
-    # Step 6: Prose（章节正文成文落盘；--no-prose 跳过）
-    chapter_written = False
+    # Step 4: Prose → 草稿（Draft，不进 chapters/）。Draft/Commit 边界：PASS 前正文
+    # 只是 staged draft，下游不消费未提交稿；PASS 后才提交为正式 chapter。
+    draft_text: str | None = None
     if not args.no_prose:
+        print("\n" + "=" * 50)
+        print("Step 4: Prose (draft)")
+        print("=" * 50)
         prose_prompt_path = output_dir / "prose_prompt.txt"
         prose_response_path = output_dir / "prose_response.txt"
         if not prose_response_path.exists():
@@ -727,23 +648,261 @@ def main() -> int:
             print(f"[WAITING] Generate response to: {prose_response_path}")
             print("[RESUME] Re-run this script after saving response")
             return 0
-        chapter_text = prose_action.parse_response(
+        draft_text = prose_action.parse_response(
             _read_response_text(prose_response_path)
         )
+        prose_draft_path = output_dir / "prose_draft.txt"
+        prose_draft_path.write_text(draft_text, encoding="utf-8")
+        # 首次解析的 raw 归档（操作者扩写入 provenance——只写一次，后续重跑不覆盖）
+        prose_action.archive_raw_prose(
+            output_dir,
+            prose_action.next_chapter_number(output_dir.parent.parent / "chapters"),
+            draft_text,
+        )
+        print(f"Staged prose draft: {prose_draft_path}")
+
+    # Step 5: Review（后置，读正文）
+    print("\n" + "=" * 50)
+    print("Step 5: Review (post-prose, reads chapter)")
+    print("=" * 50)
+    review_prompt_path = output_dir / "compose_review_prompt.txt"
+    review_response_path = output_dir / "compose_review_response.txt"
+    if review_response_path.exists():
+        response = _read_response_text(review_response_path)
+        _review_foreshadows = [
+            o for o in review_objects if isinstance(o, ForeshadowGraph)
+        ]
+        _review_chars = [
+            o for o in review_objects if isinstance(o, CharacterModel)
+        ]
+        llm_issues, reminders, route = review.parse_response(
+            response,
+            foreshadows=_review_foreshadows,
+            character_models=_review_chars,
+        )
+        hard_issues = review._hard_rules(review_objects)
+        domain_issues = review._domain_rules(review_objects)
+        issues = hard_issues + domain_issues + llm_issues
+        route = review.resolve_route(issues, route)
+    else:
+        review_prompt_path.write_text(
+            review.build_prompt(
+                review_objects,
+                context="compose",
+                prose_text=draft_text if draft_text is not None else None,
+            ),
+            encoding="utf-8",
+        )
+        print(f"[STEP: REVIEW] Prompt saved: {review_prompt_path}")
+        print(f"[WAITING] Generate response to: {review_response_path}")
+        print("[RESUME] Re-run this script after saving response")
+        return 0
+    print(f"Route: {route}")
+    print(f"Issues: {len(issues)} (blocking: {sum(1 for i in issues if i.is_blocking())})")
+    print(f"Reminders: {len(reminders)}")
+    for reminder in reminders:
+        print(
+            f"  [{reminder.priority}] {reminder.family}: "
+            f"{reminder.trigger_condition} | window={reminder.window} "
+            f"-> {reminder.escalation_issue_type}"
+        )
+
+    fixes = []
+
+    # Step 6: Rewrite（正文已存在 → 正文层修订优先；--no-prose → 对象层修复）
+    if route == "rewrite":
+        blocking_issues = [i for i in issues if i.is_blocking()]
+        if not blocking_issues:
+            print("Route is rewrite but no blocking issues — treating as pass")
+            route = "pass"
+        else:
+            if draft_text is not None:
+                # 正文层修复：带阻断 issue 直接修订 draft
+                prose_revise_prompt_path = output_dir / "prose_revise_prompt.txt"
+                prose_revise_response_path = output_dir / "prose_revise_response.txt"
+                if not prose_revise_response_path.exists():
+                    prose_revise_prompt_path.write_text(
+                        prose_action.build_revision_prompt(
+                            blocking_issues,
+                            draft_text,
+                            plotunit=plotunit,
+                        ),
+                        encoding="utf-8",
+                    )
+                    print(f"\n[STEP: PROSE REVISE] Prompt saved: {prose_revise_prompt_path}")
+                    print(f"[WAITING] Generate response to: {prose_revise_response_path}")
+                    print("[RESUME] Re-run this script after saving response")
+                    return 0
+                revised = prose_action.parse_response(
+                    _read_response_text(prose_revise_response_path)
+                )
+                prose_action.record_prose_revision(
+                    output_dir,
+                    cycle_id=plotunit.unit_id,
+                    issues=blocking_issues,
+                    original=draft_text,
+                    revision=revised,
+                )
+                draft_text = revised
+                prose_draft_path.write_text(revised, encoding="utf-8")
+                print(f"Revised prose draft: {prose_draft_path}")
+            else:
+                # --no-prose：对象层修复
+                rewrite = RewriteUnit()
+                compose_rewrite_prompt_path = output_dir / "compose_rewrite_prompt.txt"
+                compose_rewrite_response_path = output_dir / "compose_rewrite_response.txt"
+
+                if not compose_rewrite_response_path.exists():
+                    compose_rewrite_prompt_path.write_text(
+                        rewrite.build_prompt(blocking_issues, review_objects, context="compose"),
+                        encoding="utf-8",
+                    )
+                    print(f"\n[STEP: REWRITE] Prompt saved: {compose_rewrite_prompt_path}")
+                    print(f"[WAITING] Generate response to: {compose_rewrite_response_path}")
+                    print("[RESUME] Re-run this script after saving response")
+                    return 0
+
+                response = _read_response_text(compose_rewrite_response_path)
+                fixes = rewrite.parse_response(response)
+                try:
+                    applied = rewrite.apply_required_fixes(review_objects, fixes)
+                except ValueError as exc:
+                    print(f"Rewrite failed: {exc}")
+                    return 1
+                for fix in fixes:
+                    print(
+                        f"  Applied: {fix.get('target_type')}.{fix.get('field')} -> {fix.get('action')}"
+                    )
+                print(f"\nRewrite applied: {applied}/{len(fixes)}")
+
+            # Step 7: Re-Review
+            print("\n" + "=" * 50)
+            print("Step 7: Re-Review")
+            print("=" * 50)
+            compose_rereview_prompt_path = output_dir / "compose_rereview_prompt.txt"
+            compose_rereview_response_path = output_dir / "compose_rereview_response.txt"
+
+            if not compose_rereview_response_path.exists():
+                compose_rereview_prompt_path.write_text(
+                    review.build_prompt(
+                        review_objects,
+                        context="compose-rereview",
+                        prose_text=draft_text if draft_text is not None else None,
+                    ),
+                    encoding="utf-8",
+                )
+                print(f"[STEP: REREVIEW] Prompt saved: {compose_rereview_prompt_path}")
+                print(f"[WAITING] Generate response to: {compose_rereview_response_path}")
+                print("[RESUME] Re-run this script after saving response")
+                return 0
+
+            response = _read_response_text(compose_rereview_response_path)
+            _rereview_foreshadows = [
+                o for o in review_objects if isinstance(o, ForeshadowGraph)
+            ]
+            _rereview_chars = [
+                o for o in review_objects if isinstance(o, CharacterModel)
+            ]
+            llm_issues, reminders, route = review.parse_response(
+                response,
+                foreshadows=_rereview_foreshadows,
+                character_models=_rereview_chars,
+            )
+            hard_issues = review._hard_rules(review_objects)
+            domain_issues = review._domain_rules(review_objects)
+            issues = hard_issues + domain_issues + llm_issues
+            route = review.resolve_route(issues, route)
+            if route == "rewrite":
+                # 单趟 rewrite+re-review 已过，仍有阻断 → 交人工
+                route = "block"
+            print(f"Re-Review Route: {route}")
+            print(f"Issues: {len(issues)} (blocking: {sum(1 for i in issues if i.is_blocking())})")
+            for i in issues:
+                print(f"  [{i.severity}] {i.issue_type}: {i.description}")
+            print(f"Reminders: {len(reminders)}")
+            for reminder in reminders:
+                print(
+                    f"  [{reminder.priority}] {reminder.family}: "
+                    f"{reminder.trigger_condition} | window={reminder.window} "
+                    f"-> {reminder.escalation_issue_type}"
+                )
+
+    result = {
+        "workspec": workspec.model_dump(mode="json"),
+        "plotunit": plotunit.model_dump(mode="json"),
+        "new_state": new_state.model_dump(mode="json"),
+        "new_facts": new_facts,
+        "issues": [i.model_dump(mode="json") for i in issues],
+        "reminders": [r.model_dump(mode="json") for r in reminders],
+        "route": route,
+        "rewrite_applied": len(fixes) > 0,
+        "applied_fixes": fixes,
+        "pre_review": pre_review_result,
+        "prose_context": "draft" if draft_text is not None else None,
+    }
+    if args.character_update == "on":
+        result["character_updates"] = character_updates
+    compose_result_path = output_dir / "compose_result.json"
+    compose_result_path.write_text(
+        json.dumps(result, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    print(f"\nSaved: {compose_result_path}")
+    route_handoff = HandoffBoundaryUnit().build_review_route(
+        review_target_ref=str(compose_result_path),
+        route=route,
+        issues=result["issues"],
+        reminders=result["reminders"],
+        output_state_ref=new_state.state_id,
+    )
+    (output_dir / "route_handoff.json").write_text(
+        route_handoff.model_dump_json(indent=2),
+        encoding="utf-8",
+    )
+
+    if route != "pass":
+        print(f"\nCompose blocked: route={route}; candidate state not saved")
+        if draft_text is not None:
+            print("注意：本章正文仍是未提交 draft（output/prose_draft.txt），未进入 chapters/；"
+                  "请人工处理或删除。")
+        return 1
+
+    # Commit：PASS 后才把 draft 提交为正式 chapter_N.txt（落盘闸门在此兜底 staged 复用）
+    chapter_committed = False
+    if not args.no_prose and draft_text is not None:
         chapters_dir = output_dir.parent.parent / "chapters"
         chapters_dir.mkdir(parents=True, exist_ok=True)
-        if prose_action.is_duplicate_of_last(chapter_text, chapters_dir):
+        if prose_action.is_duplicate_of_last(draft_text, chapters_dir):
             print(
-                "Error: candidate prose is nearly identical to the last chapter; "
-                "refusing to write a duplicate (staged response may have been reused)."
+                "Error: draft is nearly identical to the last committed chapter; "
+                "refusing to commit (staged response may have been reused)."
             )
             return 1
         chapter_file = prose_action.chapter_path(
             chapters_dir, prose_action.next_chapter_number(chapters_dir)
         )
-        chapter_file.write_text(chapter_text, encoding="utf-8")
-        chapter_written = True
-        print(f"Saved chapter: {chapter_file}")
+        chapter_file.write_text(draft_text, encoding="utf-8")
+        chapter_committed = True
+        prose_action.archive_draft(
+            output_dir,
+            int(chapter_file.stem[len("chapter_"):]),
+            draft_text,
+        )
+        prose_action.record_chapter_provenance(
+            output_dir,
+            int(chapter_file.stem[len("chapter_"):]),
+            review_issues=issues,
+            final_draft_chars=len("".join((draft_text or "").split())),
+            active_frame_id=(
+                ((frame_context or {}).get("current_frame") or {}).get("frame_id")
+                if frame_context else None
+            ),
+            active_formula_node=(
+                ((frame_context or {}).get("current_frame") or {}).get("formula_node")
+                if frame_context else None
+            ),
+        )
+        print(f"Committed chapter: {chapter_file}")
 
     final_objects = objects + [plotunit, new_state]
     final_package = serializer.build_package(*final_objects)
@@ -761,7 +920,7 @@ def main() -> int:
     serializer.save(final_package, compose_state_path)
     print(f"Saved: {compose_state_path}")
 
-    if chapter_written:
+    if chapter_committed:
         reset_consumed_responses(output_dir)
         print(
             f"[CYCLE] 本章 staged 响应已消费，下一章将从全新 prompt 开始"

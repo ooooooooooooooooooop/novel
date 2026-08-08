@@ -44,7 +44,11 @@ from src.workflow_action.author_selection import (
     resolve_kernel,
     run_author_selection,
 )
-from src.workflow_action.excerpt import append_generated_chapters, load_recent_excerpts
+from src.workflow_action.excerpt import (
+    append_generated_chapters,
+    load_original_style_sample,
+    load_recent_excerpts,
+)
 from src.workflow_action.proposal_generator import (
     build_proposal_prompt,
     parse_proposals_response,
@@ -85,27 +89,30 @@ def _read_response_text(path: Path) -> str:
 HELP_TEXT = """Usage:
   python src/extend_short_form.py [input_text_file] [--chapter-wise] [--resume]
 
-Extend 流（续写）：
+Extend 流（续写）——时序为 先成文、后审查（42 设计 F3b）：
   标准模式（短文本）：
     1. 运行脚本，生成 output/rebuild_prompt.txt 后退出。
     2. Codex 生成 JSON 响应，保存到 output/rebuild_response.txt。
     3. 重跑脚本，生成 output/continue_prompt.txt 后退出。
     4. Codex 生成 JSON 响应，保存到 output/continue_response.txt。
-    5. 重跑脚本，生成 output/review_prompt.txt 后退出。
-    6. Codex 生成 JSON 响应，保存到 output/review_response.txt。
-    7. 若 route 为 rewrite，生成 output/extend_rewrite_prompt.txt 后退出。
-    8. Codex 生成 JSON 响应，保存到 output/extend_rewrite_response.txt。
-    9. 重跑脚本，生成 output/extend_rereview_prompt.txt 后退出。
-    10. Codex 生成 JSON 响应，保存到 output/extend_rereview_response.txt。
-    11. 再次重跑脚本，生成 output/prose_prompt.txt 后退出。
-    12. Codex 生成纯文本章节正文，保存到 output/prose_response.txt。
-    13. 再次重跑脚本，正文落盘到 chapters/chapter_<N>.txt，输出 output/extend_result.json。
-    （--no-prose 跳过 11-13，保持旧版纯结构产物。）
+    5. 重跑脚本，Pre-Review（代码闸，无 LLM）。若结构阻断，生成
+       output/extend_pre_rewrite_prompt.txt 后退出 → 保存响应 → 重跑。
+    6. 生成 output/prose_prompt.txt 后退出。
+    7. Codex 生成纯文本章节正文，保存到 output/prose_response.txt。
+    8. 重跑脚本，正文落盘 chapters/chapter_<N>.txt，生成 output/review_prompt.txt
+       （已注入【本章正文】）后退出。
+    9. Codex 生成 JSON 响应，保存到 output/review_response.txt。
+    10. 重跑脚本，若 route=rewrite：正文层修订生成 output/prose_revise_prompt.txt
+        后退出 → 保存修订正文到 output/prose_revise_response.txt → 重跑；
+        （--no-prose 时走对象层 extend_rewrite_prompt.txt）。
+    11. 生成 output/extend_rereview_prompt.txt 后退出 → 保存响应 → 重跑。
+    12. 输出 output/extend_result.json。
+    （--no-prose 跳过正文落盘，Review 不注入正文，保持纯结构产物。）
 
   章节级模式（长文本 >10000字符自动启用，或 --chapter-wise 强制启用）：
     1. 脚本自动切分章节，逐批生成 extend_batch_XXX_YYY_rebuild_prompt.txt。
     2. 所有 batch response 收集后自动 Reconcile 合并为全局对象。
-    3. 合并后的全局状态进入 Continue → Review 流。
+    3. 合并后的全局状态进入 Continue → Prose → Review 流。
     4. 后续步骤与标准模式相同。
 
   Resume 模式：
@@ -282,6 +289,26 @@ def main() -> int:
     if hash_errors:
         for error in hash_errors:
             print(error)
+        return 1
+
+    # ---- 迁移检测（42 设计 §7）：新版时序 = Continue → Pre-Review → Prose → Review ----
+    # 旧版（Review 在成文前）工作区若停在「Review 后、Prose 前」，会残留
+    # review_response.txt 且缺 prose_response.txt。新版会把旧对象层审查误当
+    # 成文后审查读入（看不到正文），因此 fail-fast 提示移走后再重跑。
+    # 全新工作区首次运行写入 flow_version=2；--no-prose 语义未变，无需迁移。
+    flow_version_path = output_dir / ".flow_version"
+    if not flow_version_path.exists():
+        flow_version_path.write_text("2", encoding="utf-8")
+    if (
+        not args.no_prose
+        and (output_dir / "review_response.txt").exists()
+        and not (output_dir / "prose_response.txt").exists()
+    ):
+        print(
+            "Error: 检测到旧版流程（Review 在成文前）残留的 review_response.txt，"
+            "且缺少 prose_response.txt——新版时序为先成文后审查。"
+        )
+        print("请将 review_response.txt 移走/删除后重跑，流程将按新时序继续。")
         return 1
 
     from src.boundary_control.chunking import get_total_stats, split_by_chapters
@@ -576,6 +603,7 @@ def main() -> int:
                     timeline_context=facts.to_timeline_context(include_header=False),
                     time_context=build_time_context(load_time_book(output_dir)),
                     excerpt_context=load_recent_excerpts(continuation_text),
+                    original_style_context=load_original_style_sample(text),
                     nsfw_context=build_nsfw_context(args.nsfw == "on"),
                 ),
                 encoding="utf-8",
@@ -599,6 +627,7 @@ def main() -> int:
                     timeline_context=facts.to_timeline_context(include_header=False),
                     time_context=build_time_context(load_time_book(output_dir)),
                     excerpt_context=load_recent_excerpts(continuation_text),
+                    original_style_context=load_original_style_sample(text),
                     nsfw_context=build_nsfw_context(args.nsfw == "on"),
                 ),
                 encoding="utf-8",
@@ -642,11 +671,118 @@ def main() -> int:
             return 0
         print(f"Generated CharacterUpdates: {len(character_updates)}")
 
-    # Step 3: Review
+    # Step 3: Pre-Review（代码闸，零 LLM 成本）——结构硬错误在成文前拦截。
+    # 对应 42 设计 §4.1：只有对象层可判的确定性规则，避免为无效结构付出成文成本。
     print("\n" + "=" * 50)
-    print("Step 3: Review")
+    print("Step 3: Pre-Review (code gate)")
     print("=" * 50)
     review_objects = objects + [plotunit, new_state]
+    pre_rewrite_prompt_path = output_dir / "extend_pre_rewrite_prompt.txt"
+    pre_rewrite_response_path = output_dir / "extend_pre_rewrite_response.txt"
+
+    def _run_code_rules() -> tuple[list, list]:
+        hard = review._hard_rules(review_objects)
+        domain = review._domain_rules(review_objects)
+        temporal = _extend_temporal_issues(objects)
+        merged = hard + domain + temporal
+        return merged, [i for i in merged if i.is_blocking()]
+
+    code_issues, pre_blocking = _run_code_rules()
+    pre_review_result = {
+        "schema_version": 1,
+        "code_issues": [i.model_dump(mode="json") for i in code_issues],
+        "blocking": [i.model_dump(mode="json") for i in pre_blocking],
+    }
+    (output_dir / "pre_review_result.json").write_text(
+        json.dumps(pre_review_result, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    if pre_blocking:
+        print(f"Pre-Review blocked: {len(pre_blocking)} structural blocking issue(s) "
+              f"-> object-layer rewrite")
+        rewrite = RewriteUnit()
+        if not pre_rewrite_response_path.exists():
+            pre_rewrite_prompt_path.write_text(
+                rewrite.build_prompt(pre_blocking, review_objects, context="extend-preview"),
+                encoding="utf-8",
+            )
+            print(f"\n[STEP: PRE-REWRITE] Prompt saved: {pre_rewrite_prompt_path}")
+            print(f"[WAITING] Generate response to: {pre_rewrite_response_path}")
+            print("[RESUME] Re-run this script after saving response")
+            return 0
+        response = _read_response_text(pre_rewrite_response_path)
+        fixes = rewrite.parse_response(response)
+        try:
+            applied = rewrite.apply_required_fixes(review_objects, fixes)
+        except ValueError as exc:
+            print(f"Rewrite failed: {exc}")
+            return 1
+        for fix in fixes:
+            print(f"  Applied: {fix.get('target_type')}.{fix.get('field')} -> {fix.get('action')}")
+        print(f"\nPre-rewrite applied: {applied}/{len(fixes)}")
+        code_issues, pre_blocking = _run_code_rules()
+        if pre_blocking:
+            print(f"Pre-Review still blocked after object rewrite: "
+                  f"{len(pre_blocking)} blocking issue(s)")
+            return 1
+        print("Pre-Review clear after object rewrite")
+    else:
+        print(f"Pre-Review clear (code issues: {len(code_issues)}, none blocking)")
+
+    # Step 4: Prose → 草稿（Draft，不进 chapters/）。
+    # Draft/Commit 边界：Post-Prose PASS 前正文只是 staged draft（output/prose_draft.txt），
+    # 下游（continuity/excerpt/reader/state）不消费未提交稿；PASS 后才提交为正式 chapter。
+    draft_text: str | None = None
+    if not args.no_prose:
+        print("\n" + "=" * 50)
+        print("Step 4: Prose (draft)")
+        print("=" * 50)
+        prose_prompt_path = output_dir / "prose_prompt.txt"
+        prose_response_path = output_dir / "prose_response.txt"
+        if not prose_response_path.exists():
+            style_context = load_style_context(
+                output_dir, style_name=args.style or None
+            )
+            if not style_context and args.temperament:
+                style_context = build_temperament_guidance(args.temperament)
+            prose_prompt_path.write_text(
+                prose_action.build_prompt(
+                    plotunit,
+                    new_state,
+                    workspec_context=workspec.to_prompt_context(),
+                    style_context=style_context,
+                    excerpt_context=load_recent_excerpts(continuation_text),
+                    original_style_context=load_original_style_sample(text),
+                    timeline_context=facts.to_timeline_context(include_header=False),
+                    time_context=build_time_context(load_time_book(output_dir)),
+                    prev_chapter_end=prose_action.prev_chapter_tail(continuation_text),
+                    target_chapter_chars=prose_action.average_chapter_chars(chunks),
+                    reuse_source=text,
+                ),
+                encoding="utf-8",
+            )
+            print(f"\n[STEP: PROSE] Prompt saved: {prose_prompt_path}")
+            print(f"[WAITING] Generate response to: {prose_response_path}")
+            print("[RESUME] Re-run this script after saving response")
+            return 0
+        draft_text = prose_action.parse_response(
+            _read_response_text(prose_response_path),
+            target_chars=prose_action.average_chapter_chars(chunks),
+        )
+        prose_draft_path = output_dir / "prose_draft.txt"
+        prose_draft_path.write_text(draft_text, encoding="utf-8")
+        # 首次解析的 raw 归档（操作者扩写入 provenance——只写一次，后续重跑不覆盖）
+        prose_action.archive_raw_prose(
+            output_dir,
+            prose_action.next_chapter_number(output_dir.parent.parent / "chapters"),
+            draft_text,
+        )
+        print(f"Staged prose draft: {prose_draft_path}")
+
+    # Step 5: Review（后置，读正文——方向文档第四节：最终交付物本身成为审查对象）
+    print("\n" + "=" * 50)
+    print("Step 5: Review (post-prose, reads chapter)")
+    print("=" * 50)
     review_prompt_path = output_dir / "review_prompt.txt"
     if review_response_path.exists():
         response = _read_response_text(review_response_path)
@@ -670,7 +806,11 @@ def main() -> int:
         route = review.resolve_route(issues, route)
     else:
         review_prompt_path.write_text(
-            review.build_prompt(review_objects, context="extend"),
+            review.build_prompt(
+                review_objects,
+                context="extend",
+                prose_text=draft_text if draft_text is not None else None,
+            ),
             encoding="utf-8",
         )
         print(f"[STEP: REVIEW] Prompt saved: {review_prompt_path}")
@@ -689,46 +829,85 @@ def main() -> int:
             f"-> {reminder.escalation_issue_type}"
         )
 
-    # Step 4: Rewrite (if needed)
+    # Step 6: Rewrite（正文已存在 → 正文层修订优先；--no-prose → 对象层修复）
     if route == "rewrite":
         blocking_issues = [i for i in issues if i.is_blocking()]
         if not blocking_issues:
             print("Route is rewrite but no blocking issues — treating as pass")
             route = "pass"
         else:
-            rewrite = RewriteUnit()
-            rewrite_prompt_path = output_dir / "extend_rewrite_prompt.txt"
-
-            if not extend_rewrite_response_path.exists():
-                rewrite_prompt_path.write_text(
-                    rewrite.build_prompt(blocking_issues, review_objects, context="extend"),
-                    encoding="utf-8",
+            if draft_text is not None:
+                # 正文层修复：带阻断 issue 直接修订 draft（42 §4.4 target_layer=prose）
+                prose_revise_prompt_path = output_dir / "prose_revise_prompt.txt"
+                prose_revise_response_path = output_dir / "prose_revise_response.txt"
+                if not prose_revise_response_path.exists():
+                    prose_revise_prompt_path.write_text(
+                        prose_action.build_revision_prompt(
+                            blocking_issues,
+                            draft_text,
+                            plotunit=plotunit,
+                            target_chapter_chars=prose_action.average_chapter_chars(chunks),
+                        ),
+                        encoding="utf-8",
+                    )
+                    print(f"\n[STEP: PROSE REVISE] Prompt saved: {prose_revise_prompt_path}")
+                    print(f"[WAITING] Generate response to: {prose_revise_response_path}")
+                    print("[RESUME] Re-run this script after saving response")
+                    return 0
+                revised = prose_action.parse_response(
+                    _read_response_text(prose_revise_response_path),
+                    target_chars=prose_action.average_chapter_chars(chunks),
                 )
-                print(f"\n[STEP: REWRITE] Prompt saved: {rewrite_prompt_path}")
-                print(f"[WAITING] Generate response to: {extend_rewrite_response_path}")
-                print("[RESUME] Re-run this script after saving response")
-                return 0
+                # A/B 台账：保存 original vs revision，供盲评 Review Precision / Revision Gain
+                prose_action.record_prose_revision(
+                    output_dir,
+                    cycle_id=plotunit.unit_id,
+                    issues=blocking_issues,
+                    original=draft_text,
+                    revision=revised,
+                )
+                draft_text = revised
+                prose_draft_path.write_text(revised, encoding="utf-8")
+                print(f"Revised prose draft: {prose_draft_path}")
+            else:
+                # --no-prose：对象层修复（42 §4.4 target_layer=object）
+                rewrite = RewriteUnit()
+                rewrite_prompt_path = output_dir / "extend_rewrite_prompt.txt"
 
-            response = _read_response_text(extend_rewrite_response_path)
-            fixes = rewrite.parse_response(response)
-            try:
-                applied = rewrite.apply_required_fixes(review_objects, fixes)
-            except ValueError as exc:
-                print(f"Rewrite failed: {exc}")
-                return 1
-            for fix in fixes:
-                print(f"  Applied: {fix.get('target_type')}.{fix.get('field')} -> {fix.get('action')}")
-            print(f"\nRewrite applied: {applied}/{len(fixes)}")
+                if not extend_rewrite_response_path.exists():
+                    rewrite_prompt_path.write_text(
+                        rewrite.build_prompt(blocking_issues, review_objects, context="extend"),
+                        encoding="utf-8",
+                    )
+                    print(f"\n[STEP: REWRITE] Prompt saved: {rewrite_prompt_path}")
+                    print(f"[WAITING] Generate response to: {extend_rewrite_response_path}")
+                    print("[RESUME] Re-run this script after saving response")
+                    return 0
 
-            # Step 5: Re-Review
+                response = _read_response_text(extend_rewrite_response_path)
+                fixes = rewrite.parse_response(response)
+                try:
+                    applied = rewrite.apply_required_fixes(review_objects, fixes)
+                except ValueError as exc:
+                    print(f"Rewrite failed: {exc}")
+                    return 1
+                for fix in fixes:
+                    print(f"  Applied: {fix.get('target_type')}.{fix.get('field')} -> {fix.get('action')}")
+                print(f"\nRewrite applied: {applied}/{len(fixes)}")
+
+            # Step 7: Re-Review
             print("\n" + "=" * 50)
-            print("Step 5: Re-Review")
+            print("Step 7: Re-Review")
             print("=" * 50)
             rereview_prompt_path = output_dir / "extend_rereview_prompt.txt"
 
             if not extend_rereview_response_path.exists():
                 rereview_prompt_path.write_text(
-                    review.build_prompt(review_objects, context="extend-rereview"),
+                    review.build_prompt(
+                        review_objects,
+                        context="extend-rereview",
+                        prose_text=draft_text if draft_text is not None else None,
+                    ),
                     encoding="utf-8",
                 )
                 print(f"[STEP: REREVIEW] Prompt saved: {rereview_prompt_path}")
@@ -753,6 +932,9 @@ def main() -> int:
             temporal_issues = _extend_temporal_issues(objects)
             issues = hard_issues + domain_issues + temporal_issues + llm_issues
             route = review.resolve_route(issues, route)
+            if route == "rewrite":
+                # 单趟 rewrite+re-review 已过，仍有阻断 → 交人工
+                route = "block"
             print(f"Re-Review Route: {route}")
             print(f"Issues: {len(issues)} (blocking: {sum(1 for i in issues if i.is_blocking())})")
             for i in issues:
@@ -774,6 +956,8 @@ def main() -> int:
         "route": route,
         "outline_used": book_outline is not None,
         "outline_arcs_count": len(book_outline.arcs) if book_outline is not None else 0,
+        "pre_review": pre_review_result,
+        "prose_context": "draft" if draft_text is not None else None,
     }
     if args.character_update == "on":
         review_data["character_updates"] = character_updates
@@ -797,59 +981,52 @@ def main() -> int:
 
     if route != "pass":
         print(f"\nExtend blocked: route={route}; candidate state not saved")
+        if draft_text is not None:
+            print("注意：本章正文仍是未提交 draft（output/prose_draft.txt），未进入 chapters/；"
+                  "请人工处理或删除。")
         return 1
 
-    # Step 6: Prose（章节正文成文落盘；--no-prose 跳过）
-    chapter_written = False
-    if not args.no_prose:
-        prose_prompt_path = output_dir / "prose_prompt.txt"
-        prose_response_path = output_dir / "prose_response.txt"
-        if not prose_response_path.exists():
-            style_context = load_style_context(
-                output_dir, style_name=args.style or None
-            )
-            if not style_context and args.temperament:
-                style_context = build_temperament_guidance(args.temperament)
-            prose_prompt_path.write_text(
-                prose_action.build_prompt(
-                    plotunit,
-                    new_state,
-                    workspec_context=workspec.to_prompt_context(),
-                    style_context=style_context,
-                    excerpt_context=load_recent_excerpts(continuation_text),
-                    timeline_context=facts.to_timeline_context(include_header=False),
-                    time_context=build_time_context(load_time_book(output_dir)),
-                    prev_chapter_end=prose_action.prev_chapter_tail(continuation_text),
-                    target_chapter_chars=prose_action.average_chapter_chars(chunks),
-                    reuse_source=text,
-                ),
-                encoding="utf-8",
-            )
-            print(f"\n[STEP: PROSE] Prompt saved: {prose_prompt_path}")
-            print(f"[WAITING] Generate response to: {prose_response_path}")
-            print("[RESUME] Re-run this script after saving response")
-            return 0
-        chapter_text = prose_action.parse_response(
-            _read_response_text(prose_response_path),
-            target_chars=prose_action.average_chapter_chars(chunks),
-        )
+    # Commit：Post-Prose Review PASS 后才把 draft 提交为正式 chapter_N.txt。
+    # Draft/Commit 边界保证下游只消费已接受正文；落盘闸门在此兜底 staged 复用。
+    chapter_committed = False
+    if not args.no_prose and draft_text is not None:
         chapters_dir = output_dir.parent.parent / "chapters"
         chapters_dir.mkdir(parents=True, exist_ok=True)
-        if prose_action.is_duplicate_of_last(chapter_text, chapters_dir):
+        if prose_action.is_duplicate_of_last(draft_text, chapters_dir):
             print(
-                "Error: candidate prose is nearly identical to the last chapter; "
-                "refusing to write a duplicate (staged response may have been reused)."
+                "Error: draft is nearly identical to the last committed chapter; "
+                "refusing to commit (staged response may have been reused)."
             )
             return 1
         chapter_file = prose_action.chapter_path(
             chapters_dir, prose_action.next_chapter_number(chapters_dir)
         )
-        chapter_file.write_text(chapter_text, encoding="utf-8")
-        chapter_written = True
-        print(f"Saved chapter: {chapter_file}")
+        chapter_file.write_text(draft_text, encoding="utf-8")
+        chapter_committed = True
+        prose_action.archive_draft(
+            output_dir,
+            int(chapter_file.stem[len("chapter_"):]),
+            draft_text,
+        )
+        prose_action.record_chapter_provenance(
+            output_dir,
+            int(chapter_file.stem[len("chapter_"):]),
+            review_issues=issues,
+            final_draft_chars=len("".join((draft_text or "").split())),
+            active_frame_id=(
+                ((frame_context or {}).get("current_frame") or {}).get("frame_id")
+                if frame_context else None
+            ),
+            active_formula_node=(
+                ((frame_context or {}).get("current_frame") or {}).get("formula_node")
+                if frame_context else None
+            ),
+        )
+        print(f"Committed chapter: {chapter_file}")
 
-        # F5 原文长段去重：记录新章与原文逐字重叠片段（只标注，不改 route）
-        overlap_spans = prose_action.find_overlapping_spans(chapter_text, text)
+    # F5 原文长段去重：记录 draft 与原文逐字重叠片段（只标注，不改 route）
+    if chapter_committed:
+        overlap_spans = prose_action.find_overlapping_spans(draft_text or "", text)
         if overlap_spans:
             review_data["prose_overlap"] = overlap_spans
             extend_result_path.write_text(
@@ -864,7 +1041,7 @@ def main() -> int:
             print("Prose overlap: none")
 
         # F3a Review 挂 prose 复核：对象层 issue 是否被正文兑现（只标注，不改 route）
-        prose_recheck = recheck_against_prose(issues, chapter_text)
+        prose_recheck = recheck_against_prose(issues, draft_text or "")
         confirmed = [
             r for r in prose_recheck if r["prose_confirmed"] is True
         ]
@@ -900,7 +1077,7 @@ def main() -> int:
     serializer.save(final_package, rebuild_package_path)
     print(f"Saved: {rebuild_package_path}")
 
-    if chapter_written:
+    if chapter_committed:
         reset_consumed_responses(output_dir)
         print(
             f"[CYCLE] 本章 staged 响应已消费，下一章将从全新 prompt 开始"

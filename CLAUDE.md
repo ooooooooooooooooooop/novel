@@ -24,11 +24,23 @@
 - 零成本契约：无 TimeBook → 无注入、无检测、无产物，prompt 字节与旧版逐字节相同（回归测试锁死）
 - 内容分级（NSFW 开关）：贯通创作与审核一套语义——compose/extend `--nsfw on|off`（默认 off 正常向：off 时 Continue prompt 注入【内容分级】禁成人内容硬规则，on 时注入成人向授权）；compliance `--nsfw on|off`（默认 off：on 时跳过「涉黄」分类扫描，其余分类仍扫）；build_prompt 的 nsfw_context 缺省空串零成本不注入
 - 统一入口：`novel` 命令管理 `novels/<小说名>/` 工作目录，并调用 audit / extend / compose / style / compliance / rubric / time staged CLI
+- **Post-Prose Review（先成文、后审查）**：extend/compose 时序改为 Continue → Pre-Review(代码闸,零LLM) → Prose → Review(读正文)；Review prompt 注入【本章正文】+ 正文层 7 维审查（兑现/人物忠实/情绪落地/解读空间/场景在场/对白/AI 味），正文层独有缺陷（同章对白逐字重复、AI 味、情绪靠声明）第一次可被审查发现；route=rewrite 时正文已存在 → 正文层修订（`prose_revise`）优先，`--no-prose` 保持对象层修复；`output/.flow_version=2` + 旧版残留 fail-fast 迁移；`review.build_prompt(objects, ctx, prose_text=None)` 缺省与旧版逐字节相同（零成本契约）
+- **Draft/Commit 分离**：Post-Prose PASS 前正文只是 staged draft（`output/prose_draft.txt`），不进入 `chapters/`；下游（continuity/excerpt/reader/state）不消费未提交稿；PASS 后才提交为正式 `chapter_N.txt`（落盘闸门 `is_duplicate_of_last` 在提交点兜底）；block 时无章节落盘，draft 留待人工
+- **Post-Prose 修订 A/B 台账 + 盲评**：正文层修订（`prose_revise`）时把 `{cycle_id, issue_types, issue_severity, version_a, version_b, which_is_original, detection, revision_gain}` 记入 `output/prose_revision_ledger.json`（schema v2，A/B 顺序随机化、`which_is_original` 隐藏）。`novel ab` 盲评：**Revision Agent ≠ Judge**——judge prompt 不展示 issue / 修改建议 / 哪个是原文，只读文本；按 issue_type 分层统计 + 净收益（better−worse）+ Wilson 95% CI + Abstain（no_difference/uncertain，不强迫二选一）；分离 **Detection Precision**（说有问题时真有问题吗）与 **Revision Gain**（按它改真的更好吗）——不默认「Review 成功」
+- **Style Drift 测量（measurement-only）**：`novel drift` 产出 `output/drift/drift_report.json`——AI 章 vs 人类 baseline 的表层（句长/段长/对白/破折号）与 AI 化指标（他意识到/明白、身体反应、不是A而是B、解释性收尾、比喻）逐章 delta；Draft vs Committed 比较判断 **Review 是否在制造 homogenization**（提交时归档 `output/prose_history/draft_chapter_N.txt`）。只测不改
+- **PASS Blind Audit（测漏检率，version-aware + True Miss 口径）**：`novel audit-pass` 抽样 committed（route=pass）章节，独立 Blind Audit 自由找缺陷（不透露是 PASS 样本、不给原 Review 结果）。**口径：PASS ≠ Review 没发现 issue**——每章对比 O（原 Review issues，随提交记录在 `chapter_provenance.json`）与 A（audit findings），匹配要求 **同 issue_type + 连续较长公共片段（LCS≥4）**（不用任意 bigram，防公共 2-gram 把不同位置的同类问题误判为同一 issue）；audit 复现 Review 已报的 issue 是**一致判断，不算漏检**。输出：`audit_finding_rate` / `true_miss_rate` / `actionable_true_miss_rate` / `blocking_true_miss_rate` / `severity_disagreement_rate`。按审核世代分 cohort，历史旧章留作 failure archive
+- **Deferred Issue Gain / Missed Improvement（A/B 实验）**：原 Review 报了但 PASS 的 issue → 做轻量修订 → 盲评 = **Deferred Issue Gain**（Review 的克制是否正确）；Blind Audit 报、原 Review 完全没报的 issue → 做审计引导修订 → 盲评 = **Missed Improvement**（真漏掉了一个改善机会）。样例：ch9『忽然』deferred=no_difference（克制对）、ch8 interpretive_space missed=better（轻度改善机会）
+- **misinformation 生命周期**：Review 可声明 `misinformation_updates`（`disproven` 移除被击穿的信念 / `corrected` 用 `[{from,to}]` 替换为修正形态）；错误信念是 **belief state，与 knowledge truth 分离**——事实被证伪 ≠ 人物心理已接受，只移除确实不再持有的断言，不自动合并进 knowledge_state（`CharacterModel.reconcile_misinformation`）
+- 状态生命周期审计：`docs/00_project/44_state_lifecycle_audit.md` 统一登记所有跨章节状态的创建者/修改者/消费者/生命周期/失效/替换/追加/删除/降级/调和/陈旧检测，判定 Current/Consumable 字段被当 Accumulating 存是跨章节污染根因（近 9 轮修复即逐个打补丁的同一语义错误）
+- CharacterUpdate 长期写回门禁：`permanence=long` + `confidence≥0.8` + 方向变化（shift/reinforce）+ 非既有状态升级（防『恐惧再次升级』链式覆盖）才允许写 fear/outer_goal/self_image；transient/medium 只进 current_pressure/change_trajectory（`src/workflow_action/character_updates.py`）；台账按 char+dimension+proposed_after 去重、status 流转 applied/rejected——一次场景不能轻易重新定义一个人
+- 文风/接续锚点拆分：`load_recent_excerpts`（接续：刚发生了什么，含已生成章）与 `load_original_style_sample`（文风：只取原书人类文本）职责分离——AI102 不再模仿 AI101 生成章，避免 Self-Imitation Drift（`src/workflow_action/excerpt.py`）
 - 编辑人机回环：`novel gate --require-approval` 让 severity=critical 的 ReviewIssue 必须操作者人工 approve/reject（`approval_decision.json`）才推进；全 approve 跳转 ContinueUnit、blocking issue 严格不可审批（`src/boundary_control/approval_gate.py`）
+- **Frame 生命周期（实证发现）**：frame 是**陈旧状态参与生成**的一类——第一幕结束后 frame 仍注入 `resolution/余波/重建/升华`，与新一幕需要（rising_action/冲突升级）冲突（与旧 pressure/knowledge 同类）。**最小 expiry 修复**：`advance_cursor` 终止帧消费（last scene 无 successor 也标 completed + 完成父链）；`get_cursor` 无 active 返回 None；`build_continue_context` 处理 no-active-frame（不再注入陈旧终止帧，明确进入 needs-frame，不自动造新 arc，由人工/规划层决定下一幕）。`docs/00_project/44_state_lifecycle_audit.md` 的 Frame/Cursor 行已更新
+- **正文偏短是 diagnostic signal 而非硬目标**：1645 从『目标』降级——低于带宽时**检查是否少了真正应该发生的内容**（不是必须扩）。Expansion Gain 盲测（ch9-12 retrospective）3/4 扩写更好，但更好的扩写补的是**叙事节拍**（线索/证词/行为）非篇幅；ch9 只加纹理→no_difference。**上游承载结构实验**：同一起点 A 单 PlotUnit=905 / B PlotUnit+beats=1759 / C 多 PlotUnit=819（更紧凑）——完整性来自 **beats 层**而非更多 PlotUnit，系统缺的可能是**正文前的章节展开层**（未做成模块，等 prospective 数据）。`prose_history/raw_chapter_N.txt` 归档首次 raw（prospective Expansion Gain 从 ch13 起无重建）
 - 章节正文目录：续写/创作的章节正文统一存 `novels/<小说名>/chapters/`（如 `chapters/chapter_1197.txt`），与 `output/` 系统产物分离；小说工作区一律不提交 GitHub（`novels/*/` 已入 `.gitignore`，canary 证据目录 `novels/tier0-*-canary/` 反向放行），GitHub 仅保留工具框架（代码/测试/脚本/规则文档/运行配置/风格库积累）
 - 续写篇幅与原文参考：有原文时，原文按章拆分入 `chapters/chapter_01.txt` 起（保留章节标题行），续写从下一编号续（原文 23 章 → 续写从 `chapter_24` 起），目录内编号连续；续写章节篇幅对齐原文章均（参考值：《示例小说丁》约 6,500 字符/章），不得明显偏短；续写须参考原文语感、意象系统（杨柳/水/套装/信等）与事件细节，不能凭空脱离原文
 - 隐私纪律：所有具体小说信息（标题、正文、角色、工作区名、作者笔名）一律不提交 GitHub；git 历史中如有此类内容，push 前须用 `git filter-repo --path-*` 完整重写历史剔除（本项目已按此重写并 force-push）；正文仅存本地 `novels/<小说名>/chapters/`；写作风格综合积累可入库，统一放仓库根 `style_library/<name>.json`（中性文件名，不含小说名/作者笔名/机器路径）
-- 测试：2135 passed
+- 测试：2203 passed
 
 ## 怎么用（在 Codex 中）
 
@@ -61,7 +73,7 @@ novel audit 示例小说甲 --outline-only   # 仅产出结构概览
 novel extend 示例小说乙 --input 示例小说乙.txt
 ```
 
-- 三次重跑（Rebuild → Continue → Review）
+- 三次重跑（Rebuild → Continue → Prose → Review；**先成文、后审查**——Review prompt 注入【本章正文】，正文层 7 维审查：兑现/人物忠实/情绪落地/解读空间/场景在场/对白/AI 味；成文前 Pre-Review 代码闸拦截结构硬错误）
 - 产物：`novels/示例小说乙/output/extend_result.json`；章节正文（PlotUnit 展开成文）统一写入 `novels/示例小说乙/chapters/`，命名 `chapter_<编号>.txt`
 
 ### Compose 流（从 WorkSpec 创作）
@@ -168,6 +180,20 @@ novel time 某作 --input 某作.txt --rebuild   # 提取时间锚点，生成 t
 novel time 某作 --input 某作.txt --check     # 产出 output/time/timeline_report.json
 novel time 某作 --status                     # 打印 TimeBook 状态（novel list 亦展示 time_status）
 ```
+
+### AB 盲评、PASS 漏检审计 与 Style Drift（measurement-only）
+
+```bash
+novel ab 某作                      # A/B 盲评：写 judge prompt → 独立 Judge 填响应 → 重跑汇总
+novel ab 某作 --judge judge_2      # 多 Judge 追加（schema 支持 3/3、2/3、split 共识）
+novel ab 某作 --detection          # 只跑 Detection Precision pass（原文是否确有被标记缺陷）
+novel audit-pass 某作              # PASS Blind Audit：独立盲审 route=pass 章节，估算漏检率
+novel drift 某作                   # Style Drift：AI 化 drift + Draft vs Committed homogenization 检查
+```
+
+- A/B 台账 `output/prose_revision_ledger.json`（schema v2）在正文层修订时自动累积；`novel ab` 逐对物化盲评 prompt（不展示 issue/哪个是原文），Judge 填响应后重跑产出分层统计（by issue_type + net_rate + Wilson CI + Abstain + 多 Judge 共识）
+- `novel audit-pass`：不告诉 Judge 这是 PASS 样本，自由找缺陷 → miss_rate 估算 + 按 issue_type 分层（Review 漏检率）
+- `novel drift` 纯代码单遍：比较人类 baseline vs AI 各章的表层/AI 化指标（含 formula_node 叙事阶段标注），并比较 Draft vs Committed 判断 Review 是否在制造 homogenization
 
 - **单遍执行**（纯代码，无 response 阶段）：`--rebuild` 是显式管理命令（split_by_chapters 切章 + 提取章节时间锚点）；`--check` 跑 build_timeline_report 写出时间线报告
 - TimeBook 存 `novels/某作/output/time/time_book.json`（全 Optional，schema_version / initial / anchors / era / timelines / rules）

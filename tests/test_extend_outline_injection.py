@@ -139,6 +139,17 @@ _MIN_REVIEW_PASS_RESPONSE = json.dumps(
     ensure_ascii=False,
 )
 
+_MIN_PROSE = (
+    "第31章 测试\n他推开门，屋里的光线斜斜落在桌上。杯子里剩下半口冷水，"
+    "窗缝里有风，把桌角的一张纸吹起又落下。他站在那里，没有动，手停在门框上，"
+    "听走廊尽头传来脚步声，越来越近。他想起三天前的事，想起那人临走时说的话。"
+    "他原以为不会再回来，此刻却一步也迈不动。他低头，看见自己鞋底沾着刚干的泥，"
+    "那是昨天夜里走夜路踩上的。桌上的纸又翻了个面，露出背面的字迹——是那个人的手笔。"
+    "他认得那个勾法，认得那个收笔的位置。窗外有鸟叫，他忽然觉得这间屋子空得过分，"
+    "连呼吸都有回声。他伸出手，指尖碰到纸边，又缩回来。他不知道自己在怕什么，"
+    "只知道这一刻，他不该继续站在这里。脚步声停在了门口。"
+)
+
 
 def _run(args: list[str]) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
@@ -266,7 +277,7 @@ def test_extend_resume_mode_skips_outline_stage(tmp_path):
 def test_extend_long_form_outline_in_batch_prompt(tmp_path):
     input_path = tmp_path / "long.txt"
     input_path.write_text(_chapter_text(30), encoding="utf-8")
-    output_dir = tmp_path / "extend_run"
+    output_dir = tmp_path / "novel" / "output" / "extend"
     args = _base_args(input_path, output_dir)
 
     r1 = _run(args)
@@ -293,13 +304,18 @@ def test_extend_long_form_outline_in_batch_prompt(tmp_path):
 
     r4 = _run(args)
     assert r4.returncode == 0, r4.stdout + r4.stderr
+    assert (output_dir / "prose_prompt.txt").exists()
+    (output_dir / "prose_response.txt").write_text(_MIN_PROSE, encoding="utf-8")
+
+    r5 = _run(args)
+    assert r5.returncode == 0, r5.stdout + r5.stderr
     assert (output_dir / "review_prompt.txt").exists()
     (output_dir / "review_response.txt").write_text(
         _MIN_REVIEW_PASS_RESPONSE, encoding="utf-8"
     )
 
-    r5 = _run(args)
-    assert r5.returncode == 0, r5.stdout + r5.stderr
+    r6 = _run(args)
+    assert r6.returncode == 0, r6.stdout + r6.stderr
     result = json.loads((output_dir / "extend_result.json").read_text(encoding="utf-8"))
     assert result["outline_used"] is True
     assert result["outline_arcs_count"] > 0
