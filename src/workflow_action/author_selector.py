@@ -435,6 +435,7 @@ def build_choice_record(
     state_ref: str,
     character_refs: list[str],
     style_profile_id: Optional[str] = None,
+    chapter_number: Optional[int] = None,
 ) -> ChoiceRecord:
     """把一次选择落成 ChoiceRecord（禁止 4：含全部被拒候选）. 零 LLM."""
     candidates: list[CandidateRecord] = []
@@ -461,6 +462,7 @@ def build_choice_record(
         state_ref=state_ref,
         character_refs=character_refs,
         style_profile_id=style_profile_id,
+        chapter_number=chapter_number,
         candidates=candidates,
         selected_candidate=selected_label,
         rejected=rejected,

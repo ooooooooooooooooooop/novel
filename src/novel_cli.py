@@ -305,6 +305,9 @@ def _author_config_fields(args: argparse.Namespace) -> dict:
         "kernel": getattr(args, "kernel", "") or "",
         "shadow": getattr(args, "shadow", "off"),
         "drift_review": getattr(args, "drift_review", "off"),
+        "consolidation_min": getattr(args, "consolidation_min", None),
+        "consolidation_min_support": getattr(args, "consolidation_min_support", None),
+        "consolidation_contested_ratio": getattr(args, "consolidation_contested_ratio", None),
     }
 
 
@@ -321,6 +324,12 @@ def _append_author_options(command: list[str], args: argparse.Namespace) -> None
         command.extend(["--shadow", "on"])
     if getattr(args, "drift_review", "off") == "on":
         command.extend(["--drift-review", "on"])
+    if getattr(args, "consolidation_min", None) is not None:
+        command.extend(["--consolidation-min", str(args.consolidation_min)])
+    if getattr(args, "consolidation_min_support", None) is not None:
+        command.extend(["--consolidation-min-support", str(args.consolidation_min_support)])
+    if getattr(args, "consolidation_contested_ratio", None) is not None:
+        command.extend(["--consolidation-contested-ratio", str(args.consolidation_contested_ratio)])
 
 
 def _append_configured_author_options(command: list[str], config: dict) -> None:
@@ -336,6 +345,12 @@ def _append_configured_author_options(command: list[str], config: dict) -> None:
         command.extend(["--shadow", "on"])
     if config.get("drift_review") == "on":
         command.extend(["--drift-review", "on"])
+    if config.get("consolidation_min"):
+        command.extend(["--consolidation-min", str(config["consolidation_min"])])
+    if config.get("consolidation_min_support"):
+        command.extend(["--consolidation-min-support", str(config["consolidation_min_support"])])
+    if config.get("consolidation_contested_ratio"):
+        command.extend(["--consolidation-contested-ratio", str(config["consolidation_contested_ratio"])])
 
 
 def _run_child(command: list[str]) -> int:
@@ -716,6 +731,31 @@ def _run_drift(args: argparse.Namespace) -> int:
         str(novel_dir / "input.txt"),
     ]
     return _run_child(command)
+
+
+def _run_hindsight(args: argparse.Namespace) -> int:
+    """Hindsight Reconciliation：从真实后续章节回填 ChoiceRecord 的后果与回看.
+
+    两遍式：生成 output/hindsight/hindsight_prompt.txt → operator/Judge 填响应
+    → 重跑回填 → 触发下次 Consolidation（Author 因果闭环 Gate 1）。
+    """
+    novel_dir = _novel_dir(args.novel)
+    for mode in ("extend", "compose"):
+        output_dir = _output_dir(novel_dir, mode)
+        if (output_dir / "choice_ledger.json").exists():
+            command = [
+                sys.executable,
+                _script_path("hindsight_short_form.py"),
+                "--output-dir",
+                str(output_dir),
+                "--chapters-dir",
+                str(novel_dir / "chapters"),
+            ]
+            if args.lag:
+                command.extend(["--lag", str(args.lag)])
+            return _run_child(command)
+    print(f"Error: no choice_ledger.json in {args.novel} (extend/compose)")
+    return 1
 
 
 def _run_pass_audit(args: argparse.Namespace) -> int:
@@ -1479,6 +1519,27 @@ def _add_author_arguments(parser: argparse.ArgumentParser) -> None:
         default="off",
         help="作者漂移审查开关（默认 off；on=6E active_break 记 KernelChallenge）",
     )
+    parser.add_argument(
+        "--consolidation-min",
+        type=int,
+        default=None,
+        metavar="N",
+        help="AuthorKernel 归纳最少 ChoiceRecord 数（默认 5；实验可调低以观察 kernel 在短程内形成）",
+    )
+    parser.add_argument(
+        "--consolidation-min-support",
+        type=int,
+        default=None,
+        metavar="N",
+        help="原则形成最少支持证据数（默认 2；短程实验可调为 1）",
+    )
+    parser.add_argument(
+        "--consolidation-contested-ratio",
+        type=float,
+        default=None,
+        metavar="R",
+        help="反例占比达到即 contested（默认 0.5；短程实验可调高避免过早 contested）",
+    )
 
 
 def build_parser(*, emit_json_errors: bool = False) -> argparse.ArgumentParser:
@@ -1659,6 +1720,11 @@ def build_parser(*, emit_json_errors: bool = False) -> argparse.ArgumentParser:
     pass_audit.add_argument("--sample", type=int, default=0, help="随机抽 N 章")
     pass_audit.add_argument("--force", action="store_true", help="覆盖已有响应重新物化")
     pass_audit.set_defaults(func=_run_pass_audit)
+
+    hindsight_cmd = subparsers.add_parser("hindsight", help="Hindsight Reconciliation：从真实后续章节回填 ChoiceRecord 后果与回看")
+    hindsight_cmd.add_argument("novel", help="小说名")
+    hindsight_cmd.add_argument("--lag", type=int, default=2, help="滞后几章才算证据（默认 2）")
+    hindsight_cmd.set_defaults(func=_run_hindsight)
 
     time_cmd = subparsers.add_parser("time", help="时间域模块：TimeBook 管理 + 时间审计")
     time_cmd.add_argument("novel", help="小说名")

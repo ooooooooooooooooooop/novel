@@ -89,6 +89,10 @@ class ChoiceRecord(BaseModel):
         default=None,
         description="当前生效的风格档案 id（把选择证据归给『这个作者』）",
     )
+    chapter_number: Optional[int] = Field(
+        default=None,
+        description="选择发生时所在章节编号（Hindsight Reconciliation 用：证据必须取自选择之后的章节）",
+    )
 
     # 候选与选择
     candidates: list[CandidateRecord] = Field(

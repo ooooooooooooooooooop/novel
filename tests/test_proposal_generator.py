@@ -112,6 +112,20 @@ def test_build_passes_through_context_params():
     assert "【写作风格】" in prompt
 
 
+def test_build_author_context_injected_when_nonempty():
+    """author_context 非空时注入（作者感知：Level 3+4 记忆进候选生成）."""
+    prompt = _build(2, author_context="【作者选择结构】\n- [价值] 角色因果优先于剧情便利")
+    assert "【作者选择结构】" in prompt
+    assert "角色因果优先于剧情便利" in prompt
+
+
+def test_build_author_context_empty_byte_identical():
+    """author_context 空串 → 与旧版逐字节相同（零成本契约）."""
+    with_ctx = _build(2, author_context="")
+    without = _build(2)
+    assert with_ctx == without
+
+
 # ---------------------------------------------------------------------------
 # parse_proposals_response
 # ---------------------------------------------------------------------------

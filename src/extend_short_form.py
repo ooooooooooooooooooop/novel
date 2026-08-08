@@ -40,6 +40,7 @@ from src.workflow_action.character_updates import (
     parse_character_updates_response,
 )
 from src.workflow_action.author_selection import (
+    build_author_prompt_context,
     load_style_profile,
     resolve_kernel,
     run_author_selection,
@@ -222,6 +223,28 @@ def main() -> int:
         choices=["on", "off"],
         help="作者漂移审查开关（默认 off；on=6E：选择后审查选中文本是否无因果漂移，"
         "active_break 记入 output/drift_review/challenge_ledger.json）",
+    )
+    parser.add_argument(
+        "--consolidation-min",
+        type=int,
+        default=None,
+        metavar="N",
+        help="AuthorKernel 归纳最少 ChoiceRecord 数（默认 5；实验可调低以观察 kernel "
+        "在短程内形成并影响后续选择）",
+    )
+    parser.add_argument(
+        "--consolidation-min-support",
+        type=int,
+        default=None,
+        metavar="N",
+        help="原则形成最少支持证据数（默认 2；短程实验可调为 1）",
+    )
+    parser.add_argument(
+        "--consolidation-contested-ratio",
+        type=float,
+        default=None,
+        metavar="R",
+        help="反例占比达到即 contested（默认 0.5；短程实验可调高避免过早 contested）",
     )
     parser.add_argument(
         "--no-prose",
@@ -544,6 +567,9 @@ def main() -> int:
         packages = parse_proposals_response(response, proposals_n)
         kernel = resolve_kernel(output_dir, args.kernel)
         style_profile = load_style_profile(output_dir, args.style or "")
+        next_chapter = prose_action.next_chapter_number(
+            output_dir.parent.parent / "chapters"
+        )
         selection = run_author_selection(
             packages,
             objects,
@@ -558,6 +584,10 @@ def main() -> int:
             shadow_on=args.shadow == "on",
             drift_review_on=args.drift_review == "on",
             review=review,
+            chapter_number=next_chapter,
+            consolidation_min=args.consolidation_min,
+            consolidation_min_support=args.consolidation_min_support,
+            consolidation_contested_ratio=args.consolidation_contested_ratio,
         )
         selected_package = selection["selected"]
         plotunit = selected_package["plotunit"]
@@ -585,6 +615,11 @@ def main() -> int:
         if not style_context and args.temperament:
             style_context = build_temperament_guidance(args.temperament)
         if multi_proposals:
+            author_context = build_author_prompt_context(
+                output_dir,
+                decision_context=narrative_state.current_situation or "Extend 续写决策",
+                kernel_path=args.kernel,
+            )
             proposals_prompt_path.write_text(
                 build_proposal_prompt(
                     cont,
@@ -605,6 +640,7 @@ def main() -> int:
                     excerpt_context=load_recent_excerpts(continuation_text),
                     original_style_context=load_original_style_sample(text),
                     nsfw_context=build_nsfw_context(args.nsfw == "on"),
+                    author_context=author_context,
                 ),
                 encoding="utf-8",
             )

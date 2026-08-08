@@ -103,6 +103,9 @@ VALID_CONFIG_FIELDS = {
     "kernel",
     "shadow",
     "drift_review",
+    "consolidation_min",
+    "consolidation_min_support",
+    "consolidation_contested_ratio",
     "rebuild",
     "check",
 }

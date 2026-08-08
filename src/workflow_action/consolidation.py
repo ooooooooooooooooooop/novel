@@ -133,6 +133,7 @@ def extract_evidence(
     ledger: ChoiceLedgerEntry,
     *,
     category: Optional[str] = None,
+    challenges: Optional[list] = None,
 ) -> dict[str, PrincipleEvidence]:
     """从 ChoiceLedger 提取每价值键的行为证据.
 
@@ -140,9 +141,17 @@ def extract_evidence(
     - supporting：选中候选文本命中该价值的 PRO 方向关键词（作者选择了表达该价值）。
     - counterexample：① 该选择事后 hindsight ∈ {overturned, partial_regret}（作者
       自己判定失当）；② 选中候选命中 CONTRA 方向（作者选了违反该价值的方向）；
-      ③ 选中未命中、但某个被拒候选命中 PRO（作者拒绝了表达该价值的选项）。
+      ③ 选中未命中、但某个被拒候选命中 PRO（作者拒绝了表达该价值的选项）；
+      ④ 该 decision_id 有 open KernelChallenge（Author Drift Review 记录的
+      主动突破/漂移——作者自己的判定或事后审查）。
     - 两者都不命中 → 仅「触及未决」（tension 候选证据），不计入任何一边。
     """
+    challenge_map: dict[str, set[str]] = {}
+    if challenges:
+        for ch in challenges:
+            if getattr(ch, "status", "open") == "open":
+                challenge_map.setdefault(ch.decision_id, set()).add(ch.vocab_key)
+
     evidence: dict[str, PrincipleEvidence] = {}
     for choice in ledger.choices:
         touched = set(choice.value_conflicts)
@@ -159,10 +168,11 @@ def extract_evidence(
             if c.candidate_id in rejected_ids
         ]
         retro_bad = choice.hindsight in ("overturned", "partial_regret")
+        challenged_keys = challenge_map.get(choice.decision_id, set())
 
         for key in touched:
             entry = evidence.setdefault(key, PrincipleEvidence(vocab_key=key))
-            if retro_bad:
+            if key in challenged_keys or retro_bad:
                 entry.counterexamples.append(choice.decision_id)
             elif value_direction(sel_text, key) == "contra":
                 entry.counterexamples.append(choice.decision_id)
@@ -249,12 +259,15 @@ def consolidate_ledger(
     timestamp: str,
     min_support: int = 2,
     contested_ratio: float = 0.5,
+    challenges: Optional[list] = None,
 ) -> ConsolidationResult:
     """把 ChoiceLedger 压缩进 AuthorKernel（4A/4B），并输出 Growth/Drift 信号（4C）.
 
     禁止 3：内核必须从台账压缩出来，不接受人工创建的原则输入。
+    challenges：可选 open KernelChallenge 列表，作为反例证据并入（Author Drift
+    Review → Consolidation 闭环，§43 Growth）。
     """
-    evidence = extract_evidence(ledger)
+    evidence = extract_evidence(ledger, challenges=challenges)
     touched = sorted(evidence)
 
     # 先克隆既有内核（无则新建空内核）

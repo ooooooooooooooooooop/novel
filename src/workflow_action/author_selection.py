@@ -68,6 +68,9 @@ def maybe_consolidate_and_save(
     output_dir: Path,
     *,
     timestamp: str,
+    min_choices: Optional[int] = None,
+    min_support: Optional[int] = None,
+    contested_ratio: Optional[float] = None,
 ) -> Optional[ConsolidationResult]:
     """台账攒够后 consolidate → save（Phase 8→9 接线）.
 
@@ -78,10 +81,25 @@ def maybe_consolidate_and_save(
     台账不足 / 合并后无 stable/weak 原则时返回 None（零成本，不写文件）。
     """
     ledger = load_choice_ledger(output_dir)
-    if len(ledger.choices) < CONSOLIDATION_MIN_CHOICES:
+    threshold = min_choices if min_choices is not None else CONSOLIDATION_MIN_CHOICES
+    if len(ledger.choices) < threshold:
         return None
     existing = load_author_kernel(output_dir)
-    result = consolidate_ledger(ledger, kernel=existing, timestamp=timestamp)
+    # Author Drift Review 闭环：把 open KernelChallenge 并入反例证据（§43 Growth）
+    challenge_dir = output_dir / "drift_review" / "challenge_ledger.json"
+    challenges = None
+    if challenge_dir.exists():
+        challenge_ledger = load_challenge_ledger(challenge_dir)
+        if challenge_ledger and challenge_ledger.open_challenges:
+            challenges = challenge_ledger.open_challenges
+    result = consolidate_ledger(
+        ledger,
+        kernel=existing,
+        timestamp=timestamp,
+        challenges=challenges,
+        min_support=min_support if min_support is not None else 2,
+        contested_ratio=contested_ratio if contested_ratio is not None else 0.5,
+    )
     if not any(p.status in ("stable", "weak") for p in result.kernel.all_principles()):
         return None
     path = save_author_kernel(output_dir, result.kernel)
@@ -108,6 +126,37 @@ def resolve_kernel(output_dir: Path, kernel_path: str = "") -> Optional[AuthorKe
             Path(kernel_path).read_text(encoding="utf-8")
         )
     return load_author_kernel(output_dir)
+
+
+def build_author_prompt_context(
+    output_dir: Path,
+    decision_context: str,
+    kernel_path: str = "",
+) -> str:
+    """作者感知注入（§29/§30）：render_kernel_context + render_memory_context.
+
+    供多候选 Proposal prompt 注入（N>=2 时才调用）。Kernel 未形成 / 无相关选择史
+    时返回空串 → 零成本，prompt 字节不变。Level 3（选择史 tradeoff）+ Level 4
+    （已压缩的长期价值结构）都在这里进入生成模型——让「作者」真正影响候选生成，
+    而不只是选择器里的关键词打分。
+    """
+    from src.workflow_action.authormemory import (
+        render_kernel_context,
+        render_memory_context,
+        select_memory_injections,
+    )
+
+    kernel = resolve_kernel(output_dir, kernel_path)
+    ledger = load_choice_ledger(output_dir)
+    selection = select_memory_injections(ledger, kernel, decision_context)
+    parts: list[str] = []
+    kc = render_kernel_context(kernel)
+    if kc:
+        parts.append(kc)
+    mc = render_memory_context(selection)
+    if mc:
+        parts.append(mc)
+    return "\n\n".join(parts)
 
 
 def _package_by_label(packages: list[dict], label: str) -> dict:
@@ -148,6 +197,10 @@ def run_author_selection(
     drift_review_on: bool = False,
     review: Optional[ReviewUnit] = None,
     timestamp: Optional[str] = None,
+    chapter_number: Optional[int] = None,
+    consolidation_min: Optional[int] = None,
+    consolidation_min_support: Optional[int] = None,
+    consolidation_contested_ratio: Optional[float] = None,
 ) -> dict:
     """跑完整作者感知选择链，落 ChoiceLedger / ShadowLedger / DriftReview 侧车.
 
@@ -198,12 +251,19 @@ def run_author_selection(
             state_ref=state_ref,
             character_refs=list(plotunit.participants),
             style_profile_id=style_profile_id,
+            chapter_number=chapter_number,
         )
         ledger_path = append_choice_record(output_dir, record)
         print(f"ChoiceLedger: {ledger_path}")
         # Phase 8→9：台账攒够后 consolidate → save，使后续 --author-mode on
         # 无 --kernel 时能自动消费 output_dir/author_kernel.json（resolve_kernel 读它）
-        maybe_consolidate_and_save(output_dir, timestamp=ts)
+        maybe_consolidate_and_save(
+            output_dir,
+            timestamp=ts,
+            min_choices=consolidation_min,
+            min_support=consolidation_min_support,
+            contested_ratio=consolidation_contested_ratio,
+        )
     else:
         print(f"ChoiceLedger: {decision_id} 已记录，跳过重复落盘")
 

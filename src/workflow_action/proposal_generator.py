@@ -46,11 +46,15 @@ def build_proposal_prompt(
     excerpt_context: str = "",
     original_style_context: str = "",
     nsfw_context: str = "",
+    author_context: str = "",
 ) -> str:
     """构建 N 候选续写 prompt.
 
     前段（作品约束/当前状态/角色/事实/伏笔/续写要求）复用 Continue 的构建
     结果，保证单候选语境与旧版一致；在【输出格式】处换成多候选格式。
+    author_context 为作者感知注入（§29/§30：render_kernel_context +
+    render_memory_context 的产物，Level 3+4 记忆）；空串时输出与旧版逐字节
+    相同（零成本契约）。
     """
     if n < 2:
         raise ValueError("build_proposal_prompt requires n >= 2 (N=1 走原 Continue)")
@@ -76,6 +80,8 @@ def build_proposal_prompt(
     if marker not in base:
         raise ValueError("Continue prompt layout changed; proposal builder out of sync")
     head = base.split(marker, 1)[0]
+    if author_context.strip():
+        return head + "\n\n" + author_context.strip() + "\n\n" + _multi_candidate_output_section(n)
     return head + _multi_candidate_output_section(n)
 
 
