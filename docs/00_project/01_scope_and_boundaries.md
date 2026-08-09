@@ -71,7 +71,7 @@
 ## 3. 当前阶段的明确边�?
 ### 3.1 定义与实现并重，但边界仍需清晰
 地基定义已完成，三个 bounded slice（audit / extend / compose）已有运行代码并通过验证�?当前阶段仍不追求完整产品化，但实现与设计的同步是硬性要求�?主要产出仍包括文档、规则、对象和样例，同时包括可运行的入口脚本和可执行的回归测试�?
-### 3.2 当前阶段是”验证地基”，不是”追求复杂功能�?地基定义已稳定，当前优先�?- 运行验证（audit / extend / compose end-to-end PASS�?- 回归基线维护�?2221 tests passing�?- 文档与实现一致�?- Codex-native staged CLI v0 文件 / 状态契约稳�?
+### 3.2 当前阶段是”验证地基”，不是”追求复杂功能�?地基定义已稳定，当前优先�?- 运行验证（audit / extend / compose end-to-end PASS�?- 回归基线维护�?2272 tests passing�?- 文档与实现一致�?- Codex-native staged CLI v0 文件 / 状态契约稳�?
 浠嶄笉浼樺厛锛?- 楂樼骇鍔熻兘
 - 花哨能力
 - 多模式联�?- 全自动闭环（DirectAPI provider 调用仍未实现�?- 部署与产品化

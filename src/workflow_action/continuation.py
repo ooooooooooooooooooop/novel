@@ -71,6 +71,7 @@ class ContinueUnit:
         excerpt_context: str = "",
         original_style_context: str = "",
         nsfw_context: str = "",
+        packet_context: str = "",
     ) -> str:
         """生成续写 prompt."""
         return self._build_prompt(
@@ -90,6 +91,7 @@ class ContinueUnit:
             excerpt_context,
             original_style_context,
             nsfw_context,
+            packet_context,
         )
 
     def parse_response(self, response: str) -> tuple[PlotUnit, NarrativeState, list[str], list[str]]:
@@ -149,6 +151,7 @@ class ContinueUnit:
         excerpt_context: str = "",
         original_style_context: str = "",
         nsfw_context: str = "",
+        packet_context: str = "",
     ) -> str:
         char_ctx = "\n---\n".join(c.to_prompt_context() for c in characters)
         # 离场人物在场感（§14 盲续写迭代：让单章多线并置时能自然召回离场人物近况。
@@ -243,6 +246,11 @@ class ContinueUnit:
         nsfw_section = ""
         if nsfw_context:
             nsfw_section = f"\n\n【内容分级】\n{nsfw_context}"
+        # 本章上下文包（V2 Context Firewall）：正文模型只看 SELECT + 必要信息，
+        # 看不到 BACKGROUND/DORMANT/完整 State。零成本：无 packet 时空段，prompt 字节不变。
+        packet_section = ""
+        if packet_context:
+            packet_section = f"\n\n【本章上下文包】\n{packet_context}"
         structure_section = ""
         if structure_template:
             nodes = get_structure_template(structure_template)
@@ -257,7 +265,7 @@ class ContinueUnit:
         return f"""你是一位叙事续写专家。请基于当前叙事状态，生成下一个 PlotUnit。
 
 【作品约束】
-{workspec_context}{platform_section}{genre_section}{style_section}{time_section}{timeline_section}{excerpt_section}{original_style_section}{retrieval_section}{nsfw_section}
+{workspec_context}{platform_section}{genre_section}{style_section}{time_section}{timeline_section}{excerpt_section}{original_style_section}{retrieval_section}{nsfw_section}{packet_section}
 
 【当前叙事状态】
 {state.to_prompt_context()}
