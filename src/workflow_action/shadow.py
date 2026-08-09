@@ -107,6 +107,7 @@ def run_shadow_selection(
     style_profile: Optional[StyleProfile] = None,
     current_state_ref: str = "",
     review: Optional[ReviewUnit] = None,
+    author_judge: Optional[object] = None,
 ) -> Optional[ShadowComparison]:
     """并行跑作者感知影子选择 + 与生产结果对照（B 不进正文）.
 
@@ -115,6 +116,7 @@ def run_shadow_selection(
         objects: Consistency Gate 用到的对象列表
         production_label: 生产 Selector 已选出的实际结果标签（进正文的 A）
         其余：传给 evaluate_candidates / select_candidate 的作者感知参数
+        author_judge: 可选语义作者判断者（AuthorJudge 协议），与生产选择同协议
 
     Returns:
         ShadowComparison；空 packages 返回 None（主流程 no-op）。
@@ -125,6 +127,7 @@ def run_shadow_selection(
         packages, objects,
         kernel=kernel, style_profile=style_profile,
         current_state_ref=current_state_ref, review=review,
+        author_judge=author_judge,
     )
     shadow = select_candidate(packages, evals, kernel=kernel)
     divergent = shadow.selected_label != production_label

@@ -166,6 +166,97 @@ def _package_by_label(packages: list[dict], label: str) -> dict:
     raise ValueError(f"selected label not found: {label}")
 
 
+# ---------------------------------------------------------------------------
+# 语义作者判断者（--author-judge on）：Kernel→Selection 因果集成的生产入口
+# ---------------------------------------------------------------------------
+class JudgeWaiting(Exception):
+    """语义 judge 响应缺失（--author-judge on 且 kernel 已形成）→ [WAITING]."""
+
+
+def build_author_judge(
+    packages: list[dict],
+    output_dir: Path,
+    kernel: Optional[AuthorKernel],
+    *,
+    enabled: bool,
+) -> Optional[object]:
+    """生产语义 judge：启用且 kernel 已形成 → 返回 AuthorJudge；否则 None（fallback）.
+
+    启用但响应缺失 → 写 judge prompt 并抛 JudgeWaiting（operator 填响应后重跑）。
+    零成本契约：未启用 / kernel 未形成 → 不产文件，返回 None（关键词代理照旧）。
+    """
+    if not enabled or kernel is None or not kernel.all_principles():
+        return None
+    from src.object_state.authorkernel import VALUE_VOCAB_DESCRIPTIONS
+
+    judge_dir = output_dir / "author_judge"
+    prompt_path = judge_dir / "prompt.txt"
+    resp_path = judge_dir / "response.json"
+    if not resp_path.exists():
+        judge_dir.mkdir(parents=True, exist_ok=True)
+        lines = [
+            "# 作者视角判断（--author-judge on）",
+            "",
+            "下面是该作者的选择结构（只含中性方法论原则，不含作品/历史信息），以及本次",
+            "续写的 N 个候选方案。对每个候选，相对每条 stable/weak 原则判断方向：",
+            "pro=该候选表达/保护这条价值；contra=该候选违反/牺牲这条价值；不命中省略。",
+            "按语义判断（候选的实际故事走向），不是字面关键词。",
+            "",
+            "## 作者选择结构",
+        ]
+        for p in kernel.all_principles():
+            if p.status not in ("stable", "weak"):
+                continue
+            cat = {
+                "value": "价值", "prohibition": "禁忌", "commitment": "承诺",
+                "tension": "张力", "attention_bias": "注意偏置",
+                "interpretive_bias": "解释偏置",
+            }.get(p.category, p.category)
+            lines.append(
+                f"- [{cat}] {VALUE_VOCAB_DESCRIPTIONS.get(p.vocab_key, p.vocab_key)}"
+                f"（{p.status}）"
+            )
+        lines.append("")
+        lines.append("## 本次候选")
+        for index, package in enumerate(packages):
+            pu = package["plotunit"]
+            se = pu.scene_experience
+            grounding = se.choice_grounding if se is not None else ""
+            lines.append(
+                f"- 候选 {candidate_label(index)} [{pu.unit_id}]：目标『{pu.goal}』"
+                f"冲突『{pu.conflict}』钩子『{pu.hook or ''}』"
+                f"后果『{'；'.join(pu.consequences)}』依据『{grounding}』"
+            )
+        lines += [
+            "",
+            "## 输出格式（严格 JSON）",
+            '{ "judgments": { "<unit_id>": { "<vocab_key>": "pro" | "contra" } } }',
+            "只写判定命中的 (候选, 原则)；原则键用 vocab_key。",
+        ]
+        prompt_path.write_text("\n".join(lines), encoding="utf-8")
+        raise JudgeWaiting(str(resp_path))
+    return FileAuthorJudge(resp_path, kernel)
+
+
+class FileAuthorJudge:
+    """把 operator 填的语义方向响应适配成 AuthorJudge 协议."""
+
+    def __init__(self, resp_path: Path, kernel: AuthorKernel):
+        import json as _json
+
+        data = _json.loads(resp_path.read_text(encoding="utf-8"))
+        judgments = data.get("judgments", {})
+        valid = {p.vocab_key for p in kernel.all_principles()
+                 if p.status in ("stable", "weak")}
+        self._directions: dict[str, dict[str, str]] = {
+            uid: {k: v for k, v in kv.items() if k in valid}
+            for uid, kv in judgments.items()
+        }
+
+    def judge_candidate(self, kernel, package, candidate_text, context=""):
+        return self._directions.get(package["plotunit"].unit_id, {})
+
+
 def _selected_text(package: dict) -> str:
     """选中候选的结构文本（Author Drift Review 用，对齐 author_selector._package_text）."""
     pu = package["plotunit"]
@@ -201,6 +292,7 @@ def run_author_selection(
     consolidation_min: Optional[int] = None,
     consolidation_min_support: Optional[int] = None,
     consolidation_contested_ratio: Optional[float] = None,
+    author_judge: Optional[object] = None,
 ) -> dict:
     """跑完整作者感知选择链，落 ChoiceLedger / ShadowLedger / DriftReview 侧车.
 
@@ -211,6 +303,9 @@ def run_author_selection(
             off（默认）时生产选择用基线字典序（style→reader），kernel 只做影子对照。
         shadow_on: 是否并行跑作者感知影子选择（--shadow on = 6C，B 不进正文）
         drift_review_on: 是否对选中文本做作者漂移审查（--drift-review on = 6E）
+        author_judge: 可选语义作者判断者（AuthorJudge 协议）。提供时 kernel 已
+            形成则用语义判定（Kernel→Selection 因果集成）；缺省用关键词代理
+            （author_proxy_score，零成本契约不变）。
 
     Returns:
         {
@@ -228,6 +323,7 @@ def run_author_selection(
         style_profile=style_profile,
         current_state_ref=current_state_ref,
         review=review,
+        author_judge=author_judge,
     )
     production_kernel = kernel if author_mode_on else None
     outcome = select_candidate(packages, evals, kernel=production_kernel)

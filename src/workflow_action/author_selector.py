@@ -29,7 +29,7 @@ A/B/C/D/E → Consistency Gate 淘汰 A、D → 剩 B/C/E
 """
 
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -183,9 +183,50 @@ def author_proxy_score(
 
     方向敏感（§23）：pro=符合价值/回避禁忌，contra=牺牲价值/犯禁忌；
     只有 contra 命中禁忌才可否决。Returns: (score 0-1, veto, notes, conflicts)
+
+    确定性关键词代理——`value_direction` 需要候选文本字面命中受限词汇表。
+    语义判定见 `author_semantic_score`（同协议，不依赖字面命中）。
     """
     text = _package_text(package)
     conflicts = infer_value_conflicts(text)
+    if kernel is None or not kernel.all_principles():
+        return 0.5, False, ["kernel 未形成，作者视角中性"], conflicts
+    directions: dict[str, str] = {}
+    for p in kernel.all_principles():
+        if p.status in ("stable", "weak"):
+            d = value_direction(text, p.vocab_key)
+            if d is not None:
+                directions[p.vocab_key] = d
+    return _author_score_core(text, kernel, directions, conflicts)
+
+
+class AuthorJudge(Protocol):
+    """语义作者判断者协议——「真实运行可换 LLM judge，协议不变」的落地.
+
+    `author_proxy_score` 是确定性关键词离线代理（零 LLM，默认）；本协议把
+    kernel 原则与候选文本**按语义**对齐（不依赖受限词汇表字面命中），使
+    Kernel→Selection 真正因果（Frozen Candidate Selection Gate 的最小修复）。
+    实现方须对每条 stable/weak 原则返回方向判定。
+    """
+
+    def judge_candidate(
+        self,
+        kernel: AuthorKernel,
+        package: dict,
+        candidate_text: str,
+        context: str = "",
+    ) -> dict[str, str]:
+        """返回 {vocab_key: 'pro'|'contra'}，只含判定命中的 stable/weak 原则."""
+        ...
+
+
+def _author_score_core(
+    text: str,
+    kernel: Optional[AuthorKernel],
+    directions: dict[str, str],
+    conflicts: list[str],
+) -> tuple[float, bool, list[str], list[str]]:
+    """六部打分核心：从逐原则方向（keyword 或语义 judge 提供）算 score/veto/notes."""
     if kernel is None or not kernel.all_principles():
         return 0.5, False, ["kernel 未形成，作者视角中性"], conflicts
 
@@ -195,7 +236,7 @@ def author_proxy_score(
     for p in kernel.all_principles():
         if p.status not in ("stable", "weak"):
             continue
-        direction = value_direction(text, p.vocab_key)
+        direction = directions.get(p.vocab_key)
         if direction is None:
             continue
         if p.category == "prohibition":
@@ -228,6 +269,27 @@ def author_proxy_score(
     return score, veto, notes, conflicts
 
 
+def author_semantic_score(
+    package: dict,
+    kernel: Optional[AuthorKernel],
+    *,
+    judge: AuthorJudge,
+    context: str = "",
+) -> tuple[float, bool, list[str], list[str]]:
+    """作者对齐语义代理：judge 对候选做逐原则语义判定（不依赖关键词字面命中）.
+
+    Kernel→Selection 因果集成：kernel 已形成的 stable/weak 原则以语义方式
+    评估候选——同一冻结候选集上，不同历史形成的 kernel 会产生可识别分叉。
+    零成本契约：kernel 未形成时不调用 judge，返回中性 0.5（字节不变）。
+    """
+    text = _package_text(package)
+    conflicts = infer_value_conflicts(text)
+    if kernel is None or not kernel.all_principles():
+        return 0.5, False, ["kernel 未形成，作者视角中性"], conflicts
+    directions = judge.judge_candidate(kernel, package, text, context)
+    return _author_score_core(text, kernel, directions, conflicts)
+
+
 # ---------------------------------------------------------------------------
 # 编排
 # ---------------------------------------------------------------------------
@@ -239,11 +301,16 @@ def evaluate_candidates(
     style_profile: Optional[StyleProfile] = None,
     current_state_ref: str = "",
     review: Optional[ReviewUnit] = None,
+    author_judge: Optional[AuthorJudge] = None,
 ) -> dict[str, CandidateEvaluation]:
     """对 N 个候选做四视角评估.
 
     Consistency Gate：复用 review._hard_rules + 候选 new_state 匹配检查
     （blocking issue → consistency_pass=False）。
+
+    author_judge：可选语义作者判断者（AuthorJudge 协议）。提供时 kernel 已
+    形成则用语义判定（Kernel→Selection 因果集成）；缺省用确定性关键词代理
+    （author_proxy_score，零成本契约不变）。
     """
     review = review or ReviewUnit()
     evals: dict[str, CandidateEvaluation] = {}
@@ -287,9 +354,17 @@ def evaluate_candidates(
         # ---- 三视角（不阻断）----
         reader_score, reader_notes = reader_proxy_score(package)
         style_score, style_notes = style_proxy_score(package, style_profile)
-        author_score, author_veto, author_notes, conflicts = author_proxy_score(
-            package, kernel
-        )
+        if author_judge is not None:
+            author_score, author_veto, author_notes, conflicts = author_semantic_score(
+                package,
+                kernel,
+                judge=author_judge,
+                context=f"{pu.goal}｜{pu.conflict}",
+            )
+        else:
+            author_score, author_veto, author_notes, conflicts = author_proxy_score(
+                package, kernel
+            )
 
         evals[label] = CandidateEvaluation(
             label=label,

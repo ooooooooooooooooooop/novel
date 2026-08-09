@@ -305,6 +305,7 @@ def _author_config_fields(args: argparse.Namespace) -> dict:
         "kernel": getattr(args, "kernel", "") or "",
         "shadow": getattr(args, "shadow", "off"),
         "drift_review": getattr(args, "drift_review", "off"),
+        "author_judge": getattr(args, "author_judge", "off"),
         "consolidation_min": getattr(args, "consolidation_min", None),
         "consolidation_min_support": getattr(args, "consolidation_min_support", None),
         "consolidation_contested_ratio": getattr(args, "consolidation_contested_ratio", None),
@@ -324,6 +325,8 @@ def _append_author_options(command: list[str], args: argparse.Namespace) -> None
         command.extend(["--shadow", "on"])
     if getattr(args, "drift_review", "off") == "on":
         command.extend(["--drift-review", "on"])
+    if getattr(args, "author_judge", "off") == "on":
+        command.extend(["--author-judge", "on"])
     if getattr(args, "consolidation_min", None) is not None:
         command.extend(["--consolidation-min", str(args.consolidation_min)])
     if getattr(args, "consolidation_min_support", None) is not None:
@@ -345,6 +348,8 @@ def _append_configured_author_options(command: list[str], config: dict) -> None:
         command.extend(["--shadow", "on"])
     if config.get("drift_review") == "on":
         command.extend(["--drift-review", "on"])
+    if config.get("author_judge") == "on":
+        command.extend(["--author-judge", "on"])
     if config.get("consolidation_min"):
         command.extend(["--consolidation-min", str(config["consolidation_min"])])
     if config.get("consolidation_min_support"):
@@ -1518,6 +1523,13 @@ def _add_author_arguments(parser: argparse.ArgumentParser) -> None:
         choices=["on", "off"],
         default="off",
         help="作者漂移审查开关（默认 off；on=6E active_break 记 KernelChallenge）",
+    )
+    parser.add_argument(
+        "--author-judge",
+        choices=["on", "off"],
+        default="off",
+        help="语义作者判断者开关（默认 off 关键词代理；on=Kernel→Selection 语义判定，"
+        "kernel 已形成时缺响应 [WAITING] 填 author_judge/response.json）",
     )
     parser.add_argument(
         "--consolidation-min",

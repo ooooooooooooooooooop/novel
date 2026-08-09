@@ -40,6 +40,8 @@ from src.workflow_action.character_updates import (
     parse_character_updates_response,
 )
 from src.workflow_action.author_selection import (
+    JudgeWaiting,
+    build_author_judge,
     build_author_prompt_context,
     load_style_profile,
     resolve_kernel,
@@ -277,6 +279,13 @@ def main() -> int:
         "active_break 记入 output/drift_review/challenge_ledger.json）",
     )
     parser.add_argument(
+        "--author-judge",
+        default="off",
+        choices=["on", "off"],
+        help="语义作者判断者开关（默认 off：关键词代理；on=Kernel→Selection 因果集成："
+        "kernel 已形成时对每个候选做逐原则语义判定，缺响应 [WAITING] 填 author_judge/response.json）",
+    )
+    parser.add_argument(
         "--consolidation-min",
         type=int,
         default=None,
@@ -460,6 +469,13 @@ def main() -> int:
         packages = parse_proposals_response(response, proposals_n)
         kernel = resolve_kernel(output_dir, args.kernel)
         style_profile = load_style_profile(output_dir, args.style or "")
+        try:
+            author_judge = build_author_judge(
+                packages, output_dir, kernel, enabled=args.author_judge == "on"
+            )
+        except JudgeWaiting as exc:
+            print(f"[WAITING] 作者语义判断响应缺失：{exc}")
+            return 0
         next_chapter = prose_action.next_chapter_number(
             output_dir.parent.parent / "chapters"
         )
@@ -481,6 +497,7 @@ def main() -> int:
             consolidation_min=args.consolidation_min,
             consolidation_min_support=args.consolidation_min_support,
             consolidation_contested_ratio=args.consolidation_contested_ratio,
+            author_judge=author_judge,
         )
         selected_package = selection["selected"]
         plotunit = selected_package["plotunit"]

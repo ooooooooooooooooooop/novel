@@ -103,6 +103,7 @@ VALID_CONFIG_FIELDS = {
     "kernel",
     "shadow",
     "drift_review",
+    "author_judge",
     "consolidation_min",
     "consolidation_min_support",
     "consolidation_contested_ratio",
