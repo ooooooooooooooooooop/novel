@@ -151,6 +151,33 @@ class ContinueUnit:
         nsfw_context: str = "",
     ) -> str:
         char_ctx = "\n---\n".join(c.to_prompt_context() for c in characters)
+        # 离场人物在场感（§14 盲续写迭代：让单章多线并置时能自然召回离场人物近况。
+        # 机制级修复——信息本已在角色状态里，这里显式标出"仍活在世界中"的离场者，
+        # 避免生成器把整章压成单一待办引擎。零成本：无离场人物或 state 未标明在场者
+        # 时为空段，prompt 字节不变）。
+        offstage_ctx = ""
+        active_ids = set(state.active_characters) if state and state.active_characters else None
+        if active_ids:
+            offstage = [c for c in characters if c.character_id not in active_ids]
+            if offstage:
+                lines = ["\n\n【离场人物在场感】"]
+                lines.append(
+                    "以下人物此刻不在当前场景，但仍在世界中有自己的生活与动向；"
+                    "续写可在自然处召回其近况（不必每个都出现，也不要把他们彻底遗忘）："
+                )
+                for c in offstage:
+                    bits = [f"{c.name}({c.character_id})"]
+                    if c.identity:
+                        bits.append(c.identity)
+                    if c.current_pressure:
+                        bits.append("近况:" + "；".join(c.current_pressure))
+                    elif c.change_trajectory:
+                        bits.append("动向:" + "；".join(c.change_trajectory))
+                    if c.relations:
+                        rels = "；".join(f"{k}:{v}" for k, v in list(c.relations.items())[:3])
+                        bits.append("关系:" + rels)
+                    lines.append("- " + "；".join(bits))
+                offstage_ctx = "\n".join(lines)
         active_threads = foreshadows.get_active()
         thread_ctx = "\n".join(f"- {e.content}" for e in active_threads) if active_threads else "无"
         frame_section = ""
@@ -237,6 +264,7 @@ class ContinueUnit:
 
 【角色状态】
 {char_ctx}
+{offstage_ctx}
 
 【已确认事实】
 {facts.to_prompt_context()}
@@ -254,7 +282,8 @@ class ContinueUnit:
 5. 不能一次性解决所有悬念，但可以推进其中一个
 6. 情绪变化必须有依据，不能跳跃
 7. 忠于原文：不得引入与已发生事件（时间线）矛盾的事件；新线索必须能与既有事实自洽，不得凭空捏造与原文无关的设定
-8. scene_experience 可选：提供时须落在读者体验五维（看见/阻碍/选择/结果/认知变化），让正文展开有现场感；省略时不注入
+8. 延续本作品的叙事组织方式——若原作单章常见多线并置/日常承载/离场人物近况自然回归，请保持这种组织；若原作单线紧凑，则保持其紧凑。不要因为续写而系统性改变作品的组织方式，也不要每章强行制造悬念钩子
+9. scene_experience 可选：提供时须落在读者体验五维（看见/阻碍/选择/结果/认知变化），让正文展开有现场感；省略时不注入
 
 【输出格式】
 严格输出 JSON:
