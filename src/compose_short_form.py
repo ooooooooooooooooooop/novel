@@ -550,7 +550,12 @@ def main() -> int:
                     retrieval_context=retrieval_context,
                     timeline_context=facts.to_timeline_context(include_header=False),
                     time_context=build_time_context(load_time_book(output_dir)),
-                    nsfw_context=build_nsfw_context(args.nsfw == "on"),
+                    nsfw_context=build_nsfw_context(
+                        args.nsfw == "on",
+                        genre=workspec.genre,
+                        theme=workspec.theme,
+                        subgenre=workspec.subgenre,
+                    ),
                     author_context=author_context,
                 ),
                 encoding="utf-8",
@@ -573,7 +578,12 @@ def main() -> int:
                     retrieval_context=retrieval_context,
                     timeline_context=facts.to_timeline_context(include_header=False),
                     time_context=build_time_context(load_time_book(output_dir)),
-                    nsfw_context=build_nsfw_context(args.nsfw == "on"),
+                    nsfw_context=build_nsfw_context(
+                        args.nsfw == "on",
+                        genre=workspec.genre,
+                        theme=workspec.theme,
+                        subgenre=workspec.subgenre,
+                    ),
                 ),
                 encoding="utf-8",
             )

@@ -10,6 +10,7 @@ from src.domain_layer.compliance_knowledge import (
     DEFAULT_PLATFORM,
     NSFW_ALLOW_CONTENT_POLICY,
     NSFW_CATEGORY,
+    NSFW_GENRE_BOUNDARIES,
     NSFW_SAFE_CONTENT_POLICY,
     PLATFORM_POLICY,
     SENSITIVE_LEXICON,
@@ -81,9 +82,39 @@ def build_lexicon_nsfw_aware(
     return all_entries
 
 
-def build_nsfw_context(nsfw_on: bool) -> str:
-    """生成侧内容分级文案：--nsfw off 返回正常向禁令，on 返回成人向授权."""
-    return NSFW_ALLOW_CONTENT_POLICY if nsfw_on else NSFW_SAFE_CONTENT_POLICY
+def build_nsfw_context(
+    nsfw_on: bool,
+    genre: str | None = None,
+    theme: str | None = None,
+    subgenre: str | None = None,
+) -> str:
+    """生成侧内容分级文案：--nsfw off 返回正常向禁令，on 返回成人向授权.
+
+    --nsfw off 且已知题材时，按题材返回细化的禁边界文案（亲情向=无任何性化/亲密
+    极克制；热血向=打斗不渲染血腥；仙侠/都市/悬疑等同理）。genre/theme/subgenre
+    均为 None 或未命中题材表时，返回与旧版逐字节相同的通用禁令（零成本契约）。
+    """
+    if nsfw_on:
+        return NSFW_ALLOW_CONTENT_POLICY
+    boundary = _match_nsfw_boundary(genre, theme, subgenre)
+    return boundary if boundary is not None else NSFW_SAFE_CONTENT_POLICY
+
+
+def _match_nsfw_boundary(
+    genre: str | None, theme: str | None, subgenre: str | None
+) -> str | None:
+    """在题材表内做子串匹配，返回首个命中的禁边界文案；未命中返回 None.
+
+    匹配优先级：theme（题材意图最具体，亲情/热血等主题词优先于宽泛 genre）
+    → subgenre → genre。子串匹配容忍组合题材（如「仙侠言情」命中「仙侠」）。
+    """
+    for value in (theme, subgenre, genre):
+        if not value:
+            continue
+        for key, text in NSFW_GENRE_BOUNDARIES.items():
+            if key in value:
+                return text
+    return None
 
 
 def get_platform_policy(platform: str) -> dict:

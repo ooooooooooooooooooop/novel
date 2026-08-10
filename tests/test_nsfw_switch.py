@@ -10,7 +10,11 @@ import subprocess
 import sys
 from pathlib import Path
 
-from src.domain_layer.compliance_knowledge import NSFW_CATEGORY
+from src.domain_layer.compliance_knowledge import (
+    NSFW_ALLOW_CONTENT_POLICY,
+    NSFW_CATEGORY,
+    NSFW_SAFE_CONTENT_POLICY,
+)
 from src.domain_layer.compliance_rules import (
     build_lexicon_nsfw_aware,
     build_nsfw_context,
@@ -117,6 +121,78 @@ def test_continue_prompt_nsfw_on_injects_allow_policy():
     prompt = _base_prompt(nsfw_context=build_nsfw_context(True))
     assert "【内容分级】" in prompt
     assert "已显式开启成人向" in prompt
+
+
+# --- 生成侧：题材定制禁边界（W4：--nsfw off 且已知题材时按题材细化） ---
+
+
+def test_build_nsfw_context_off_default_is_byte_identical_generic():
+    """零成本契约：无题材字段时返回与旧版逐字节相同的通用禁令."""
+    assert build_nsfw_context(False) == NSFW_SAFE_CONTENT_POLICY
+    assert build_nsfw_context(False, None, None, None) == NSFW_SAFE_CONTENT_POLICY
+    assert build_nsfw_context(False) == build_nsfw_context(False, None, None, None)
+
+
+def test_build_nsfw_context_off_unknown_genre_falls_back_to_generic():
+    """未命中题材表时回退通用文案（字节不变，零成本契约）."""
+    assert build_nsfw_context(False, genre="西幻") == NSFW_SAFE_CONTENT_POLICY
+    assert build_nsfw_context(False, theme="荒诞", subgenre="公路") == NSFW_SAFE_CONTENT_POLICY
+
+
+def test_build_nsfw_context_off_genre_boundary_by_genre():
+    policy = build_nsfw_context(False, genre="仙侠")
+    assert policy != NSFW_SAFE_CONTENT_POLICY
+    assert "题材为仙侠" in policy
+    assert "禁止出现任何色情" in policy
+
+
+def test_build_nsfw_context_off_genre_boundary_by_theme():
+    policy = build_nsfw_context(False, theme="亲情")
+    assert "题材为亲情向" in policy
+
+
+def test_build_nsfw_context_off_genre_boundary_by_subgenre():
+    policy = build_nsfw_context(False, genre="都市", subgenre="热血")
+    assert "题材为热血向" in policy
+
+
+def test_build_nsfw_context_theme_priority_over_genre():
+    """匹配优先级 theme → subgenre → genre：亲情主题词应赢过宽泛仙侠 genre."""
+    policy = build_nsfw_context(False, genre="仙侠", theme="亲情")
+    assert "题材为亲情向" in policy
+    assert "题材为仙侠" not in policy
+
+
+def test_build_nsfw_context_on_ignores_genre():
+    """nsfw on（成人向）不受题材定制影响，始终返回成人向授权."""
+    assert build_nsfw_context(True, genre="仙侠", theme="亲情") == NSFW_ALLOW_CONTENT_POLICY
+
+
+def test_continue_prompt_nsfw_genre_boundary_injected():
+    prompt = _base_prompt(nsfw_context=build_nsfw_context(False, genre="仙侠"))
+    assert "【内容分级】" in prompt
+    assert "题材为仙侠" in prompt
+
+
+def _normalize(text: str) -> str:
+    return "".join(text.split())
+
+
+def _wires_genre_boundary(text: str) -> bool:
+    return (
+        "nsfw_context=build_nsfw_context(args.nsfw==\"on\","
+        "genre=workspec.genre,theme=workspec.theme,subgenre=workspec.subgenre,)"
+        in _normalize(text)
+    )
+
+
+def test_compose_extend_wire_genre_boundary_to_build_nsfw_context():
+    """透传接线：compose/extend 两个入口都必须把 workspec 的
+    genre/theme/subgenre 传入 build_nsfw_context（缺一即静默回退通用文案）."""
+    compose_src = (PROJECT_ROOT / "src/compose_short_form.py").read_text(encoding="utf-8")
+    extend_src = (PROJECT_ROOT / "src/extend_short_form.py").read_text(encoding="utf-8")
+    assert _wires_genre_boundary(compose_src)
+    assert _wires_genre_boundary(extend_src)
 
 
 # --- 合规侧：scan_prose 涉黄过滤 ---

@@ -33,11 +33,14 @@ from src.domain_layer.review_signal_knowledge import (
 )
 from src.domain_layer.rules import (
     get_hook_effectiveness,
+    get_hook_type_effectiveness,
+    get_hook_types_for_level,
     get_platform_constraints,
     get_recommended_emotions,
     is_critical_hook_node,
     validate_node_emotion,
     validate_plotunit_hook,
+    validate_plotunit_hook_type,
 )
 from src.domain_layer.style_knowledge import (
     EMOTION_ANNOUNCEMENT_PHRASES,
@@ -138,10 +141,33 @@ def foreshadow_referenced(
 
 
 def detect_hook_validation(objects: list) -> list[ReviewIssue]:
-    """iss_hook：PlotUnit hook 合法性（validate_plotunit_hook）. 需 workspec/无."""
+    """iss_hook：PlotUnit hook 合法性（validate_plotunit_hook）. 需 workspec/无.
+
+    W5 双路径：已填 hook_type（显式枚举）→ 严格层级校验（validate_plotunit_hook_type，
+    非法即 blocking）；hook_type 未填 → 维持自由文本轻量检查（validate_plotunit_hook，
+    不回归）。
+    """
     issues: list[ReviewIssue] = []
     plotunits = [o for o in objects if isinstance(o, PlotUnit)]
     for pu in plotunits:
+        if pu.hook_type and pu.hook_type.strip():
+            if not validate_plotunit_hook_type(pu.hook_type, pu.level):
+                issues.append(
+                    ReviewIssue(
+                        issue_id=f"iss_hook_{pu.unit_id}",
+                        issue_type="weak_progression",
+                        severity="blocking",
+                        location=f"PlotUnit {pu.unit_id}",
+                        scope_of_impact="钩子层级合法性",
+                        violated_rule="hook_type 必须属于当前层级的显式枚举",
+                        description=(
+                            f"hook_type '{pu.hook_type}' 对层级 '{pu.level}' 不合法；"
+                            f"该层级合法枚举为 "
+                            f"{sorted(get_hook_types_for_level(pu.level)) or '无'}"
+                        ),
+                    )
+                )
+            continue
         if not validate_plotunit_hook(pu.hook, pu.level):
             issues.append(
                 ReviewIssue(
@@ -225,28 +251,40 @@ def detect_platform_constraints(objects: list) -> list[ReviewIssue]:
 
 
 def detect_hook_effectiveness(objects: list) -> list[ReviewIssue]:
-    """iss_hook_eff：关键节点应使用 high-effectiveness hook."""
+    """iss_hook_eff：关键节点应使用 high-effectiveness hook.
+
+    W5：已填 hook_type 时按其显式类型查 effectiveness（get_hook_type_effectiveness，
+    映射 level→taxonomy 键）；未填时沿用自由文本 hook 的旧路径（不回归）。
+    """
     issues: list[ReviewIssue] = []
     plotunits = [o for o in objects if isinstance(o, PlotUnit)]
     for pu in plotunits:
-        if pu.formula_node and is_critical_hook_node(pu.formula_node) and pu.hook:
+        if not (pu.formula_node and is_critical_hook_node(pu.formula_node)):
+            continue
+        if pu.hook_type and pu.hook_type.strip():
+            effectiveness = get_hook_type_effectiveness(pu.hook_type, pu.level)
+            hook_label = pu.hook_type
+        else:
+            if not pu.hook:
+                continue
             effectiveness = get_hook_effectiveness(pu.hook, pu.level)
-            if effectiveness and effectiveness != "high":
-                issues.append(
-                    ReviewIssue(
-                        issue_id=f"iss_hook_eff_{pu.unit_id}",
-                        issue_type="weak_progression",
-                        severity="warning",
-                        location=f"PlotUnit {pu.unit_id}",
-                        scope_of_impact="钩子质量",
-                        violated_rule="关键节点应使用 high-effectiveness hook",
-                        description=(
-                            f"PlotUnit {pu.unit_id} 处于关键节点 '{pu.formula_node}'，"
-                            f"但 hook '{pu.hook}' 的 effectiveness 为 '{effectiveness}'，"
-                            f"建议使用 high-effectiveness 钩子。"
-                        ),
-                    )
+            hook_label = pu.hook
+        if effectiveness and effectiveness != "high":
+            issues.append(
+                ReviewIssue(
+                    issue_id=f"iss_hook_eff_{pu.unit_id}",
+                    issue_type="weak_progression",
+                    severity="warning",
+                    location=f"PlotUnit {pu.unit_id}",
+                    scope_of_impact="钩子质量",
+                    violated_rule="关键节点应使用 high-effectiveness hook",
+                    description=(
+                        f"PlotUnit {pu.unit_id} 处于关键节点 '{pu.formula_node}'，"
+                        f"但 hook '{hook_label}' 的 effectiveness 为 '{effectiveness}'，"
+                        f"建议使用 high-effectiveness 钩子。"
+                    ),
                 )
+            )
     return issues
 
 

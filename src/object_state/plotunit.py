@@ -48,6 +48,13 @@ class PlotUnit(BaseModel):
         default=None, description="情绪变化, 如从压抑到爆发"
     )
     hook: Optional[str] = Field(default=None, description="钩子, 如悬念铺垫")
+    hook_type: Optional[str] = Field(
+        default=None,
+        description="钩子类型（显式枚举：HOOK_TAXONOMY[level] 的 type，如 scene 层 "
+        "revelation / transition / scene_hook，chapter 层 cliffhanger / reveal / "
+        "emotional_peak / promise / in_media_res / mystery_setup / emotional_anchor）。"
+        "None=自由文本钩子（默认），不做严格层级校验",
+    )
     formula_node: Optional[str] = Field(
         default=None, description="关联的结构模板节点名，如 opener_hook / climax"
     )
@@ -127,6 +134,8 @@ class PlotUnit(BaseModel):
             lines.append(f"情绪变化: {self.emotional_shift}")
         if self.hook:
             lines.append(f"钩子: {self.hook}")
+        if self.hook_type:
+            lines.append(f"钩子类型: {self.hook_type}")
         if self.formula_node:
             lines.append(f"结构节点: {self.formula_node}")
         if self.consequences:

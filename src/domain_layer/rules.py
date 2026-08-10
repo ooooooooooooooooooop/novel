@@ -37,6 +37,67 @@ def validate_plotunit_hook(hook: str, level: str) -> bool:
     return len(hook.strip()) >= 4
 
 
+# PlotUnit.level → HOOK_TAXONOMY 键映射（level 是叙事层级，taxonomy 是钩子时机）。
+# scene 层 → scene；chapter 层同时开放章首钩（chapter_open）与章末钩（chapter_end）——
+# 一个 chapter 级 PlotUnit 可能承载开章悬念或收章悬念。
+# book/arc 层不设显式钩子枚举（不校验，避免误报）。
+_LEVEL_TO_HOOK_KEYS: dict[str, tuple[str, ...]] = {
+    "scene": ("scene",),
+    "chapter": ("chapter_open", "chapter_end"),
+}
+
+
+def get_hook_types_for_level(level: str) -> set[str]:
+    """返回某 PlotUnit.level 可用的显式 hook_type 枚举值集合（未映射层返回空集）."""
+    keys = _LEVEL_TO_HOOK_KEYS.get(level, ())
+    return {h["type"] for key in keys for h in HOOK_TAXONOMY[key]}
+
+
+def validate_plotunit_hook_type(hook_type: str | None, level: str) -> bool:
+    """严格校验显式 hook_type 枚举（W5：已填则按层级严格校验）.
+
+    - hook_type 为 None/空（旧 PlotUnit 未填）→ True（零成本，走自由文本路径）;
+    - level 未映射（book/arc/未知）→ True（不校验，避免误报）;
+    - 已填且 level 已映射 → hook_type 必须属于 HOOK_TAXONOMY[level] 枚举。
+    """
+    if hook_type is None or not hook_type.strip():
+        return True
+    valid = get_hook_types_for_level(level)
+    if not valid:
+        return True
+    return hook_type.strip() in valid
+
+
+def get_hook_type_effectiveness(hook_type: str | None, level: str) -> str | None:
+    """按显式 hook_type 查 effectiveness（映射 level→taxonomy 键；未填/未映射返回 None）."""
+    if hook_type is None or not hook_type.strip():
+        return None
+    keys = _LEVEL_TO_HOOK_KEYS.get(level, ())
+    for key in keys:
+        for entry in HOOK_TAXONOMY[key]:
+            if entry["type"] == hook_type.strip():
+                return entry["effectiveness"]
+    return None
+
+
+def build_hook_type_guidance(level: str) -> str:
+    """渲染【层级钩子类型】段（Continue 提示生成器填显式 hook_type 用）.
+
+    level 未映射（book/arc/未知）→ 返回空串（零成本，不注入）。
+    """
+    valid = get_hook_types_for_level(level)
+    if not valid:
+        return ""
+    keys = _LEVEL_TO_HOOK_KEYS.get(level, ())
+    items = [entry for key in keys for entry in HOOK_TAXONOMY[key]]
+    lines = [f"【层级钩子类型】当前层级: {level}"]
+    lines.append("plotunit.hook_type 合法枚举（从以下选择，不要填其他层级的类型名）：")
+    for entry in items:
+        lines.append(f"- {entry['type']}（{entry['description']}, {entry['effectiveness']}）")
+    lines.append("若本单元无明确钩子类型，可省略 hook_type 字段（走自由文本 hook）。")
+    return "\n".join(lines)
+
+
 def get_structure_template(formula_name: str) -> list[dict]:
     """获取结构模板节点列表."""
     if formula_name not in GENRE_FORMULAS:

@@ -656,7 +656,12 @@ def main() -> int:
                     time_context=build_time_context(load_time_book(output_dir)),
                     excerpt_context=load_recent_excerpts(continuation_text),
                     original_style_context=load_original_style_sample(text),
-                    nsfw_context=build_nsfw_context(args.nsfw == "on"),
+                    nsfw_context=build_nsfw_context(
+                        args.nsfw == "on",
+                        genre=workspec.genre,
+                        theme=workspec.theme,
+                        subgenre=workspec.subgenre,
+                    ),
                     author_context=author_context,
                 ),
                 encoding="utf-8",
@@ -681,7 +686,12 @@ def main() -> int:
                     time_context=build_time_context(load_time_book(output_dir)),
                     excerpt_context=load_recent_excerpts(continuation_text),
                     original_style_context=load_original_style_sample(text),
-                    nsfw_context=build_nsfw_context(args.nsfw == "on"),
+                    nsfw_context=build_nsfw_context(
+                        args.nsfw == "on",
+                        genre=workspec.genre,
+                        theme=workspec.theme,
+                        subgenre=workspec.subgenre,
+                    ),
                 ),
                 encoding="utf-8",
             )

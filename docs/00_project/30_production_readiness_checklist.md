@@ -10,7 +10,7 @@ Tier 0 was declared production-ready on 2026-07-28.
 - immutable checkpoint: git tag `v0.1.2-tier0`
 - canary evidence: `docs/00_project/releases/tier0-canary-evidence.json`
 - saved canary gate result: `docs/00_project/releases/tier0-canary-gate.json`
-- the single combined validation command passes with expected baseline 2272
+- the single combined validation command passes with expected baseline 2301
 
 Three-flow daily-production hardening completed on 2026-07-29 (planning: `docs/00_project/34_tier0_daily_production_hardening_plan.md`), extending the audit-only Tier 0 verdict to all three flows (`audit` / `extend` / `compose`):
 
@@ -19,7 +19,7 @@ Three-flow daily-production hardening completed on 2026-07-29 (planning: `docs/0
 - operator runbook for all three flows: `docs/00_project/35_operator_runbook.md`
 - one-command regression gate: `python scripts/tier0_canary_regression.py` (exit 0 ⇒ three-flow baseline not regressed)
 - production-readiness re-certified on 2026-08-06 under a new immutable checkpoint `v0.1.2-tier0` (hardening stays inside the Tier 0 boundary; no tier upgrade)
-- **evidence caveat**: the extend/compose canary workspaces were generated on 2026-08-01 under a gate contract that predates the Phase 5 serialization-package requirement (`31fc12a`); as committed they contain no `extend_rebuild_package.json` / `compose_state.json`, so `novel gate` on them now reports `ContinueUnit requires a serialization package` and `python scripts/tier0_canary_regression.py` reports FAIL for extend/compose. The audit canary (which has `rebuild_package.json`) still passes. Regenerating the extend/compose canary evidence is a pending operator task (see Known Limitations below).
+- **canary regression** (2026-08-06 fix): extend/compose canary workspaces previously lacked the Phase 5 serialization-package requirement (`31fc12a`) — no `extend_rebuild_package.json` / `compose_state.json`, so `novel gate` reported `ContinueUnit requires a serialization package` and the regression script reported FAIL for extend/compose. Those packages were regenerated and force-added; all three flows now report `ok=true / route=pass / blocking=0` and `python scripts/tier0_canary_regression.py` reports **PASS for all three flows** (verified 2026-08-10).
 
 The current acceptable production use is internal operator-in-the-loop production:
 
@@ -38,7 +38,7 @@ Tier 0 is ready only when all of these are true:
 - the runtime is still `local staged CLI v0`
 - one operator controls response materialization
 - the release candidate has a clean full pytest run
-- the release candidate records `2272 tests passing`
+- the release candidate records `2301 tests passing`
 - `novel gate --require-approval` is an opt-in human-approval gate; the default `novel gate` contract is unchanged
 - a release tag or equivalent immutable checkpoint exists
 - known limitations are documented in this file and the current status page
@@ -64,7 +64,7 @@ The following must be documented alongside this checklist and `03_current_status
 - Tier 0 is not a public product surface
 - release record does not replace a release tag or immutable checkpoint
 - response files must be materialized by the operator or Codex; no automatic model call is performed
-- extend/compose canary evidence predates the Phase 5 gate package requirement (`31fc12a`) and lacks `extend_rebuild_package.json` / `compose_state.json`; `novel gate` on those workspaces reports a serialization-package violation and `python scripts/tier0_canary_regression.py` reports FAIL for extend/compose (the audit canary still passes). Regenerating that evidence under the current gate contract is a pending operator task and does not affect the Tier 0 release record (whose canary evidence is the audit canary).
+- extend/compose canary serialization-package gap (previously `31fc12a` Phase 5 gate violation, `novel gate` FAIL for those two workspaces) was **resolved 2026-08-06**: `extend_rebuild_package.json` / `compose_state.json` regenerated and force-added; `python scripts/tier0_canary_regression.py` now reports PASS for all three flows (audit + extend + compose), verified 2026-08-10.
 
 ## Tier 1: DirectAPI Single-Provider Beta
 

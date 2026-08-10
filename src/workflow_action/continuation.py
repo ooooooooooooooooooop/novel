@@ -3,6 +3,7 @@
 import json
 
 from src.domain_layer.rules import (
+    build_hook_type_guidance,
     build_platform_guidance,
     get_genre_guidance,
     get_recommended_emotions,
@@ -185,6 +186,7 @@ class ContinueUnit:
         thread_ctx = "\n".join(f"- {e.content}" for e in active_threads) if active_threads else "无"
         frame_section = ""
         emotion_section = ""
+        hook_section = ""
         if frame_context is not None:
             if frame_context.get("no_active_frame"):
                 # 终止帧已消费且无 successor：诚实进入 no-active-frame，不注入陈旧帧
@@ -215,6 +217,12 @@ class ContinueUnit:
                                 "（如 cliffhanger / reveal / in_media_res / revelation）。"
                             )
                         emotion_section = "\n".join(emotion_lines)
+                # 显式 hook_type 枚举注入：已知层级（scene/chapter）时提示生成器
+                # 填显式钩子类型，供 review 对已填值做严格层级校验。零成本：无
+                # frame / level 未映射（book/arc/未知）时不注入，prompt 字节不变。
+                hook_guidance = build_hook_type_guidance(current_frame.get("level", ""))
+                if hook_guidance:
+                    hook_section = "\n\n" + hook_guidance
         platform_section = ""
         if platform:
             guidance = build_platform_guidance(platform)
@@ -279,7 +287,7 @@ class ContinueUnit:
 
 【活跃承诺/伏笔】
 {thread_ctx}
-{structure_section}{frame_section}{emotion_section}
+{structure_section}{frame_section}{emotion_section}{hook_section}
 
 【续写要求】
 
@@ -292,6 +300,7 @@ class ContinueUnit:
 7. 忠于原文：不得引入与已发生事件（时间线）矛盾的事件；新线索必须能与既有事实自洽，不得凭空捏造与原文无关的设定
 8. 延续本作品的叙事组织方式——若原作单章常见多线并置/日常承载/离场人物近况自然回归，请保持这种组织；若原作单线紧凑，则保持其紧凑。不要因为续写而系统性改变作品的组织方式，也不要每章强行制造悬念钩子
 9. scene_experience 可选：提供时须落在读者体验五维（看见/阻碍/选择/结果/认知变化），让正文展开有现场感；省略时不注入
+10. hook_type 可选：若填，必须是当前层级的显式枚举（见【层级钩子类型】段；未提供该段时省略字段）——自由文本钩子走 hook 字段，hook_type 可留空
 
 【输出格式】
 严格输出 JSON:
@@ -307,6 +316,7 @@ class ContinueUnit:
     "released_information": ["新释放给读者的信息"],
     "emotional_shift": "情绪变化",
     "hook": "钩子",
+    "hook_type": "钩子类型（显式枚举，见【层级钩子类型】；可省略）",
     "formula_node": "当前结构节点名（如 climax）",
     "consequences": ["后果"],
     "is_effective": true,

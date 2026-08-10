@@ -116,6 +116,7 @@ def _multi_candidate_output_section(n: int) -> str:
         "released_information": ["新释放给读者的信息"],
         "emotional_shift": "情绪变化",
         "hook": "钩子",
+        "hook_type": "钩子类型（显式枚举，见【层级钩子类型】；可省略）",
         "formula_node": "当前结构节点名",
         "consequences": ["后果"],
         "is_effective": true,
