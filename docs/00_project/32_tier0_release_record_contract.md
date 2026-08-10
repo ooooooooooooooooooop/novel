@@ -19,16 +19,16 @@ The release record must pass `validate_tier0_release_record()` from `src/boundar
 Command:
 
 ```bash
-python -m src.boundary_control.release_record docs/00_project/tier0_release_record.example.json --expected-baseline 2452
-novel-release-record docs/00_project/tier0_release_record.example.json --expected-baseline 2452
-novel-release-record docs/00_project/tier0_release_record.example.json --expected-baseline 2452 --require-evidence-files --evidence-root .
-novel-release-record docs/00_project/tier0_release_record.example.json --expected-baseline 2452 --canary-evidence docs/00_project/tier0_canary_evidence.example.json
+python -m src.boundary_control.release_record docs/00_project/tier0_release_record.example.json --expected-baseline 2460
+novel-release-record docs/00_project/tier0_release_record.example.json --expected-baseline 2460
+novel-release-record docs/00_project/tier0_release_record.example.json --expected-baseline 2460 --require-evidence-files --evidence-root .
+novel-release-record docs/00_project/tier0_release_record.example.json --expected-baseline 2460 --canary-evidence docs/00_project/tier0_canary_evidence.example.json
 ```
 
 Generation command:
 
 ```bash
-novel-release-record docs/00_project/releases/tier0-release.json --expected-baseline 2452 --record-path docs/00_project/releases/tier0-release.json --generate --release-id tier0-canary-YYYYMMDD --created-at-utc YYYY-MM-DDTHH:MM:SSZ --release-tag-or-checkpoint <tag-or-40-character-lowercase-hex-commit> --git-commit <40-character-lowercase-hex-commit> --full-pytest-command "python -m pytest -q --basetemp .pytest-tmp-current-tier0-release-evidence-full -p no:cacheprovider" --canary-evidence docs/00_project/releases/tier0-canary-evidence.json
+novel-release-record docs/00_project/releases/tier0-release.json --expected-baseline 2460 --record-path docs/00_project/releases/tier0-release.json --generate --release-id tier0-canary-YYYYMMDD --created-at-utc YYYY-MM-DDTHH:MM:SSZ --release-tag-or-checkpoint <tag-or-40-character-lowercase-hex-commit> --git-commit <40-character-lowercase-hex-commit> --full-pytest-command "python -m pytest -q --basetemp .pytest-tmp-current-tier0-release-evidence-full -p no:cacheprovider" --canary-evidence docs/00_project/releases/tier0-canary-evidence.json
 ```
 
 Generation refuses to overwrite an existing release record file. The generated payload is validated with `validate_tier0_release_record()` before it is written.
@@ -40,7 +40,7 @@ When `--generate` is combined with `--canary-evidence`, the generated release re
 Canary evidence generation command:
 
 ```bash
-novel-release-record docs/00_project/releases/tier0-canary-evidence.json --expected-baseline 2452 --generate-canary-evidence --release-id tier0-canary-YYYYMMDD --canary-workspace novels/tier0-canary --canary-gate-result docs/00_project/releases/tier0-canary-gate.json --canary-artifact-root .
+novel-release-record docs/00_project/releases/tier0-canary-evidence.json --expected-baseline 2460 --generate-canary-evidence --release-id tier0-canary-YYYYMMDD --canary-workspace novels/tier0-canary --canary-gate-result docs/00_project/releases/tier0-canary-gate.json --canary-artifact-root .
 ```
 
 `--generate-canary-evidence` reads existing staged final artifacts from `<workspace_path>/output/audit/`, computes `final_artifact_sha256`, records `gate_result_path` and `gate_result_sha256` for the saved `novel gate --json` result, derives `final_review_route` / `final_next_workflow` from `route_handoff.json`, derives `final_gate_ok` / `blocking_pending_count` from the saved gate result passed with `--canary-gate-result`, validates the generated object with `validate_tier0_canary_evidence()`, and then validates the listed files with `validate_tier0_canary_evidence_artifacts()` before writing. It refuses to overwrite an existing canary evidence file.
@@ -55,7 +55,7 @@ novel-release-record docs/00_project/releases/tier0-release.json --expected-base
 
 > 存档记录（`docs/00_project/releases/tier0-release.json`）是 `v0.1.2-tier0` 的冻结证据，
 > 用其自身记录的 `baseline_tests_passing`（2301）自校验，不随当前测试基线漂移；
-> 新建的发布记录才用当前基线 `2452`（见 `test_committed_release_record_combined_validation`）。
+> 新建的发布记录才用当前基线 `2460`（见 `test_committed_release_record_combined_validation`）。
 
 `--require-git-checkpoint` validates that `git_commit` exists in the repository and that `release_tag_or_checkpoint` is either the same commit hash or a local `refs/tags/...` tag that resolves to `git_commit`. Branch names and moving refs such as `HEAD` are not accepted as immutable checkpoints.
 
@@ -89,7 +89,7 @@ The JSON object must contain exactly these fields:
 - `created_at_utc`: UTC timestamp in `YYYY-MM-DDTHH:MM:SSZ` format
 - `release_tag_or_checkpoint`: immutable tag or the same 40-character commit hash as `git_commit`
 - `git_commit`: 40-character lowercase hexadecimal git commit hash
-- `baseline_tests_passing`: current full pytest baseline, currently `2452`
+- `baseline_tests_passing`: current full pytest baseline, currently `2460`
 - `full_pytest_command`: full repo pytest command in the form `python -m pytest -q --basetemp .pytest-tmp-current-tier0-release-<name> -p no:cacheprovider`
   - `<name>` must be a non-empty single directory-name suffix using only letters, digits, `.`, `_`, and `-`
   - path separators, parent directory references, and an empty suffix are not accepted

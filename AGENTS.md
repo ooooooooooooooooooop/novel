@@ -12,7 +12,7 @@ This is a phase boundary, not a permanent repository boundary.
 Tier 0 production evidence:
 
 - production tier: `local staged CLI v0` (operator-in-the-loop, no DirectAPI)
-- release record: `docs/00_project/releases/tier0-release.json` (passes the single combined validation command at the current full-pytest baseline 2452)
+- release record: `docs/00_project/releases/tier0-release.json` (passes the single combined validation command at the current full-pytest baseline 2460)
 - canary evidence: `docs/00_project/releases/tier0-canary-evidence.json`
 - saved canary gate result: `docs/00_project/releases/tier0-canary-gate.json`
 - immutable checkpoint: git tag `v0.1.2-tier0`
@@ -107,7 +107,7 @@ Do not optimize for:
 - Slice 3 (`compose_short_form`): code complete, default WorkSpec validated, end-to-end PASS
 - LLM layer split: workflow units expose `build_prompt()` and `parse_response()`; scripts do not call LLMs internally
 - Long-form multi-arc stress test: PASS
-- No-regression tests: 2452 tests passing
+- No-regression tests: 2460 tests passing
 - End-to-end Audit / Extend / Compose validation: PASS
 
 If you are asked to write code, the existing infrastructure is:

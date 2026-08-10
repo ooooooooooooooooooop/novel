@@ -2092,3 +2092,13 @@ def test_cycle_response_files_exclude_cross_chapter_prompts():
     assert "continue_response.txt" in CYCLE_RESPONSE_FILES
     assert "prose_response.txt" in CYCLE_RESPONSE_FILES
     assert "review_response.txt" in CYCLE_RESPONSE_FILES
+
+
+def test_cycle_response_files_cover_compose_named_slots():
+    """compose 流的多章续写依赖 compose_* 响应被消费——必须列入周期清单.
+
+    漏列会让 compose_continue/compose_review 泄漏到下一章（触发旧版流程残留
+    fail-fast，多章续写断点）。Q1 Phase 4 修。
+    """
+    assert "compose_continue_response.txt" in CYCLE_RESPONSE_FILES
+    assert "compose_review_response.txt" in CYCLE_RESPONSE_FILES

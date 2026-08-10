@@ -773,11 +773,15 @@ class StagedResponseRunner:
 # rebuild_response / outline_response 是跨章输入解析，不在此列。
 # 含对象层/正文层 rewrite 与 re-review 槽位（42 设计：Pre-Review→Prose→Review→
 # Rewrite→Re-Review，正文层修订 prose_revise 为新增槽位）。
+# compose 流的响应用 compose_* 前缀命名（compose_continue / compose_review），
+# 与 extend 的 continue / review 并列——漏列会泄漏到下一章（多章续写坏点）。
 CYCLE_RESPONSE_FILES: tuple[str, ...] = (
     "continue_response.txt",
+    "compose_continue_response.txt",
     "proposals_response.txt",
     "character_update_response.txt",
     "review_response.txt",
+    "compose_review_response.txt",
     "prose_response.txt",
     "prose_revise_response.txt",
     "extend_pre_rewrite_response.txt",

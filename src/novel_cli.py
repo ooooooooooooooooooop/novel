@@ -993,6 +993,55 @@ def _run_inspect_run(args: argparse.Namespace) -> int:
     return 0
 
 
+def _run_recover(args: argparse.Namespace) -> int:
+    """Phase 5 恢复纪律：备份/还原旧正文（哈希校验，不原地修改）."""
+    from src.boundary_control.prose_recovery import (
+        backup_and_archive_chapters,
+        restore_chapters,
+    )
+
+    novel_dir = _novel_dir(args.novel)
+    if not novel_dir.exists():
+        print(f"Error: no such novel workspace: {args.novel}")
+        return 1
+
+    if args.backup and args.restore:
+        print("Error: --backup and --restore are mutually exclusive")
+        return 1
+    if not args.backup and not args.restore:
+        # 无动作：打印当前活动 chapters 哈希（只读）
+        from src.boundary_control.prose_recovery import hash_chapters
+
+        hashes = hash_chapters(novel_dir / "chapters")
+        print(f"novel: {args.novel} — 活动 chapters: {len(hashes)} 章")
+        for name, sha in hashes.items():
+            print(f"  {name}: {sha[:12]}")
+        return 0
+
+    if args.backup:
+        result = backup_and_archive_chapters(novel_dir)
+        if not result.ok:
+            print("Recovery backup FAILED:")
+            for e in result.errors:
+                print(f"  - {e}")
+            return 1
+        print(
+            f"Recovery backup: {result.moved} 章已移出活动 chapters/ → "
+            f"manifest {result.manifest_path}"
+        )
+        print(f"  不原地修改：只移动文件，manifest 记录每章 sha256（可 restore 还原）")
+        return 0
+
+    result = restore_chapters(novel_dir)
+    if not result.ok:
+        print("Recovery restore FAILED:")
+        for e in result.errors:
+            print(f"  - {e}")
+        return 1
+    print(f"Recovery restore: {result.restored} 章已还原（哈希校验通过，幂等）")
+    return 0
+
+
 def _run_resume(args: argparse.Namespace) -> int:
     novel_dir = _novel_dir(args.novel)
     mode = _read_mode(novel_dir)
@@ -1999,6 +2048,23 @@ def build_parser(*, emit_json_errors: bool = False) -> argparse.ArgumentParser:
     )
     inspect_run_cmd.add_argument("--json", action="store_true", help="emit machine-readable JSON")
     inspect_run_cmd.set_defaults(func=_run_inspect_run)
+
+    recover_cmd = subparsers.add_parser(
+        "recover",
+        help="Phase 5 恢复纪律：旧正文先哈希+可恢复备份，再移出活动 chapters/（不原地修改）",
+    )
+    recover_cmd.add_argument("novel", help="小说名")
+    recover_cmd.add_argument(
+        "--backup",
+        action="store_true",
+        help="把活动 chapters/ 旧正文移到备份目录并写 recovery manifest",
+    )
+    recover_cmd.add_argument(
+        "--restore",
+        action="store_true",
+        help="按 recovery manifest 从备份还原（逐章哈希校验，幂等）",
+    )
+    recover_cmd.set_defaults(func=_run_recover)
 
     resume = subparsers.add_parser("resume", help="按上次模式断点续跑")
     resume.add_argument("novel", help="小说名")

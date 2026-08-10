@@ -44,7 +44,7 @@
 - 续写篇幅与原文参考：有原文时，原文按章拆分入 `chapters/chapter_01.txt` 起（保留章节标题行），续写从下一编号续（原文 23 章 → 续写从 `chapter_24` 起），目录内编号连续；续写章节篇幅对齐原文章均（参考值：《示例小说丁》约 6,500 字符/章），不得明显偏短；续写须参考原文语感、意象系统（杨柳/水/套装/信等）与事件细节，不能凭空脱离原文
 - 隐私纪律：所有具体小说信息（标题、正文、角色、工作区名、作者笔名）一律不提交 GitHub；git 历史中如有此类内容，push 前须用 `git filter-repo --path-*` 完整重写历史剔除（本项目已按此重写并 force-push）；正文仅存本地 `novels/<小说名>/chapters/`；写作风格综合积累可入库，统一放仓库根 `style_library/<name>.json`（中性文件名，不含小说名/作者笔名/机器路径）
 - **提交点读者门禁链（Q1 Phase 4，零成本）**：flow v3 在 Review PASS 后、事务提交前跑 `evaluate_commit_reader_gate`——ProseEvidence 提取 → 跨章 `reconcile_prose_evidence` → `ReaderQualityGatePolicy`；确定性硬门禁始终内联（跨章硬一致性 / **重复闭环第二次即阻断**（draft 顿悟核心==上一章）/ 契约 forbidden_drifts 子串 / 纯氛围无推进），LLM 读者维度由操作者 `novel reader`（单章 7 维）或 `novel reader --window 3|5`（连续章 `serial_reader_report.json`，`SerialReaderUnit`/`SerialReaderReport` 12 维相邻+窗口）产报告后才生效（报告未武装→轴显式 unarmed，不静默放行）；route=block/manual → rejected 不提交、不推进 Frame；关键维（hook/payoff/presence/emotion）weak → rewrite 提示 prose 修订；通过后 `facts_package_hash` 写入 run manifest；`novel gate` 报告三轴（结构/连续性/读者质量）。`run_manifest` 支持**新 run 生命周期**（提交完一章续写下一章：归档旧 run 到 run_history/，同 run_id 仍严格五态）
-- 测试：2452 passed
+- 测试：2460 passed
 
 ## 怎么用（在 Codex 中）
 
