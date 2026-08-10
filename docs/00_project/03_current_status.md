@@ -14,7 +14,7 @@ The repository is currently **end_to_end_validated** and **Tier 0 production rea
 
 Tier 0 (local staged CLI v0, operator-in-the-loop) was validated on 2026-07-28:
 
-- full pytest baseline: 2414 tests passing
+- full pytest baseline: 2452 tests passing
 - audit canary (`tier0-canary`) passed `novel gate`: `ok=true`, `review_route=pass`, `next_workflow=ContinueUnit`, `blocking_pending_count=0`
 - canary evidence: `docs/00_project/releases/tier0-canary-evidence.json`
 - saved canary gate result: `docs/00_project/releases/tier0-canary-gate.json`
@@ -83,6 +83,7 @@ Recent implementation work has added or validated:
 - **Q1 Phase 1 (2026-08-10)**: ProseEvidencePackage + code extractor + dual reconcile (hard consistency + cross-chapter window); 8 synthetic failure fixtures all blocked with correct issue_type; full baseline 2341 passed
 - **Q1 Phase 2 (2026-08-10)**: transactional chapter commit — `RunManifest` (run|seed, five statuses, source/prev/draft/facts/state-before/state-after/frame hashes, artifacts sha256), `ChapterCommitBoundary` (chapter→archive→provenance→frames→state→manifest last, atomic; `recover()` recognizes only complete commits; orphan scan; refuse unmanaged overwrite), explicit flow v2→v3 migration only (`novel migrate --to-flow 3 --preserve-old`), read-only `novel inspect-run [--json]`; flow v3 wired into compose/extend with byte-identical v2 preserved (zero-cost contract); failpoint crash-recovery tests prove no half-commit; full baseline 2414 passed
 - **Q1 Phase 3 (2026-08-10)**: 续写可行性与读者契约（flow v3 门禁，v2 字节不变零成本）— `ContinuationViabilityDecision` 确定性分析（no_active_frame / open promises / 终止型节点 / ReaderContract.ending_conditions → continue / needs_premise / stop，含歧义 staged prompt），extend/compose Continue 前 viability 闸（stop/needs_premise 时写 `viability_report.json` 并停下）；`ReaderContract` sidecar（`reader_contract.json`，不入 serialization 白名单；确定性检查 forbidden_drifts 子串命中 + v3 Pre-Review 闸 scene_experience 关键单元强制）；`novel contract` CLI（--default 零 LLM 初始契约 / staged prompt→response→save / 检查模式）；Proposal Selector Consistency Gate 接入契约（命中 forbidden_drifts 的候选阻断 `contract_violation`）；SceneExperience 缺失映射 blocking ReviewIssue（missing_consequence / motivation_gap）；full baseline 2414 passed
+- **Q1 Phase 4 (2026-08-10)**: 单章与滑动窗口读者门禁（提交点门禁链，v2 字节不变零成本）— `evaluate_commit_reader_gate`（ProseEvidence 提取 → 跨章 `reconcile_prose_evidence` → `ReaderQualityGatePolicy`）接入 flow v3 提交点；确定性硬门禁内联（跨章硬一致性 / 重复闭环第二次即阻断 / 契约 forbidden_drifts 子串 / 纯氛围无推进），LLM 读者维度报告武装（`novel reader` 单章 7 维 / `novel reader --window 3|5` 连续章 `SerialReaderUnit` 12 维 → `serial_reader_report.json`，未武装轴显式 unarmed）；route=block/manual → rejected 不提交，通过后 `facts_package_hash` 写入 run manifest；`novel gate` 报告三轴；`run_manifest` 新 run 生命周期（续写下一章归档旧 run）；full baseline 2452 passed
 
 ---
 
@@ -220,7 +221,7 @@ The artifact set is complete and the first running slices are end-to-end validat
 
 Current baseline:
 
-- `pytest -q`: 2414 tests passing
+- `pytest -q`: 2452 tests passing
 - long-form multi-arc stress test: PASS
 - end-to-end Audit / Extend / Compose validation: PASS
 
@@ -320,7 +321,7 @@ Current next decision:
   - Track 3 CharacterModel evidence-leakback checks
   - generative_indicia detection checks
   - Review hard rules extension checks
-  - total validation baseline: 2414 tests passing
+  - total validation baseline: 2452 tests passing
 - **Slice L1: Long-form chapter-level infra** - Complete
   - `src/boundary_control/chunking.py` splits text by chapters
   - `src/boundary_control/report_formatter.py` formats audit reports

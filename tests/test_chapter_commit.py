@@ -368,6 +368,65 @@ def test_set_run_status_stable_run_id_updates_in_place(ws):
     assert m.status == "draft"
 
 
+def test_set_run_status_new_run_after_commit_archives_prior(ws):
+    """多章续写：新 run_id + 旧 run 终态 → 归档旧提交记录、从新 run 重新开始."""
+    # 第一章走完 staged→draft→reviewed→committed
+    for status in ("staged", "draft", "reviewed", "committed"):
+        set_run_status(
+            ws["output_dir"],
+            run_id="extend-1",
+            mode="extend",
+            status=status,
+            chapter_number=1,
+        )
+    m1 = read_run_manifest(ws["output_dir"])
+    assert m1 is not None and m1.status == "committed"
+
+    # 第二章（新 run_id）：不再报 committed→draft 非法，而是归档旧 run 开新 run
+    m2 = set_run_status(
+        ws["output_dir"],
+        run_id="extend-2",
+        mode="extend",
+        status="draft",
+        chapter_number=2,
+    )
+    assert m2 is not None
+    assert m2.run_id == "extend-2"
+    assert m2.status == "draft"
+    assert m2.chapter_number == 2
+    # 旧提交记录已归档到 run_history/，且备注标注归档
+    hist = list((ws["output_dir"] / "run_history").glob("extend-1-*.json"))
+    assert hist, "旧 run 提交记录应归档到 run_history/"
+    archived = json.loads(hist[0].read_text(encoding="utf-8"))
+    assert archived["status"] == "committed"
+    assert archived["run_id"] == "extend-1"
+    assert "archived prior run extend-1" in " / ".join(m2.notes or [])
+
+    # 同 run_id 仍严格：第二章走完 committed 后，再向 extend-2 设 draft 仍非法
+    set_run_status(
+        ws["output_dir"],
+        run_id="extend-2",
+        mode="extend",
+        status="reviewed",
+        chapter_number=2,
+    )
+    set_run_status(
+        ws["output_dir"],
+        run_id="extend-2",
+        mode="extend",
+        status="committed",
+        chapter_number=2,
+    )
+    with pytest.raises(ValueError):
+        set_run_status(
+            ws["output_dir"],
+            run_id="extend-2",
+            mode="extend",
+            status="draft",
+            chapter_number=2,
+        )
+
+
 # ---- 迁移种子 ----
 def test_seed_manifest_is_recognized_baseline(tmp_path):
     novel = tmp_path / "novel"

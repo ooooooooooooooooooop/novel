@@ -634,11 +634,12 @@ def _run_compliance(args: argparse.Namespace) -> int:
 
 
 def _run_reader(args: argparse.Namespace) -> int:
-    """读者体验审查：对章节正文做 7 维分级标注（LLM response-file 循环）.
+    """读者体验审查：单章 7 维分级标注 / 连续章相邻+窗口审查（LLM response-file 循环）.
 
     定位核心2（读者体验），与 compliance（纯代码）/ rubric（静态导出）不同：
     reader 需要 LLM 质性判断，走 style 式 [WAITING] 循环。
-    产物 novels/<name>/output/reader_experience/reader_report.json（route=none 不阻断）。
+    产物 novels/<name>/output/reader_experience/reader_report.json（window=1）
+    或 serial_reader_report.json（window=3/5）（route=none 不阻断，供 ReaderQualityGate 消费）。
     """
     novel_dir = _novel_dir(args.novel)
     output_dir = _output_dir(novel_dir, "reader_experience")
@@ -653,6 +654,34 @@ def _run_reader(args: argparse.Namespace) -> int:
     input_path = _ensure_input(args, novel_dir)
     _write_mode(novel_dir, "reader")
     _write_config(novel_dir, {"mode": "reader"})
+
+    window = getattr(args, "window", 1)
+    if window > 1:
+        # 连续章窗口审查：从 chapters/ 取以 input 结尾的连续 window 章
+        command = [
+            sys.executable,
+            _script_path("serial_reader_short_form.py"),
+            "--last-chapter",
+            str(input_path),
+            "--window",
+            str(window),
+            "--chapters-dir",
+            str(novel_dir / "chapters"),
+            "--output-dir",
+            str(output_dir),
+        ]
+        if getattr(args, "style", None):
+            command.extend(["--style", args.style])
+        if getattr(args, "no_expectations", False):
+            return _run_child(command)
+        expectations_from = getattr(args, "expectations_from", None)
+        if not expectations_from:
+            extend_package = novel_dir / "output" / "extend" / "extend_rebuild_package.json"
+            if extend_package.exists():
+                expectations_from = str(extend_package)
+        if expectations_from:
+            command.extend(["--expectations-from", expectations_from])
+        return _run_child(command)
 
     command = [
         sys.executable,
@@ -1191,7 +1220,28 @@ def _run_gate(args: argparse.Namespace) -> int:
         f"Gate PASS: mode={mode} route={verdict['review_route']} "
         f"next={verdict['next_workflow']}{approval_suffix}"
     )
+    # Q1 Phase 4: 报告读者质量轴状态（结构/连续性/读者三轴；无 gate 报告则提示 unarmed）
+    _print_reader_quality_status(output_dir)
     return 0
+
+
+def _print_reader_quality_status(output_dir: Path) -> None:
+    """打印最近一次提交点读者门禁状态（novel gate 的三轴报告之一）. """
+    gate_path = output_dir / "reader_gate_report.json"
+    if not gate_path.exists():
+        print("Reader quality: no reader_gate_report.json yet (run a flow v3 commit or novel reader --window)")
+        return
+    try:
+        data = json.loads(gate_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        print("Reader quality: reader_gate_report.json unreadable")
+        return
+    route = data.get("route", "?")
+    axes = data.get("axes_armed", {})
+    reasons = data.get("reasons", [])
+    print(f"Reader quality: {route} (axes: {axes})")
+    for reason in reasons:
+        print(f"  - {reason}")
 
 
 def _gate_metadata(mode: str, output_dir: Path, handoff_path: Path) -> dict[str, object]:
@@ -1855,6 +1905,13 @@ def build_parser(*, emit_json_errors: bool = False) -> argparse.ArgumentParser:
     _add_input_argument(reader_cmd)
     reader_cmd.add_argument("--style", help="引用风格库中的已有档案 <name>")
     reader_cmd.add_argument("--chapter-id", help="章节标识（默认取输入文件名的 stem）")
+    reader_cmd.add_argument(
+        "--window",
+        type=int,
+        default=1,
+        choices=[1, 3, 5],
+        help="窗口大小：1=单章 7 维审查（默认）；3/5=连续章相邻+窗口审查（需前一章）",
+    )
     reader_cmd.add_argument(
         "--expectations-from",
         help="ForeshadowGraph JSON 路径（默认自动探测该小说 extend 产物）",

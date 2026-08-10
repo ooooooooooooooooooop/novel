@@ -27,6 +27,11 @@ from src.boundary_control.chapter_commit import (
     read_flow_version,
     set_run_status,
 )
+from src.boundary_control.reader_gate import (
+    evaluate_commit_reader_gate,
+    write_reader_gate_report,
+)
+from src.object_state.run_manifest import sha256_text
 from src.domain_layer.compliance_rules import build_nsfw_context
 from src.domain_layer.rules import get_structure_template
 from src.domain_layer.web_fiction import EMOTIONAL_ARC_TEMPLATES, GENRE_RULES
@@ -1081,6 +1086,56 @@ def main() -> int:
             # run_manifest.json 最后原子写入 → 崩溃重启只识别完整提交。
             chapter_number = prose_action.next_chapter_number(chapters_dir)
             chapter_file = prose_action.chapter_path(chapters_dir, chapter_number)
+
+            # ---- Q1 Phase 4: 提交点读者门禁链（正文证据提取 → 跨章核对 → 门禁）----
+            gate_verdict, gate_package, gate_reconcile_issues = (
+                evaluate_commit_reader_gate(
+                    output_dir=output_dir,
+                    chapters_dir=chapters_dir,
+                    draft_text=draft_text,
+                    facts=facts,
+                    characters=characters,
+                    time_book=load_time_book(output_dir),
+                    reader_contract=reader_contract,
+                    chapter_ref=f"chapter_{chapter_number}",
+                )
+            )
+            gate_package_hash = (
+                sha256_text(gate_package.model_dump_json())
+                if gate_package is not None
+                else ""
+            )
+            write_reader_gate_report(
+                output_dir,
+                gate_verdict,
+                chapter_ref=f"chapter_{chapter_number}",
+                package_hash=gate_package_hash,
+                reconcile_count=len(gate_reconcile_issues),
+            )
+            if gate_verdict.route != "pass":
+                set_run_status(
+                    output_dir,
+                    run_id=derive_run_id("compose", chapter_number),
+                    mode="compose",
+                    status="rejected",
+                    chapter_number=chapter_number,
+                    notes=[
+                        "reader gate "
+                        + gate_verdict.route
+                        + (": " + "; ".join(gate_verdict.reasons) if gate_verdict.reasons else "")
+                    ],
+                )
+                print(f"\nReader gate {gate_verdict.route}: 本章不提交")
+                for i in gate_verdict.issues:
+                    print(f"  [{i.severity}] {i.issue_type}: {i.description}")
+                print(f"  report: {output_dir / 'reader_gate_report.json'}")
+                if gate_verdict.route == "rewrite":
+                    print("  提示: 关键读者维度 weak——请 prose 修订正文后重跑")
+                elif gate_verdict.route == "manual":
+                    print("  提示: 连续阅读审美分歧——请人工决定是否接受/改写")
+                return 1
+            print(f"Reader gate pass (axes armed: {gate_verdict.axes_armed})")
+
             final_objects = objects + [plotunit, new_state]
             final_package = serializer.build_package(*final_objects)
             if not _validate_no_regression(final_package):
@@ -1131,6 +1186,7 @@ def main() -> int:
                 provenance_json=prov_json,
                 prev_chapter_ref=None,
                 source_text_hash=model_content_hash(workspec),
+                facts_package_hash=gate_package_hash,
                 review_route=route,
             )
             if not result.ok:

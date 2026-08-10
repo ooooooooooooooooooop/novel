@@ -43,6 +43,9 @@ _FLASHBACK_RE = re.compile(r"(回忆|想起|那年|回到从前|从前|当年|�
 
 # 元文本泄漏（生成/编辑过程文字进正文）
 _META_TEXT_RE = re.compile(r"(上一章|本章|下一章|第[0-9一二三四五六七八九十]+章|第[0-9一二三四五六七八九十]+回|章末|上回|前文|结尾处|下文|开头处)")
+# 章节标题（行首的「第N章」「第N回」是合法标题行，非元文本泄漏——CLAUDE.md
+# 章节正文保留标题行「第一章 开端」）
+_CHAPTER_TITLE_RE = re.compile(r"^第[0-9一二三四五六七八九十]+[章回]")
 
 # 实体状态动词 -> 规范化状态
 _STATUS_VERBS = {
@@ -240,6 +243,11 @@ def _extract_prop_identity(
 def _extract_meta_text(text: str, seq: int) -> list[ProseEvidenceItem]:
     items: list[ProseEvidenceItem] = []
     for m in _META_TEXT_RE.finditer(text):
+        # 行首的「第N章」「第N回」是章节标题（合法正文），不是元文本泄漏；
+        # 句中「第N章末」「上一章末」「本章」等过程标记仍按泄漏处理。
+        if m.start() == 0 or (m.start() > 0 and text[m.start() - 1] == "\n"):
+            if _CHAPTER_TITLE_RE.match(text[m.start():]):
+                continue
         items.append(
             ProseEvidenceItem.new(
                 seq, "meta_text",

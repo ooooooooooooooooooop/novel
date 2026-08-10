@@ -132,6 +132,26 @@ def seed_v2_baseline(
     return seed
 
 
+def _archive_manifest_snapshot(output_dir: Path, manifest: RunManifest) -> None:
+    """把已完成 run 的 manifest 快照追加到 run_history/（审计，尽力而为）.
+
+    在新章节启动新 run 前归档旧 run 的提交记录，使 run_manifest.json 成为
+    当前 run 的活动记录，同时保留历史提交链（inspect-run/recover 仍可查）。
+    """
+    try:
+        hist_dir = output_dir / RUN_HISTORY_DIR
+        hist_dir.mkdir(parents=True, exist_ok=True)
+        ts = (manifest.committed_at_utc or _utc_now()).replace(":", "").replace("T", "-")
+        suffix = uuid.uuid4().hex[:6]
+        _atomic_write_json(
+            hist_dir / f"{manifest.run_id}-{ts}-{suffix}.json",
+            manifest.model_dump(mode="json"),
+        )
+    except OSError:
+        # 归档失败不阻断新 run 启动（活动 manifest 即将由新 run 原子覆盖）
+        pass
+
+
 def set_run_status(
     output_dir: Path,
     *,
@@ -142,6 +162,10 @@ def set_run_status(
     notes: list[str] | None = None,
 ) -> RunManifest | None:
     """幂等推进五态状态机；flow v2 一律 no-op（不产生 manifest）。
+
+    同 run_id 严格按迁移表推进（终态后非法迁移报错——防同一章被重复提交）；
+    **新 run_id + 旧 run 终态**（提交完一章续写下一章）→ 归档旧 run 的提交
+    记录到 run_history/，从新 run 重新开始（多章连续叙事的 run 生命周期）。
 
     flow v2 工作区保持旧语义（零成本契约：不新增产物、不改字节）；
     仅 flow v3 才写 run_manifest.json。
@@ -159,6 +183,19 @@ def set_run_status(
             chapter_number=chapter_number,
             chapter_ref=f"chapter_{chapter_number}" if chapter_number else None,
             notes=list(notes or []),
+            created_at_utc=_utc_now(),
+        )
+    elif manifest.run_id != run_id and manifest.status in ("committed", "rejected"):
+        # 新章节新 run：归档已完成/拒绝的旧 run，从新 run 重新开始。
+        _archive_manifest_snapshot(output_dir, manifest)
+        manifest = RunManifest(
+            run_id=run_id,
+            flow_version="3",
+            mode=mode,
+            status=status,
+            chapter_number=chapter_number,
+            chapter_ref=f"chapter_{chapter_number}" if chapter_number else None,
+            notes=list(notes or []) + [f"archived prior run {manifest.run_id} ({manifest.status})"],
             created_at_utc=_utc_now(),
         )
     else:
