@@ -14,7 +14,7 @@ The repository is currently **end_to_end_validated** and **Tier 0 production rea
 
 Tier 0 (local staged CLI v0, operator-in-the-loop) was validated on 2026-07-28:
 
-- full pytest baseline: 2341 tests passing
+- full pytest baseline: 2386 tests passing
 - audit canary (`tier0-canary`) passed `novel gate`: `ok=true`, `review_route=pass`, `next_workflow=ContinueUnit`, `blocking_pending_count=0`
 - canary evidence: `docs/00_project/releases/tier0-canary-evidence.json`
 - saved canary gate result: `docs/00_project/releases/tier0-canary-gate.json`
@@ -80,6 +80,8 @@ Recent implementation work has added or validated:
 - long-form multi-arc Audit / Extend stress testing
 - no-regression pytest coverage for Track 1 / 2 / 3
 - full end-to-end Audit / Extend / Compose validation
+- **Q1 Phase 1 (2026-08-10)**: ProseEvidencePackage + code extractor + dual reconcile (hard consistency + cross-chapter window); 8 synthetic failure fixtures all blocked with correct issue_type; full baseline 2341 passed
+- **Q1 Phase 2 (2026-08-10)**: transactional chapter commit — `RunManifest` (run|seed, five statuses, source/prev/draft/facts/state-before/state-after/frame hashes, artifacts sha256), `ChapterCommitBoundary` (chapter→archive→provenance→frames→state→manifest last, atomic; `recover()` recognizes only complete commits; orphan scan; refuse unmanaged overwrite), explicit flow v2→v3 migration only (`novel migrate --to-flow 3 --preserve-old`), read-only `novel inspect-run [--json]`; flow v3 wired into compose/extend with byte-identical v2 preserved (zero-cost contract); failpoint crash-recovery tests prove no half-commit; full baseline 2386 passed
 
 ---
 
@@ -217,7 +219,7 @@ The artifact set is complete and the first running slices are end-to-end validat
 
 Current baseline:
 
-- `pytest -q`: 2341 tests passing
+- `pytest -q`: 2386 tests passing
 - long-form multi-arc stress test: PASS
 - end-to-end Audit / Extend / Compose validation: PASS
 
@@ -317,7 +319,7 @@ Current next decision:
   - Track 3 CharacterModel evidence-leakback checks
   - generative_indicia detection checks
   - Review hard rules extension checks
-  - total validation baseline: 2341 tests passing
+  - total validation baseline: 2386 tests passing
 - **Slice L1: Long-form chapter-level infra** - Complete
   - `src/boundary_control/chunking.py` splits text by chapters
   - `src/boundary_control/report_formatter.py` formats audit reports

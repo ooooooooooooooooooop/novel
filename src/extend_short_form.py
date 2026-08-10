@@ -22,6 +22,12 @@ from src.boundary_control.runtime_state import require_continue_runtime_state
 from src.boundary_control.response_file import reset_consumed_responses
 from src.boundary_control.serialization import SerializationBoundaryUnit
 from src.boundary_control.validation import NoRegressionValidationUnit
+from src.boundary_control.chapter_commit import (
+    ChapterCommitBoundary,
+    derive_run_id,
+    read_flow_version,
+    set_run_status,
+)
 from src.object_state.charactermodel import CharacterModel
 from src.object_state.foreshadowgraph import ForeshadowGraph
 from src.domain_layer.compliance_rules import build_nsfw_context
@@ -331,6 +337,9 @@ def main() -> int:
     flow_version_path = output_dir / ".flow_version"
     if not flow_version_path.exists():
         flow_version_path.write_text("2", encoding="utf-8")
+    # flow v3（事务式提交与版本化运行）：仅经 `novel migrate --to-flow 3` 显式启用；
+    # 默认 v2 语义不变（零成本契约：不产生 manifest、prompt/落盘字节不变）。
+    flow_version = read_flow_version(output_dir)
     if (
         not args.no_prose
         and (output_dir / "review_response.txt").exists()
@@ -834,6 +843,21 @@ def main() -> int:
         )
         prose_draft_path = output_dir / "prose_draft.txt"
         prose_draft_path.write_text(draft_text, encoding="utf-8")
+        # flow v3：正文草稿已落盘 → 运行状态 draft（未提交，下游不消费）
+        if flow_version == "3":
+            set_run_status(
+                output_dir,
+                run_id=derive_run_id(
+                    "extend",
+                    prose_action.next_chapter_number(output_dir.parent.parent / "chapters"),
+                ),
+                mode="extend",
+                status="draft",
+                chapter_number=prose_action.next_chapter_number(
+                    output_dir.parent.parent / "chapters"
+                ),
+                notes=["prose draft staged (output/prose_draft.txt)"],
+            )
         # 首次解析的 raw 归档（操作者扩写入 provenance——只写一次，后续重跑不覆盖）
         prose_action.archive_raw_prose(
             output_dir,
@@ -1043,11 +1067,42 @@ def main() -> int:
     )
 
     if route != "pass":
+        # flow v3：阻断 → rejected 终态（不产生 committed 提交记录）
+        if flow_version == "3":
+            set_run_status(
+                output_dir,
+                run_id=derive_run_id(
+                    "extend",
+                    prose_action.next_chapter_number(output_dir.parent.parent / "chapters"),
+                ),
+                mode="extend",
+                status="rejected",
+                chapter_number=prose_action.next_chapter_number(
+                    output_dir.parent.parent / "chapters"
+                ),
+                notes=[f"review route={route}; candidate not committed"],
+            )
         print(f"\nExtend blocked: route={route}; candidate state not saved")
         if draft_text is not None:
             print("注意：本章正文仍是未提交 draft（output/prose_draft.txt），未进入 chapters/；"
                   "请人工处理或删除。")
         return 1
+
+    # flow v3：Review PASS → reviewed（提交前置态）
+    if flow_version == "3":
+        set_run_status(
+            output_dir,
+            run_id=derive_run_id(
+                "extend",
+                prose_action.next_chapter_number(output_dir.parent.parent / "chapters"),
+            ),
+            mode="extend",
+            status="reviewed",
+            chapter_number=prose_action.next_chapter_number(
+                output_dir.parent.parent / "chapters"
+            ),
+            notes=[f"review route={route} PASS"],
+        )
 
     # Commit：Post-Prose Review PASS 后才把 draft 提交为正式 chapter_N.txt。
     # Draft/Commit 边界保证下游只消费已接受正文；落盘闸门在此兜底 staged 复用。
@@ -1061,31 +1116,102 @@ def main() -> int:
                 "refusing to commit (staged response may have been reused)."
             )
             return 1
-        chapter_file = prose_action.chapter_path(
-            chapters_dir, prose_action.next_chapter_number(chapters_dir)
-        )
-        chapter_file.write_text(draft_text, encoding="utf-8")
-        chapter_committed = True
-        prose_action.archive_draft(
-            output_dir,
-            int(chapter_file.stem[len("chapter_"):]),
-            draft_text,
-        )
-        prose_action.record_chapter_provenance(
-            output_dir,
-            int(chapter_file.stem[len("chapter_"):]),
-            review_issues=issues,
-            final_draft_chars=len("".join((draft_text or "").split())),
-            active_frame_id=(
-                ((frame_context or {}).get("current_frame") or {}).get("frame_id")
-                if frame_context else None
-            ),
-            active_formula_node=(
-                ((frame_context or {}).get("current_frame") or {}).get("formula_node")
-                if frame_context else None
-            ),
-        )
-        print(f"Committed chapter: {chapter_file}")
+        if flow_version == "3":
+            # v3 事务式提交：正文/归档/provenance/Frame/状态包绑定同一提交记录，
+            # run_manifest.json 最后原子写入 → 崩溃重启只识别完整提交。
+            chapter_number = prose_action.next_chapter_number(chapters_dir)
+            chapter_file = prose_action.chapter_path(chapters_dir, chapter_number)
+            final_objects = objects + [plotunit, new_state]
+            final_package = serializer.build_package(*final_objects)
+            if not _validate_no_regression(final_package):
+                return 1
+            new_cursor = frame_unit.advance_cursor(frames)
+            if new_cursor:
+                print(f"\nFrame cursor advanced to: {new_cursor['current_frame_id']}")
+            else:
+                print("\nFrame cursor: no more scenes to advance")
+            frames_json = json.dumps(frames, ensure_ascii=False, indent=2)
+            state_json = json.dumps(final_package.model_dump(), ensure_ascii=False, indent=2)
+            prov_path = output_dir / "chapter_provenance.json"
+            prov_existing = (
+                json.loads(prov_path.read_text(encoding="utf-8"))
+                if prov_path.exists()
+                else {"schema_version": 1, "chapters": {}}
+            )
+            prov_entry = prose_action.build_chapter_provenance_entry(
+                chapter_number,
+                flow_version="3",
+                review_issues=issues,
+                final_draft_chars=len("".join((draft_text or "").split())),
+                active_frame_id=(
+                    ((frame_context or {}).get("current_frame") or {}).get("frame_id")
+                    if frame_context else None
+                ),
+                active_formula_node=(
+                    ((frame_context or {}).get("current_frame") or {}).get("formula_node")
+                    if frame_context else None
+                ),
+            )
+            prov_json = json.dumps(
+                prose_action.merge_chapter_provenance(prov_existing, prov_entry),
+                ensure_ascii=False,
+                indent=2,
+            )
+            source_text_hash = None
+            input_hash_path = output_dir / ".input_hash"
+            if input_hash_path.exists():
+                source_text_hash = input_hash_path.read_text(encoding="utf-8").strip() or None
+            if source_text_hash is None:
+                source_text_hash = file_content_hash(text_path)
+            boundary = ChapterCommitBoundary(output_dir, chapters_dir)
+            result = boundary.commit(
+                run_id=derive_run_id("extend", chapter_number),
+                mode="extend",
+                chapter_number=chapter_number,
+                chapter_text=draft_text,
+                state_path=rebuild_package_path,
+                state_json=state_json,
+                frames_path=frames_path,
+                frames_json=frames_json,
+                archive_text=draft_text,
+                provenance_json=prov_json,
+                prev_chapter_ref=f"chapter_{chapter_number - 1}" if chapter_number > 1 else None,
+                source_text_hash=source_text_hash,
+                review_route=route,
+            )
+            if not result.ok:
+                print(f"Error: chapter commit failed: {result.error}")
+                return 1
+            chapter_committed = True
+            print(f"Committed chapter: {chapter_file}")
+            print(f"  run manifest: {output_dir / 'run_manifest.json'} (status=committed)")
+        else:
+            # v2 原样：先写正文，再归档/provenance（旧时序保持字节不变）
+            chapter_file = prose_action.chapter_path(
+                chapters_dir, prose_action.next_chapter_number(chapters_dir)
+            )
+            chapter_file.write_text(draft_text, encoding="utf-8")
+            chapter_committed = True
+            prose_action.archive_draft(
+                output_dir,
+                int(chapter_file.stem[len("chapter_"):]),
+                draft_text,
+            )
+            prose_action.record_chapter_provenance(
+                output_dir,
+                int(chapter_file.stem[len("chapter_"):]),
+                review_issues=issues,
+                final_draft_chars=len("".join((draft_text or "").split())),
+                active_frame_id=(
+                    ((frame_context or {}).get("current_frame") or {}).get("frame_id")
+                    if frame_context else None
+                ),
+                active_formula_node=(
+                    ((frame_context or {}).get("current_frame") or {}).get("formula_node")
+                    if frame_context else None
+                ),
+            )
+            print(f"Committed chapter: {chapter_file}")
 
     # F5 原文长段去重：记录 draft 与原文逐字重叠片段（只标注，不改 route）
     if chapter_committed:
@@ -1124,21 +1250,23 @@ def main() -> int:
                     f"{r['issue_id']}: {r.get('evidence', '')[:40]}"
                 )
 
-    final_objects = objects + [plotunit, new_state]
-    final_package = serializer.build_package(*final_objects)
-    if not _validate_no_regression(final_package):
-        return 1
+    if flow_version == "2":
+        # v2 原样：build package → 校验 → advance Frame → save state（旧时序）
+        final_objects = objects + [plotunit, new_state]
+        final_package = serializer.build_package(*final_objects)
+        if not _validate_no_regression(final_package):
+            return 1
 
-    new_cursor = frame_unit.advance_cursor(frames)
-    if new_cursor:
-        print(f"\nFrame cursor advanced to: {new_cursor['current_frame_id']}")
-        frames_path.write_text(json.dumps(frames, ensure_ascii=False, indent=2), encoding="utf-8")
-        print(f"Saved frame state: {frames_path}")
-    else:
-        print("\nFrame cursor: no more scenes to advance")
+        new_cursor = frame_unit.advance_cursor(frames)
+        if new_cursor:
+            print(f"\nFrame cursor advanced to: {new_cursor['current_frame_id']}")
+            frames_path.write_text(json.dumps(frames, ensure_ascii=False, indent=2), encoding="utf-8")
+            print(f"Saved frame state: {frames_path}")
+        else:
+            print("\nFrame cursor: no more scenes to advance")
 
-    serializer.save(final_package, rebuild_package_path)
-    print(f"Saved: {rebuild_package_path}")
+        serializer.save(final_package, rebuild_package_path)
+        print(f"Saved: {rebuild_package_path}")
 
     if chapter_committed:
         reset_consumed_responses(output_dir)

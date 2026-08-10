@@ -44,6 +44,14 @@ from src.boundary_control.handoff import (
     VALID_WORKFLOW_ROUTES,
 )
 from src.boundary_control.orchestration import OrchestrationGateUnit
+from src.boundary_control.chapter_commit import (
+    ChapterCommitBoundary,
+    derive_run_id,
+    read_flow_version,
+    read_run_manifest,
+    seed_v2_baseline,
+    set_run_status,
+)
 from src.boundary_control.runtime_args import validate_long_runtime_args
 from src.boundary_control.runtime_identity import (
     content_evidence_from_bytes,
@@ -809,6 +817,109 @@ def _run_time(args: argparse.Namespace) -> int:
     if args.check:
         command.append("--check")
     return _run_child(command)
+
+
+def _run_migrate(args: argparse.Namespace) -> int:
+    """显式迁移：flow v2 → v3（事务式提交与版本化运行）.
+
+    只允许显式迁移（--preserve-old），不允许旧工作区被自动读取为 v3。
+    迁移永不删除/修改旧产物：只写 .flow_version=3 + 固化 v2 链末尾为 seed 基线。
+    **真实工作区的迁移停在 Q1 批准点②（flow v3 数据迁移前），本命令对
+    真实小说仅在获得批准后使用。**
+    """
+    novel_dir = _novel_dir(args.novel)
+    if not novel_dir.exists():
+        print(f"Error: no such novel workspace: {args.novel}")
+        return 1
+    mode = _read_mode(novel_dir)
+    if mode is None:
+        print(f"Error: no saved mode for novel: {args.novel}; nothing to migrate")
+        return 1
+    output_dir = _output_dir(novel_dir, mode)
+
+    current = read_flow_version(output_dir)
+    if current == "3":
+        if read_run_manifest(output_dir) is not None:
+            print(f"{args.novel} ({mode}) already at flow 3; nothing to do")
+            return 0
+        print(f"Error: {args.novel} ({mode}) has .flow_version=3 but no run manifest")
+        return 1
+    if not args.preserve_old:
+        print("Error: must pass --preserve-old (flow v3 migration preserves all old artifacts)")
+        return 1
+
+    chapters_dir = novel_dir / "chapters"
+    last = 0
+    if chapters_dir.exists():
+        for path in chapters_dir.glob("chapter_*.txt"):
+            try:
+                num = int(path.stem[len("chapter_"):])
+            except ValueError:
+                continue
+            last = max(last, num)
+
+    (output_dir / ".flow_version").write_text("3", encoding="utf-8")
+    seed = seed_v2_baseline(
+        output_dir,
+        run_id=f"migrate-v2-{mode}",
+        mode=mode,
+        chapter_number=last or None,
+    )
+    print(f"Migrated {args.novel} ({mode}) to flow v3")
+    print(f"  seeded run manifest: {output_dir / 'run_manifest.json'}")
+    if last:
+        print(f"  v2 chain head: chapter_{last} (续写从 chapter_{last + 1} 开始)")
+    else:
+        print("  v2 chain head: none (全新工作区)")
+    print(f"  seed status: {seed.status} (kind={seed.kind})")
+    print("  old artifacts preserved (not modified, not deleted)")
+    return 0
+
+
+def _run_inspect_run(args: argparse.Namespace) -> int:
+    """巡检 run manifest：提交记录 + 崩溃恢复判定 + 运行史（只读）. """
+    novel_dir = _novel_dir(args.novel)
+    if not novel_dir.exists():
+        print(f"Error: no such novel workspace: {args.novel}")
+        return 1
+    mode = args.mode or _read_mode(novel_dir)
+    if mode is None:
+        print(f"Error: no saved mode for novel: {args.novel}")
+        return 1
+    output_dir = _output_dir(novel_dir, mode)
+    boundary = ChapterCommitBoundary(output_dir, novel_dir / "chapters")
+    info = boundary.inspect()
+
+    if args.json:
+        payload = info
+        _validate_inspect_run_json_payload(payload)
+        print(json.dumps(payload, ensure_ascii=False, indent=2))
+        return 0
+
+    rec = info["recovery"]
+    print(f"novel:     {args.novel}")
+    print(f"mode:      {mode}")
+    print(f"flow:      {info['flow_version']}")
+    print(f"manifest:  {info['manifest_path']}")
+    if rec["recognized"]:
+        print(f"recovery:  COMMITTED")
+    else:
+        print(f"recovery:  NOT COMMITTED ({rec['reason']})")
+    if rec["missing"]:
+        print(f"  missing artifacts: {rec['missing']}")
+    if rec["mismatched"]:
+        for m in rec["mismatched"]:
+            print(f"  hash mismatch: {m['path']} expected={m['expected'][:12]} actual={m['actual'][:12]}")
+    if rec["orphans"]:
+        print(f"  orphan chapters: {rec['orphans']}")
+    if info["manifest"] is not None:
+        m = info["manifest"]
+        print(f"  run: {m['run_id']}  status={m['status']}  chapter={m['chapter_ref']}")
+        print(f"  draft_hash: {m['draft_hash']}")
+        print(f"  state: {m['state_before_hash']} -> {m['state_after_hash']}")
+        print(f"  artifacts: {len(m['artifacts'])} file(s) hashed")
+    print(f"run history: {len(info['run_history'])} finalized snapshot(s)")
+    return 0
 
 
 def _run_resume(args: argparse.Namespace) -> int:
@@ -1745,6 +1856,38 @@ def build_parser(*, emit_json_errors: bool = False) -> argparse.ArgumentParser:
     time_cmd.add_argument("--check", action="store_true", help="运行时间审计，产出 timeline_report.json")
     time_cmd.add_argument("--status", action="store_true", help="打印 TimeBook 状态（默认动作）")
     time_cmd.set_defaults(func=_run_time)
+
+    migrate_cmd = subparsers.add_parser(
+        "migrate",
+        help="显式迁移：flow v2 → v3（事务式提交与版本化运行；保留旧产物）",
+    )
+    migrate_cmd.add_argument("novel", help="小说名")
+    migrate_cmd.add_argument(
+        "--to-flow",
+        choices=["3"],
+        default="3",
+        help="目标 flow 版本（当前仅支持 3）",
+    )
+    migrate_cmd.add_argument(
+        "--preserve-old",
+        action="store_true",
+        help="保留旧产物（必需；迁移永不删除，此旗标是操作者显式授权）",
+    )
+    migrate_cmd.set_defaults(func=_run_migrate)
+
+    inspect_run_cmd = subparsers.add_parser(
+        "inspect-run",
+        help="巡检 run manifest：提交记录 + 崩溃恢复判定 + 运行史（只读）",
+    )
+    inspect_run_cmd.add_argument("novel", help="小说名")
+    inspect_run_cmd.add_argument(
+        "--mode",
+        choices=["compose", "extend"],
+        default=None,
+        help="流模式（缺省读已存 mode）",
+    )
+    inspect_run_cmd.add_argument("--json", action="store_true", help="emit machine-readable JSON")
+    inspect_run_cmd.set_defaults(func=_run_inspect_run)
 
     resume = subparsers.add_parser("resume", help="按上次模式断点续跑")
     resume.add_argument("novel", help="小说名")

@@ -288,6 +288,70 @@ def build_revision_prompt(
     return "\n".join(lines)
 
 
+def build_chapter_provenance_entry(
+    chapter_number: int,
+    *,
+    flow_version: str,
+    prose_review_enabled: bool = True,
+    draft_commit_enabled: bool = True,
+    review_version: str = "post-prose-v1",
+    review_issues: list | None = None,
+    final_draft_chars: int | None = None,
+    first_draft_chars: int | None = None,
+    expansion_required: bool | None = None,
+    active_frame_id: str | None = None,
+    active_formula_node: str | None = None,
+) -> dict:
+    """纯函数：构建单章 provenance 条目（不落盘）。
+
+    Phase 2 提取共用 Commit 边界——v3 提交边界需要「内存中构造 provenance +
+    随 commit 一起原子落盘」；v2 的 record_chapter_provenance 也复用同一构造，
+    保证两路条目字节一致（测量/盲审 version-aware 语义不变）。
+    """
+    issues = []
+    for i in review_issues or []:
+        d = i.model_dump(mode="json") if hasattr(i, "model_dump") else i
+        issues.append({
+            "issue_id": d.get("issue_id"),
+            "issue_type": d.get("issue_type"),
+            "severity": d.get("severity"),
+            "location": d.get("location"),
+            "description": d.get("description"),
+        })
+    return {
+        "chapter_number": chapter_number,
+        "flow_version": flow_version,
+        "review_version": review_version,
+        "prose_review_enabled": bool(prose_review_enabled),
+        "draft_commit_enabled": bool(draft_commit_enabled),
+        "review_issues": issues,
+        # 篇幅观测（操作者扩写也如实记录）
+        "first_draft_chars": first_draft_chars,
+        "final_draft_chars": final_draft_chars,
+        "expansion_required": expansion_required,
+        "expansion_delta": (
+            (final_draft_chars - first_draft_chars)
+            if (final_draft_chars is not None and first_draft_chars is not None)
+            else None
+        ),
+        # Frame 生命周期观测
+        "active_frame_id": active_frame_id,
+        "active_formula_node": active_formula_node,
+        "committed_at_utc": None,
+    }
+
+
+def merge_chapter_provenance(existing: dict, entry: dict) -> dict:
+    """纯函数：把单章条目并入已有 provenance 数据（返回新 dict，不写盘）。
+
+    与原 record_chapter_provenance 的合并语义逐字节一致（保留既有顶层键）。
+    """
+    data = dict(existing)
+    data.setdefault("chapters", {})
+    data["chapters"][f"chapter_{entry['chapter_number']}"] = entry
+    return data
+
+
 def record_chapter_provenance(
     output_dir: Path,
     chapter_number: int,
@@ -329,38 +393,20 @@ def record_chapter_provenance(
     if flow_version_path.exists():
         flow_version = flow_version_path.read_text(encoding="utf-8").strip() or "2"
 
-    issues = []
-    for i in review_issues or []:
-        d = i.model_dump(mode="json") if hasattr(i, "model_dump") else i
-        issues.append({
-            "issue_id": d.get("issue_id"),
-            "issue_type": d.get("issue_type"),
-            "severity": d.get("severity"),
-            "location": d.get("location"),
-            "description": d.get("description"),
-        })
-
-    data["chapters"][f"chapter_{chapter_number}"] = {
-        "chapter_number": chapter_number,
-        "flow_version": flow_version,
-        "review_version": review_version,
-        "prose_review_enabled": bool(prose_review_enabled),
-        "draft_commit_enabled": bool(draft_commit_enabled),
-        "review_issues": issues,
-        # 篇幅观测（操作者扩写也如实记录）
-        "first_draft_chars": first_draft_chars,
-        "final_draft_chars": final_draft_chars,
-        "expansion_required": expansion_required,
-        "expansion_delta": (
-            (final_draft_chars - first_draft_chars)
-            if (final_draft_chars is not None and first_draft_chars is not None)
-            else None
-        ),
-        # Frame 生命周期观测
-        "active_frame_id": active_frame_id,
-        "active_formula_node": active_formula_node,
-        "committed_at_utc": None,
-    }
+    entry = build_chapter_provenance_entry(
+        chapter_number,
+        flow_version=flow_version,
+        prose_review_enabled=prose_review_enabled,
+        draft_commit_enabled=draft_commit_enabled,
+        review_version=review_version,
+        review_issues=review_issues,
+        final_draft_chars=final_draft_chars,
+        first_draft_chars=first_draft_chars,
+        expansion_required=expansion_required,
+        active_frame_id=active_frame_id,
+        active_formula_node=active_formula_node,
+    )
+    data = merge_chapter_provenance(data, entry)
     path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
     return path
 

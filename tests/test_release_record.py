@@ -27,7 +27,7 @@ from src.object_state.audit_report import AuditReport
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-EXPECTED_BASELINE = 2341
+EXPECTED_BASELINE = 2386
 EXAMPLE_PATH = "docs/00_project/tier0_release_record.example.json"
 CANARY_EVIDENCE_EXAMPLE_PATH = "docs/00_project/tier0_canary_evidence.example.json"
 COMMITTED_RELEASE_RECORD_PATH = "docs/00_project/releases/tier0-release.json"

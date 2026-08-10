@@ -2164,6 +2164,40 @@ def _validate_list_json_payload(payload: object) -> None:
         _validate_list_json_row_payload(row)
 
 
+def _validate_inspect_run_json_payload(payload: object) -> None:
+    """inspect-run --json 载荷契约：ChapterCommitBoundary.inspect() 的结构."""
+    if not isinstance(payload, dict):
+        raise ValueError("CLI inspect-run JSON payload must be an object")
+    for field in ("novel_dir", "output_dir", "flow_version", "manifest_path"):
+        value = payload.get(field)
+        if not isinstance(value, str) or not value.strip():
+            raise ValueError(
+                f"CLI inspect-run JSON {field} must be a non-empty string"
+            )
+    if payload["flow_version"] not in {"2", "3"}:
+        raise ValueError(
+            f"unsupported CLI inspect-run JSON flow_version: {payload['flow_version']}"
+        )
+    manifest = payload.get("manifest")
+    if manifest is not None and not isinstance(manifest, dict):
+        raise ValueError("CLI inspect-run JSON manifest must be an object or null")
+    recovery = payload.get("recovery")
+    if not isinstance(recovery, dict):
+        raise ValueError("CLI inspect-run JSON recovery must be an object")
+    if not isinstance(recovery.get("recognized"), bool):
+        raise ValueError("CLI inspect-run JSON recovery.recognized must be a bool")
+    if not isinstance(recovery.get("reason"), str):
+        raise ValueError("CLI inspect-run JSON recovery.reason must be a string")
+    if not isinstance(recovery.get("orphans"), list):
+        raise ValueError("CLI inspect-run JSON recovery.orphans must be a list")
+    history = payload.get("run_history")
+    if not isinstance(history, list):
+        raise ValueError("CLI inspect-run JSON run_history must be a list")
+    for entry in history:
+        if not isinstance(entry, dict):
+            raise ValueError("CLI inspect-run JSON run_history entries must be objects")
+
+
 def _validate_novel_name(name: str) -> None:
     candidate = Path(name)
     if candidate.is_absolute() or ".." in candidate.parts or len(candidate.parts) != 1:
@@ -2554,6 +2588,7 @@ __all__ = (
     "_validate_list_waiting_current_discovery",
     "_validate_list_json_row_payload",
     "_validate_list_json_payload",
+    "_validate_inspect_run_json_payload",
     "_validate_novel_name",
     "_latest_mtime",
     "_read_route_value",
