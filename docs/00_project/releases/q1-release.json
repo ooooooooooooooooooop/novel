@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "type": "q1_release_record",
+  "q1_release_id": "q1-20260810",
+  "created_at_utc": "2026-08-10T16:30:00Z",
+  "git_commit": "9777087",
+  "git_tag": "v0.1.3-q1",
+  "baseline_tests_passing": 2460,
+  "full_pytest_command": "PYTHONIOENCODING=utf-8 python -m pytest tests/ -q",
+  "full_pytest_result": "2460 passed",
+  "tier0_three_flow_canary": "PASS",
+  "q1_serial_canary": {
+    "script": "scripts/q1_canary_serial.py",
+    "extend_consecutive_chapters": 5,
+    "compose_consecutive_chapters": 5,
+    "resolution_stop_sample": "stop",
+    "status": "PASS"
+  },
+  "synthetic_failure_fixtures_blocked": "8/8 (test_q1_phase0_baseline)",
+  "privacy_redline": "PASS (test_privacy_redline)",
+  "flow_version": "3",
+  "operator_in_the_loop": true,
+  "provider_calls_implemented": false,
+  "closed_loop_allowed": false,
+  "known_limitations": [
+    "Q1 serial canary 用程序化 minimal 响应驱动 staged 流程（验证编排正确性，非内容质量——内容质量由 Review/ReaderGate 把关）",
+    "Phase 5 三条现有内容的真实恢复（续写作A/B/仙侠新作）为本地私密工作，未入 Git；恢复工具 novel recover 已就绪",
+    "人类读者校准（隐藏来源连续阅读）尚未运行，需真实读者参与",
+    "Q1 标签不改写 v0.1.2-tier0"
+  ]
+}
