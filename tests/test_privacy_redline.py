@@ -28,7 +28,7 @@ from src.object_state.styleprofile import (
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 
-def _mk_profile(pov: str = "以主角为锚", ref: str = "D:\\x\\novels\\a\\input.txt"):
+def _mk_profile(pov: str = "以张恪为锚", ref: str = "D:\\x\\novels\\a\\input.txt"):
     """构造最小合法 StyleProfile（仅必填字段）。"""
     return StyleProfile(
         profile_id="s1",
@@ -52,29 +52,29 @@ def _mk_profile(pov: str = "以主角为锚", ref: str = "D:\\x\\novels\\a\\inpu
 
 # 已知真实实体（角色/公司/作品名）——红线扫描词表。新增作品入库时在此登记。
 KNOWN_ENTITY_TERMS = [
-    "主角",
-    "角色甲",
-    "角色丙",
-    "角色乙",
-    "角色丁",
-    "角色戊",
-    "角色己",
-    "角色庚",
-    "角色辛",
-    "角色壬",
-    "角色癸",
-    "角色子",
-    "湖畔",
-    "银行",
-    "企业",
-    "外地",
-    "续写作B",
-    "续写作B",
-    "续写作A",
-    "续写C",
-    "续写D",
-    "角色寅",
-    "角色丑",
+    "张恪",
+    "李馨予",
+    "翟丹青",
+    "王海粟",
+    "傅俊",
+    "魏岚",
+    "董简年",
+    "江敏之",
+    "魏东强",
+    "严文介",
+    "林雪",
+    "罗君",
+    "锦湖",
+    "信通银行",
+    "海粟科技",
+    "珀斯",
+    "官路商途",
+    "重生之官路商途",
+    "万物生长",
+    "星尘归处",
+    "逆命令",
+    "柳青",
+    "秋水",
 ]
 
 _SCAN_SUFFIXES = (".py", ".md", ".json", ".txt", ".toml")
@@ -134,12 +134,12 @@ def test_style_library_source_ref_no_machine_path():
 
 
 def test_redact_text_replaces_terms():
-    assert redact_text("以主角为锚", {"主角": "主角"}) == "以主角为锚"
+    assert redact_text("以张恪为锚", {"张恪": "主角"}) == "以主角为锚"
 
 
 def test_redact_text_longest_first():
     # 长词优先，避免前缀误伤
-    assert redact_text("湖畔集团上市", {"湖畔": "集团", "湖畔集团": "大集团"}) == "大集团上市"
+    assert redact_text("锦湖集团上市", {"锦湖": "集团", "锦湖集团": "大集团"}) == "大集团上市"
 
 
 def test_sanitize_source_ref_drops_machine_path():
@@ -153,11 +153,11 @@ def test_sanitize_source_ref_drops_machine_path():
 
 def test_redact_profile_deep_copy_and_source_ref():
     profile = _mk_profile()
-    redacted = redact_profile(profile, {"主角": "主角"})
+    redacted = redact_profile(profile, {"张恪": "主角"})
     assert redacted.narrative_pov == "以主角为锚"
     assert redacted.source_text_ref == "input.txt"
     # 原 profile 不被改动
-    assert profile.narrative_pov == "以主角为锚"
+    assert profile.narrative_pov == "以张恪为锚"
     assert profile.source_text_ref.startswith("D:")
 
 
@@ -165,10 +165,10 @@ def test_redact_profile_without_terms_still_sanitizes_ref():
     profile = _mk_profile()
     redacted = redact_profile(profile)
     assert redacted.source_text_ref == "input.txt"
-    assert redacted.narrative_pov == "以主角为锚"  # 未传词表则不替换
+    assert redacted.narrative_pov == "以张恪为锚"  # 未传词表则不替换
 
 
 def test_assign_placeholders_and_parse():
-    assert assign_placeholders(["主角", "角色乙"]) == {"主角": "角色A", "角色乙": "角色B"}
-    assert parse_redact_arg("主角，角色乙, 湖畔") == ["主角", "角色乙", "湖畔"]
+    assert assign_placeholders(["张恪", "王海粟"]) == {"张恪": "角色A", "王海粟": "角色B"}
+    assert parse_redact_arg("张恪，王海粟, 锦湖") == ["张恪", "王海粟", "锦湖"]
     assert parse_redact_arg("") == []
