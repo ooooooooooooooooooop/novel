@@ -27,7 +27,7 @@ from src.object_state.audit_report import AuditReport
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-EXPECTED_BASELINE = 2301
+EXPECTED_BASELINE = 2341
 EXAMPLE_PATH = "docs/00_project/tier0_release_record.example.json"
 CANARY_EVIDENCE_EXAMPLE_PATH = "docs/00_project/tier0_canary_evidence.example.json"
 COMMITTED_RELEASE_RECORD_PATH = "docs/00_project/releases/tier0-release.json"
@@ -1272,8 +1272,17 @@ def test_committed_release_record_combined_validation():
 
     依赖实际提交的 canary 产物（Step 6 恢复）与新 tag（Step 7 打标）；
     在旧记录/旧证据修复前预期失败（过渡态），修复后必须转绿。
+    存档记录是 v0.1.2-tier0 的冻结证据，用其自身记录的 baseline 校验
+    （证据不随当前测试基线漂移；新建记录才用 EXPECTED_BASELINE）。
     """
     assert (PROJECT_ROOT / COMMITTED_RELEASE_RECORD_PATH).exists()
+    committed_baseline = int(
+        json.loads(
+            (PROJECT_ROOT / COMMITTED_RELEASE_RECORD_PATH).read_text(
+                encoding="utf-8"
+            )
+        )["baseline_tests_passing"]
+    )
 
     result = subprocess.run(
         [
@@ -1282,7 +1291,7 @@ def test_committed_release_record_combined_validation():
             "src.boundary_control.release_record",
             COMMITTED_RELEASE_RECORD_PATH,
             "--expected-baseline",
-            str(EXPECTED_BASELINE),
+            str(committed_baseline),
             "--record-path",
             COMMITTED_RELEASE_RECORD_PATH,
             "--require-evidence-files",
