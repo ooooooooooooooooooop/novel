@@ -63,6 +63,15 @@ from src.workflow_action.proposal_generator import (
     parse_proposals_response,
 )
 from src.workflow_action.timebook import build_time_context, load_time_book
+from src.workflow_action.continuation_viability import (
+    ContinuationViabilityUnit,
+    analyze_continuation_viability,
+    viability_continue_note,
+)
+from src.workflow_action.reader_contract import (
+    load_reader_contract,
+    scene_experience_guard_review_issues,
+)
 from src.workflow_action import prose as prose_action
 
 continuation_module = importlib.import_module("src.workflow_action.continuation")
@@ -562,6 +571,65 @@ def main() -> int:
         print(f"Error: {exc}")
         return 1
 
+    # ---- Q1 R1: 续写可行性门禁（flow v3；v2 字节不变，零成本）----
+    # 回答「生成 PlotUnit 之前是否还有有效下一步」：确定性信号（no_active_frame /
+    # 活跃承诺 / 终止型节点 / 读者契约结束条件）直接判 continue / stop / needs_premise；
+    # 信号冲突（deterministic=False）时写 staged prompt 交操作者确认。stop /
+    # needs_premise 时跳过 Continue，不生成下一章。
+    reader_contract = load_reader_contract(output_dir) if flow_version == "3" else None
+    viability_note = ""
+    if flow_version == "3":
+        viability_analysis = analyze_continuation_viability(
+            narrative_state=narrative_state,
+            foreshadows=foreshadows,
+            frame_context=frame_context,
+            workspec=workspec,
+            contract=reader_contract,
+        )
+        (output_dir / "viability_analysis.json").write_text(
+            json.dumps(viability_analysis.model_dump(mode="json"), ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+        viability_prompt_path = output_dir / "viability_prompt.txt"
+        viability_response_path = output_dir / "viability_response.txt"
+        if viability_analysis.deterministic:
+            viability_decision = viability_analysis
+        elif not viability_response_path.exists():
+            viability_prompt_path.write_text(
+                ContinuationViabilityUnit().build_prompt(
+                    viability_analysis,
+                    workspec_context=workspec.to_prompt_context(),
+                    excerpt_context=load_recent_excerpts(continuation_text),
+                    contract_context=(
+                        reader_contract.to_prompt_context() if reader_contract else ""
+                    ),
+                ),
+                encoding="utf-8",
+            )
+            print("\n[STEP: VIABILITY] 续写可行性信号冲突——需操作者确认")
+            print(f"[WAITING] Generate response to: {viability_response_path}")
+            print("[RESUME] Re-run this script after saving response")
+            return 0
+        else:
+            viability_decision = ContinuationViabilityUnit().parse_response(
+                _read_response_text(viability_response_path)
+            )
+        if viability_decision.verdict in ("stop", "needs_premise"):
+            (output_dir / "viability_report.json").write_text(
+                json.dumps(viability_decision.model_dump(mode="json"), ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+            label = "故事已闭合" if viability_decision.verdict == "stop" else "需要新前提/新结构"
+            print(f"\nContinuationViability: {viability_decision.verdict}（{label}）——不生成下一章")
+            for reason in viability_decision.reasons:
+                print(f"  - {reason}")
+            if viability_decision.required_premise:
+                print(f"  required_premise: {viability_decision.required_premise}")
+            print(f"  report: {output_dir / 'viability_report.json'}")
+            return 0
+        if viability_decision.verdict == "continue":
+            viability_note = viability_continue_note(viability_decision)
+
     # Step 2: Continue
     print("\n" + "=" * 50)
     print("Step 2: Continue")
@@ -614,6 +682,7 @@ def main() -> int:
             consolidation_min_support=args.consolidation_min_support,
             consolidation_contested_ratio=args.consolidation_contested_ratio,
             author_judge=author_judge,
+            contract=reader_contract,
         )
         selected_package = selection["selected"]
         plotunit = selected_package["plotunit"]
@@ -672,6 +741,10 @@ def main() -> int:
                         subgenre=workspec.subgenre,
                     ),
                     author_context=author_context,
+                    contract_context=(
+                        reader_contract.to_prompt_context() if reader_contract else ""
+                    ),
+                    viability_note=viability_note,
                 ),
                 encoding="utf-8",
             )
@@ -701,6 +774,10 @@ def main() -> int:
                         theme=workspec.theme,
                         subgenre=workspec.subgenre,
                     ),
+                    contract_context=(
+                        reader_contract.to_prompt_context() if reader_contract else ""
+                    ),
+                    viability_note=viability_note,
                 ),
                 encoding="utf-8",
             )
@@ -757,6 +834,10 @@ def main() -> int:
         domain = review._domain_rules(review_objects)
         temporal = _extend_temporal_issues(objects)
         merged = hard + domain + temporal
+        # v3 强制（Q1 R3）：产生主动选择的关键单元必须携带 SceneExperience
+        # （选择依据/可见后果），否则在成文前进入对象层 rewrite。
+        if flow_version == "3":
+            merged = merged + scene_experience_guard_review_issues(plotunit)
         return merged, [i for i in merged if i.is_blocking()]
 
     code_issues, pre_blocking = _run_code_rules()

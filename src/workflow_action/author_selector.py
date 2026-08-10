@@ -42,10 +42,12 @@ from src.object_state.choicerecord import (
     ChoiceRecord,
     RejectedRecord,
 )
+from src.object_state.readercontract import ReaderContract
 from src.object_state.styleprofile import StyleProfile
 from src.workflow_action.authormemory import infer_value_conflicts
 from src.workflow_action.continuation import ContinueUnit
 from src.workflow_action.proposal_generator import candidate_label
+from src.workflow_action.reader_contract import contract_violations
 from src.workflow_action.review import ReviewUnit
 
 
@@ -302,11 +304,12 @@ def evaluate_candidates(
     current_state_ref: str = "",
     review: Optional[ReviewUnit] = None,
     author_judge: Optional[AuthorJudge] = None,
+    contract: Optional[ReaderContract] = None,
 ) -> dict[str, CandidateEvaluation]:
     """对 N 个候选做四视角评估.
 
-    Consistency Gate：复用 review._hard_rules + 候选 new_state 匹配检查
-    （blocking issue → consistency_pass=False）。
+    Consistency Gate：复用 review._hard_rules + 候选 new_state 匹配检查 +
+    读者契约 forbidden_drifts 子串检查（blocking issue → consistency_pass=False）。
 
     author_judge：可选语义作者判断者（AuthorJudge 协议）。提供时 kernel 已
     形成则用语义判定（Kernel→Selection 因果集成）；缺省用确定性关键词代理
@@ -349,6 +352,17 @@ def evaluate_candidates(
         for issue in hard_issues:
             consistency_issues.append(issue.model_dump(mode="json"))
             if issue.is_blocking():
+                pass_gate = False
+        # 读者契约（Q1 R3）：候选命中 forbidden_drifts → blocking（确定性，零 LLM）。
+        if contract is not None:
+            for drift in contract_violations(pu, contract):
+                consistency_issues.append(
+                    {
+                        "issue_type": "contract_violation",
+                        "severity": "blocking",
+                        "description": f"候选命中读者契约禁止漂移: {drift}",
+                    }
+                )
                 pass_gate = False
 
         # ---- 三视角（不阻断）----

@@ -89,6 +89,13 @@ def _minimal_continue_payload(*, input_state_ref: str = "ns_001") -> dict:
             "released_information": ["候选信息"],
             "consequences": ["候选后果"],
             "is_effective": True,
+            "scene_experience": {
+                "protagonist_sees": "候选场景的画面",
+                "obstacles": ["候选阻碍"],
+                "choice_grounding": "候选选择依据：主角基于身份与压力作出判断",
+                "outcome": "候选结果：选择产生了可见反馈",
+                "cognition_shift": "候选认知变化：从之前怎么想到现在怎么想",
+            },
         },
         "new_state": {
             "state_id": "ns_002",

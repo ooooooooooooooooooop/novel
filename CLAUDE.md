@@ -23,6 +23,8 @@
 - 时间域：TimeBook 先验模型（`novels/<名>/output/time/time_book.json`），`novel time` 管理（--rebuild 锚提取 / --check 时间线报告 / --status）；FACTTRACK v2 检测 4/5/6（时间回退 / 先知逾期 / 季节历法违反）；extend/compose 的 Continue 以【时间上下文】段注入上章/本章/时代背景/时间规则；rubric 装配时间一致性维（8→9 维）
 - 零成本契约：无 TimeBook → 无注入、无检测、无产物，prompt 字节与旧版逐字节相同（回归测试锁死）
 - 内容分级（NSFW 开关）：贯通创作与审核一套语义——compose/extend `--nsfw on|off`（默认 off 正常向：off 时 Continue prompt 注入【内容分级】禁成人内容硬规则，on 时注入成人向授权）；compliance `--nsfw on|off`（默认 off：on 时跳过「涉黄」分类扫描，其余分类仍扫）；build_prompt 的 nsfw_context 缺省空串零成本不注入
+- **续写可行性门禁（flow v3）**：extend/compose Continue 前跑确定性 viability 分析（`analyze_continuation_viability`——no_active_frame / open promises / 终止型 formula node / ReaderContract.ending_conditions 子串命中 → continue / needs_premise / stop；终止型节点歧义时 staged prompt 人工裁定）；deterministic stop/needs_premise 时写 `viability_report.json`（含 reasons + required_premise）并停下不继续生成；continue 时注入【续写可行性】note（终止型节点收束）；v2 逐字节不变零成本
+- **读者契约（ReaderContract，flow v3）**：逐作品「读者为什么选择这本书」sidecar（`reader_contract.json`，不入 serialization 白名单）；`novel contract` CLI 管理（`--default` 零 LLM 确定性初始契约 / staged prompt→response→save / 已存在时检查模式）；forbidden_drifts 确定性子串命中阻断 Proposal Selector 候选（`contract_violation` blocking）；Continue/Proposals 注入【读者契约】段（continuation.py 拥有段头，调用方只传 body）；v3 Pre-Review 闸 SceneExperience 关键单元强制（conflict/released_information 非空且 is_effective 必须携带 scene_experience，缺失 → blocking missing_consequence / motivation_gap；过渡单元不强制）
 - 统一入口：`novel` 命令管理 `novels/<小说名>/` 工作目录，并调用 audit / extend / compose / style / compliance / rubric / time staged CLI
 - **Post-Prose Review（先成文、后审查）**：extend/compose 时序改为 Continue → Pre-Review(代码闸,零LLM) → Prose → Review(读正文)；Review prompt 注入【本章正文】+ 正文层 7 维审查（兑现/人物忠实/情绪落地/解读空间/场景在场/对白/AI 味），正文层独有缺陷（同章对白逐字重复、AI 味、情绪靠声明）第一次可被审查发现；route=rewrite 时正文已存在 → 正文层修订（`prose_revise`）优先，`--no-prose` 保持对象层修复；`output/.flow_version=2` + 旧版残留 fail-fast 迁移；`review.build_prompt(objects, ctx, prose_text=None)` 缺省与旧版逐字节相同（零成本契约）
 - **Draft/Commit 分离**：Post-Prose PASS 前正文只是 staged draft（`output/prose_draft.txt`），不进入 `chapters/`；下游（continuity/excerpt/reader/state）不消费未提交稿；PASS 后才提交为正式 `chapter_N.txt`（落盘闸门 `is_duplicate_of_last` 在提交点兜底）；block 时无章节落盘，draft 留待人工
@@ -41,7 +43,7 @@
 - 章节正文目录：续写/创作的章节正文统一存 `novels/<小说名>/chapters/`（如 `chapters/chapter_1197.txt`），与 `output/` 系统产物分离；小说工作区一律不提交 GitHub（`novels/*/` 已入 `.gitignore`，canary 证据目录 `novels/tier0-*-canary/` 反向放行），GitHub 仅保留工具框架（代码/测试/脚本/规则文档/运行配置/风格库积累）
 - 续写篇幅与原文参考：有原文时，原文按章拆分入 `chapters/chapter_01.txt` 起（保留章节标题行），续写从下一编号续（原文 23 章 → 续写从 `chapter_24` 起），目录内编号连续；续写章节篇幅对齐原文章均（参考值：《示例小说丁》约 6,500 字符/章），不得明显偏短；续写须参考原文语感、意象系统（杨柳/水/套装/信等）与事件细节，不能凭空脱离原文
 - 隐私纪律：所有具体小说信息（标题、正文、角色、工作区名、作者笔名）一律不提交 GitHub；git 历史中如有此类内容，push 前须用 `git filter-repo --path-*` 完整重写历史剔除（本项目已按此重写并 force-push）；正文仅存本地 `novels/<小说名>/chapters/`；写作风格综合积累可入库，统一放仓库根 `style_library/<name>.json`（中性文件名，不含小说名/作者笔名/机器路径）
-- 测试：2386 passed
+- 测试：2414 passed
 
 ## 怎么用（在 Codex 中）
 
@@ -181,6 +183,20 @@ novel time 某作 --input 某作.txt --rebuild   # 提取时间锚点，生成 t
 novel time 某作 --input 某作.txt --check     # 产出 output/time/timeline_report.json
 novel time 某作 --status                     # 打印 TimeBook 状态（novel list 亦展示 time_status）
 ```
+
+### Contract 流（读者契约：逐作品「读者为什么选择这本书」sidecar）
+
+```bash
+novel contract 某作 --default                # 零 LLM：写确定性默认初始契约（reader_contract.json）
+novel contract 某作                          # 已存在 → 检查模式打印摘要；无契约 → [WAITING] staged prompt
+novel contract 某作 --edit                   # 无契约时强制 staged 编辑（写 contract_prompt.txt → 填响应 → 重跑保存）
+```
+
+- **单遍式**：产出 `novels/某作/output/<extend|compose>/reader_contract.json`（sidecar，不入 serialization 白名单）
+- mode 自动检测（extend 优先看 `output/extend/extend_rebuild_package.json`，否则 compose 看 `workspec.json`）
+- 契约含 core_pleasures 2–4 项 / follow_reason / core_tension / chapter_pacing / opening_minimum_promise / must_keep / forbidden_drifts / valid_hooks / ending_conditions
+- 消费（flow v3 门禁）：Continue/Proposals 注入【读者契约】段；forbidden_drifts 命中阻断 Selector 候选；ending_conditions 供可行性闸判定 stop；v3 Pre-Review 闸强制 SceneExperience
+- 零成本契约：flow v2 不读取不注入；无契约时 prompt 字节与旧版逐字节相同
 
 ### AB 盲评、PASS 漏检审计 与 Style Drift（measurement-only）
 

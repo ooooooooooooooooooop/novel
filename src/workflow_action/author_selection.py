@@ -293,6 +293,7 @@ def run_author_selection(
     consolidation_min_support: Optional[int] = None,
     consolidation_contested_ratio: Optional[float] = None,
     author_judge: Optional[object] = None,
+    contract=None,
 ) -> dict:
     """跑完整作者感知选择链，落 ChoiceLedger / ShadowLedger / DriftReview 侧车.
 
@@ -324,6 +325,7 @@ def run_author_selection(
         current_state_ref=current_state_ref,
         review=review,
         author_judge=author_judge,
+        contract=contract,
     )
     production_kernel = kernel if author_mode_on else None
     outcome = select_candidate(packages, evals, kernel=production_kernel)

@@ -47,6 +47,8 @@ def build_proposal_prompt(
     original_style_context: str = "",
     nsfw_context: str = "",
     author_context: str = "",
+    contract_context: str = "",
+    viability_note: str = "",
 ) -> str:
     """构建 N 候选续写 prompt.
 
@@ -75,6 +77,8 @@ def build_proposal_prompt(
         excerpt_context=excerpt_context,
         original_style_context=original_style_context,
         nsfw_context=nsfw_context,
+        contract_context=contract_context,
+        viability_note=viability_note,
     )
     marker = "【输出格式】"
     if marker not in base:

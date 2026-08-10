@@ -699,6 +699,48 @@ def _run_rubric(args: argparse.Namespace) -> int:
     return _run_child(command)
 
 
+def _run_contract(args: argparse.Namespace) -> int:
+    """读者契约建立/编辑/检查（Q1 R3 sidecar）.
+
+    契约是逐作品的「读者为什么选择这本书」规格：Continue/Prose 以【读者契约】
+    注入生成 prompt，合规检查对 forbidden_drifts 做确定性扫描，flow v3 的续写
+    可行性分析读取 ending_conditions。staged 流程：写 prompt → 操作者填 JSON
+    response → 重跑保存；--default 零 LLM 确定性草稿；--edit 重开编辑。
+    产物 output/<mode>/reader_contract.json（mode=extend|compose）。
+    """
+    novel_dir = _novel_dir(args.novel)
+    extend_dir = _output_dir(novel_dir, "extend")
+    compose_dir = _output_dir(novel_dir, "compose")
+    if (extend_dir / "extend_rebuild_package.json").exists():
+        mode, output_dir = "extend", extend_dir
+    elif (novel_dir / "workspec.json").exists() or (
+        compose_dir / "compose_state.json"
+    ).exists():
+        mode, output_dir = "compose", compose_dir
+    else:
+        print(
+            "No extend or compose workspace found — run `novel extend` / "
+            "`novel compose` first."
+        )
+        return 1
+    _write_mode(novel_dir, f"contract-{mode}")
+    _write_config(novel_dir, {"mode": f"contract-{mode}"})
+
+    command = [
+        sys.executable,
+        _script_path("contract_short_form.py"),
+        "--output-dir",
+        str(output_dir),
+        "--mode",
+        mode,
+    ]
+    if getattr(args, "default", False):
+        command.append("--default")
+    if getattr(args, "edit", False):
+        command.append("--edit")
+    return _run_child(command)
+
+
 def _run_ab(args: argparse.Namespace) -> int:
     """Post-Prose Review 的 A/B 盲评（测量 Detection Precision / Revision Gain）.
 
@@ -1827,6 +1869,18 @@ def build_parser(*, emit_json_errors: bool = False) -> argparse.ArgumentParser:
     rubric = subparsers.add_parser("rubric", help="导出 WebNovelBench 8 维本地评测 rubric (离线)")
     rubric.add_argument("novel", help="小说名（rubric 为全局知识，novel 仅作容器）")
     rubric.set_defaults(func=_run_rubric)
+
+    contract_cmd = subparsers.add_parser(
+        "contract", help="读者契约建立/编辑/检查（Q1 R3）：读者为什么选择这本书"
+    )
+    contract_cmd.add_argument("novel", help="小说名")
+    contract_cmd.add_argument(
+        "--default", action="store_true", help="用确定性默认直接保存（零 LLM 成本）"
+    )
+    contract_cmd.add_argument(
+        "--edit", action="store_true", help="已存在契约时重新打开 staged 编辑"
+    )
+    contract_cmd.set_defaults(func=_run_contract)
 
     ab = subparsers.add_parser("ab", help="Post-Prose Review A/B 盲评（Detection Precision / Revision Gain 测量）")
     ab.add_argument("novel", help="小说名")

@@ -73,6 +73,8 @@ class ContinueUnit:
         original_style_context: str = "",
         nsfw_context: str = "",
         packet_context: str = "",
+        contract_context: str = "",
+        viability_note: str = "",
     ) -> str:
         """生成续写 prompt."""
         return self._build_prompt(
@@ -93,6 +95,8 @@ class ContinueUnit:
             original_style_context,
             nsfw_context,
             packet_context,
+            contract_context,
+            viability_note,
         )
 
     def parse_response(self, response: str) -> tuple[PlotUnit, NarrativeState, list[str], list[str]]:
@@ -153,6 +157,8 @@ class ContinueUnit:
         original_style_context: str = "",
         nsfw_context: str = "",
         packet_context: str = "",
+        contract_context: str = "",
+        viability_note: str = "",
     ) -> str:
         char_ctx = "\n---\n".join(c.to_prompt_context() for c in characters)
         # 离场人物在场感（§14 盲续写迭代：让单章多线并置时能自然召回离场人物近况。
@@ -259,6 +265,15 @@ class ContinueUnit:
         packet_section = ""
         if packet_context:
             packet_section = f"\n\n【本章上下文包】\n{packet_context}"
+        # 读者契约（Q1 R3）：逐作品总规格。零成本：无契约时为空段，字节不变。
+        contract_section = ""
+        if contract_context:
+            contract_section = f"\n\n【读者契约】\n{contract_context}"
+        # 续写可行性注记（Q1 R1）：viability 判定通过后给生成器的明确注记。
+        # 零成本：continue 无歧义时通常为空串，不注入。
+        viability_section = ""
+        if viability_note:
+            viability_section = f"\n\n【续写可行性】\n{viability_note}"
         structure_section = ""
         if structure_template:
             nodes = get_structure_template(structure_template)
@@ -273,7 +288,7 @@ class ContinueUnit:
         return f"""你是一位叙事续写专家。请基于当前叙事状态，生成下一个 PlotUnit。
 
 【作品约束】
-{workspec_context}{platform_section}{genre_section}{style_section}{time_section}{timeline_section}{excerpt_section}{original_style_section}{retrieval_section}{nsfw_section}{packet_section}
+{workspec_context}{platform_section}{genre_section}{style_section}{time_section}{timeline_section}{excerpt_section}{original_style_section}{retrieval_section}{nsfw_section}{packet_section}{contract_section}{viability_section}
 
 【当前叙事状态】
 {state.to_prompt_context()}
