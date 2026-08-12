@@ -78,7 +78,7 @@ KNOWN_ENTITY_TERMS = [
 ]
 
 _SCAN_SUFFIXES = (".py", ".md", ".json", ".txt", ".toml")
-_SCAN_DIRS = ("style_library", "src", "docs", "tests")
+_SCAN_DIRS = ("style_library", "src", "docs", "tests", "scripts")
 
 
 def _tracked_texts():

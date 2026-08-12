@@ -27,7 +27,15 @@ from src.object_state.audit_report import AuditReport
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-EXPECTED_BASELINE = 2460
+# A1 闭环生产测试（autonomous_contracts + provider_adapter + autonomous_runner
+# + plan_search/precommit/judge_claim/pareto_tournament/long_horizon/reader_responses
+# + auto_calibrate + auto-calibrate CLI）使当前基线从 Q1 的 2470 升至 2724；
+# A1 G9（统一发布验证 test_a1_release_validation.py,7）再升至 2731；A1 G9 隐私聚合锁
+# （聚合隐私回归,2）升至 2733；与
+# test_cli_runtime_contract 的 EXPECTED_TEST_BASELINE 及
+# tier0_release_record.example.json 保持一致。冻结的 releases/tier0-release.json
+# 用其自身记录的 baseline（2301）自校验，不随此漂移。
+EXPECTED_BASELINE = 2733
 EXAMPLE_PATH = "docs/00_project/tier0_release_record.example.json"
 CANARY_EVIDENCE_EXAMPLE_PATH = "docs/00_project/tier0_canary_evidence.example.json"
 COMMITTED_RELEASE_RECORD_PATH = "docs/00_project/releases/tier0-release.json"

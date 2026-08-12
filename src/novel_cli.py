@@ -799,6 +799,128 @@ def _run_ab(args: argparse.Namespace) -> int:
     return _run_child(command)
 
 
+def _run_calibrate(args: argparse.Namespace) -> int:
+    """人类读者校准（隐藏来源连续阅读）：组装材料包 + 6 问问卷 + 聚合报告.
+
+    Q1 Phase 6：读者只回答 6 问（是否愿意翻下一页/人物同一/走神/不可信事实/
+    本章真正发生/最期待什么），不展示系统自评/来源/硬标准；硬标准由零 LLM
+    门禁链自动判定。产物 novels/<name>/output/calibrate/<packet>/calibration_report.json。
+    首轮阈值作为试运行数据（is_pilot=True），不预先伪造科学指标。
+    """
+    novel_dir = _novel_dir(args.novel)
+    output_dir = _output_dir(novel_dir, "calibrate")
+    output_dir.mkdir(parents=True, exist_ok=True)
+    _write_mode(novel_dir, "calibrate")
+    _write_config(novel_dir, {"mode": "calibrate"})
+    command = [
+        sys.executable,
+        _script_path("calibrate_short_form.py"),
+        "--output-dir",
+        str(output_dir),
+        "--chapters-dir",
+        str(novel_dir / "chapters"),
+        "--packet",
+        args.packet,
+    ]
+    if args.build:
+        command.append("--build")
+    if args.original:
+        command.extend(["--original", args.original])
+    if args.generated:
+        command.extend(["--generated", args.generated])
+    if args.generated_dir:
+        command.extend(["--generated-dir", args.generated_dir])
+    if args.reader_id:
+        command.extend(["--reader-id", args.reader_id])
+    return _run_child(command)
+
+
+def _run_auto(args: argparse.Namespace) -> int:
+    """A1 自动叙事生产（doc 48 §6 step 2，T3）：闭环章节生成直至终态.
+
+    无 [WAITING]、无 staged response、无人工选稿。policy/profile 显式传入
+    （A1 冻结证据，gitignored），run 目录 = novels/<名>/output/<run-name>。
+    恢复只识别完整提交；失败运行不会进入后续上下文。
+    """
+    novel_dir = _novel_dir(args.novel)
+    run_dir = _output_dir(novel_dir, args.run_name)
+    _write_mode(novel_dir, "auto")
+    _write_config(
+        novel_dir,
+        {
+            "mode": "auto",
+            "run_name": args.run_name,
+            "flow_mode": args.flow_mode,
+            "candidates": args.candidates,
+        },
+    )
+    command = [
+        sys.executable,
+        _script_path("auto_short_form.py"),
+        "--run-dir",
+        str(run_dir),
+        "--policy",
+        args.policy,
+        "--profile",
+        args.profile,
+        "--flow-mode",
+        args.flow_mode,
+        "--candidates",
+        str(args.candidates),
+    ]
+    if args.base_state:
+        command.extend(["--base-state", args.base_state])
+    if args.base_frames:
+        command.extend(["--base-frames", args.base_frames])
+    if args.source_text:
+        command.extend(["--source-text", args.source_text])
+    if args.reader_contract:
+        command.extend(["--reader-contract", args.reader_contract])
+    if args.time_book:
+        command.extend(["--time-book", args.time_book])
+    if args.style:
+        command.extend(["--style", args.style])
+    if args.nsfw != "off":
+        command.extend(["--nsfw", args.nsfw])
+    return _run_child(command)
+
+
+def _run_auto_calibrate(args: argparse.Namespace) -> int:
+    """A1 自动评审器校准（design §10 / T7.4–T7.6）：calibration 冻结阈值 + holdout.
+
+    无 [WAITING]、无 staged response、无人工调参。policy/profile 显式传入（A1
+    冻结证据），产物 novels/<名>/output/calibrate-auto/（calibration 只读验证，
+    禁止据 holdout 调阈值）。
+    """
+    novel_dir = _novel_dir(args.novel)
+    output_dir = _output_dir(novel_dir, "calibrate-auto")
+    _write_mode(novel_dir, "auto-calibrate")
+    _write_config(novel_dir, {"mode": "auto-calibrate", "role": args.role})
+    command = [
+        sys.executable,
+        _script_path("auto_calibrate_short_form.py"),
+        "--output-dir",
+        str(output_dir),
+        "--policy",
+        args.policy,
+        "--profile",
+        args.profile,
+        "--role",
+        args.role,
+    ]
+    if args.bench:
+        command.extend(["--bench", args.bench])
+    if args.split:
+        command.extend(["--split", args.split])
+    if args.max_calibration_pairs:
+        command.extend(["--max-calibration-pairs", str(args.max_calibration_pairs)])
+    if args.max_holdout_pairs:
+        command.extend(["--max-holdout-pairs", str(args.max_holdout_pairs)])
+    if args.position_sample is not None:
+        command.extend(["--position-sample", str(args.position_sample)])
+    return _run_child(command)
+
+
 def _run_drift(args: argparse.Namespace) -> int:
     """Style Drift 测量（measurement-only）：AI 章 vs 人类 baseline + Draft vs Committed."""
     novel_dir = _novel_dir(args.novel)
@@ -1996,6 +2118,86 @@ def build_parser(*, emit_json_errors: bool = False) -> argparse.ArgumentParser:
     drift = subparsers.add_parser("drift", help="Style Drift 测量（measurement-only）")
     drift.add_argument("novel", help="小说名")
     drift.set_defaults(func=_run_drift)
+
+    auto_cmd = subparsers.add_parser(
+        "auto",
+        help="A1 自动叙事生产（doc 48 §6 step 2）：闭环章节生成直至终态，无人工干预",
+    )
+    auto_cmd.add_argument("novel", help="小说名")
+    auto_cmd.add_argument(
+        "--run-name", default="a1-auto", help="run 目录名（novels/<名>/output/<run-name>）"
+    )
+    auto_cmd.add_argument("--policy", required=True, help="冻结策略 JSON（AutonomousPolicy）")
+    auto_cmd.add_argument("--profile", required=True, help="冻结 Provider 档案 JSON（ProviderProfile）")
+    auto_cmd.add_argument("--base-state", default="", help="起始 SerializationPackage JSON（全新 run 必需）")
+    auto_cmd.add_argument("--base-frames", default="", help="起始 Frame 状态 JSON（缺省从 workspec 构建）")
+    auto_cmd.add_argument("--source-text", default="", help="原书文本文件（extend 锚点/文风/去重用；空=compose）")
+    auto_cmd.add_argument("--reader-contract", default="", help="ReaderContract JSON（可选）")
+    auto_cmd.add_argument("--time-book", default="", help="TimeBook JSON（可选）")
+    auto_cmd.add_argument("--style", default="", help="StyleProfile JSON（可选）")
+    auto_cmd.add_argument("--nsfw", choices=["on", "off"], default="off", help="内容分级（默认 off=正常向）")
+    auto_cmd.add_argument("--flow-mode", choices=["compose", "extend"], default="extend")
+    auto_cmd.add_argument("--candidates", type=int, default=1, help="每章生成轮数上限（章节内多候选由 policy.search.plot_candidates 决定，T5）")
+    auto_cmd.set_defaults(func=_run_auto)
+
+    auto_calibrate_cmd = subparsers.add_parser(
+        "auto-calibrate",
+        help="A1 自动评审器校准（design §10 / T7）：calibration 冻结阈值 + holdout 只读验证",
+    )
+    auto_calibrate_cmd.add_argument("novel", help="小说名")
+    auto_calibrate_cmd.add_argument(
+        "--policy", required=True, help="冻结策略 JSON（AutonomousPolicy）"
+    )
+    auto_calibrate_cmd.add_argument(
+        "--profile", required=True, help="冻结 Provider 档案 JSON（ProviderProfile）"
+    )
+    auto_calibrate_cmd.add_argument(
+        "--role", default="reader_judge", help="校准的评审角色（缺省 reader_judge）"
+    )
+    auto_calibrate_cmd.add_argument(
+        "--bench", default="", help="偏好基准 JSON（缺省取 policy.benchmarks）"
+    )
+    auto_calibrate_cmd.add_argument(
+        "--split", default="", help="划分 manifest JSON（缺省取 policy.benchmarks）"
+    )
+    auto_calibrate_cmd.add_argument(
+        "--max-calibration-pairs", type=int, default=0, help="calibration 上限（0=全部）"
+    )
+    auto_calibrate_cmd.add_argument(
+        "--max-holdout-pairs", type=int, default=0, help="holdout 上限（0=全部）"
+    )
+    auto_calibrate_cmd.add_argument(
+        "--position-sample", type=int, default=None, help="位置一致性抽样对（缺省 20）"
+    )
+    auto_calibrate_cmd.set_defaults(func=_run_auto_calibrate)
+
+    calibrate_cmd = subparsers.add_parser(
+        "calibrate",
+        help="人类读者校准（隐藏来源连续阅读）：材料包 + 6 问问卷 + 硬标准聚合",
+    )
+    calibrate_cmd.add_argument("novel", help="小说名")
+    calibrate_cmd.add_argument(
+        "--packet", required=True, help="材料包标识（如 wanwu_pilot_01）"
+    )
+    calibrate_cmd.add_argument(
+        "--build",
+        action="store_true",
+        help="强制重新组装材料包并跑硬标准判定",
+    )
+    calibrate_cmd.add_argument(
+        "--original", help="原始章号范围（如 22-23）"
+    )
+    calibrate_cmd.add_argument(
+        "--generated", help="生成章号范围（如 24-25）"
+    )
+    calibrate_cmd.add_argument(
+        "--generated-dir",
+        help="AI 生成正文章节目录（默认取 output/recovery 最新 chapters_backup）",
+    )
+    calibrate_cmd.add_argument(
+        "--reader-id", default="reader_1", help="读者标识（默认 reader_1）"
+    )
+    calibrate_cmd.set_defaults(func=_run_calibrate)
 
     pass_audit = subparsers.add_parser("audit-pass", help="PASS Blind Audit：独立盲审 route=pass 章节，估算 Review 漏检率")
     pass_audit.add_argument("novel", help="小说名")

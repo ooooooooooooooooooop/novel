@@ -14,7 +14,7 @@ The repository is currently **end_to_end_validated** and **Tier 0 production rea
 
 Tier 0 (local staged CLI v0, operator-in-the-loop) was validated on 2026-07-28:
 
-- full pytest baseline: 2460 tests passing
+- full pytest baseline: 2733 tests passing
 - audit canary (`tier0-canary`) passed `novel gate`: `ok=true`, `review_route=pass`, `next_workflow=ContinueUnit`, `blocking_pending_count=0`
 - canary evidence: `docs/00_project/releases/tier0-canary-evidence.json`
 - saved canary gate result: `docs/00_project/releases/tier0-canary-gate.json`
@@ -47,6 +47,23 @@ The current orchestration model is staged:
 
 This is no longer only a documentation and planning workspace.
 It is also not yet a deployed runtime product.
+
+---
+
+## 1.5 A1 Autonomous Production (Q2A) — 承重墙完成，未验收（2026-08-12）
+
+A1 自动叙事生产（`novel auto` / AutonomousRunner）实现了严格状态机、预算、自动决策合同与单次真实 Provider 通路，
+但 **未达到 A1/Q2A 生产验收**，诚实状态：**合同和 Provider 承重墙已完成，自动生产系统未完成**（见 `48_a1_autonomous_production_handoff.md`）。
+
+- G0 通过：profile/policy/基准 SHA 冻结并重生成；Tier 0/Q1 记录与 tag 字节不变。
+- G3 通过：可信停止 Canary（真实续写工作区 chapter_23 返回 narrative_stopped，停止后生成调用为零）。
+- **G7 FAILED（冻结阈值不降）**：真实 holdout overall 0.8837 ≥ 0.65 ✓、分类型全 ≥ 0.5 ✓、**position consistency 0.5 < 0.9 ✗**；
+  deepseek-v4-flash 评审器把候选名命到位置槽而非内容 → A/B 换位不稳定。
+- **G8 无人 Canary 无法运行（0/90 章）**：冻结生成 temp0.7 下该模型只出 thinking 块无正文（4 次冒烟各在不同层显式失败：
+  ProviderSchemaError×2 / TimeoutError / HTTPError）；即便生成成功，G7 位置偏置使淘汰赛必然 `quality_exhausted`。
+- **G9 实现级验证通过**：完整 pytest **2733 passed**、Tier 0 三流回归 PASS、隐私扫描干净、旧记录/tag 不变；
+  单命令 `scripts/a1_release_validation.py` 聚合全部证据（exit 1，`a1_gate_result.json`，release record/tag withheld）。
+- 发布：Q2A/A1 release record + 新 tag **未生成**；旧 tag 未移动。证据与实施记录留在 gitignored `.taskflow/`（已归档）。
 
 ---
 
@@ -83,7 +100,7 @@ Recent implementation work has added or validated:
 - **Q1 Phase 1 (2026-08-10)**: ProseEvidencePackage + code extractor + dual reconcile (hard consistency + cross-chapter window); 8 synthetic failure fixtures all blocked with correct issue_type; full baseline 2341 passed
 - **Q1 Phase 2 (2026-08-10)**: transactional chapter commit — `RunManifest` (run|seed, five statuses, source/prev/draft/facts/state-before/state-after/frame hashes, artifacts sha256), `ChapterCommitBoundary` (chapter→archive→provenance→frames→state→manifest last, atomic; `recover()` recognizes only complete commits; orphan scan; refuse unmanaged overwrite), explicit flow v2→v3 migration only (`novel migrate --to-flow 3 --preserve-old`), read-only `novel inspect-run [--json]`; flow v3 wired into compose/extend with byte-identical v2 preserved (zero-cost contract); failpoint crash-recovery tests prove no half-commit; full baseline 2414 passed
 - **Q1 Phase 3 (2026-08-10)**: 续写可行性与读者契约（flow v3 门禁，v2 字节不变零成本）— `ContinuationViabilityDecision` 确定性分析（no_active_frame / open promises / 终止型节点 / ReaderContract.ending_conditions → continue / needs_premise / stop，含歧义 staged prompt），extend/compose Continue 前 viability 闸（stop/needs_premise 时写 `viability_report.json` 并停下）；`ReaderContract` sidecar（`reader_contract.json`，不入 serialization 白名单；确定性检查 forbidden_drifts 子串命中 + v3 Pre-Review 闸 scene_experience 关键单元强制）；`novel contract` CLI（--default 零 LLM 初始契约 / staged prompt→response→save / 检查模式）；Proposal Selector Consistency Gate 接入契约（命中 forbidden_drifts 的候选阻断 `contract_violation`）；SceneExperience 缺失映射 blocking ReviewIssue（missing_consequence / motivation_gap）；full baseline 2414 passed
-- **Q1 Phase 4 (2026-08-10)**: 单章与滑动窗口读者门禁（提交点门禁链，v2 字节不变零成本）— `evaluate_commit_reader_gate`（ProseEvidence 提取 → 跨章 `reconcile_prose_evidence` → `ReaderQualityGatePolicy`）接入 flow v3 提交点；确定性硬门禁内联（跨章硬一致性 / 重复闭环第二次即阻断 / 契约 forbidden_drifts 子串 / 纯氛围无推进），LLM 读者维度报告武装（`novel reader` 单章 7 维 / `novel reader --window 3|5` 连续章 `SerialReaderUnit` 12 维 → `serial_reader_report.json`，未武装轴显式 unarmed）；route=block/manual → rejected 不提交，通过后 `facts_package_hash` 写入 run manifest；`novel gate` 报告三轴；`run_manifest` 新 run 生命周期（续写下一章归档旧 run）；full baseline 2460 passed
+- **Q1 Phase 4 (2026-08-10)**: 单章与滑动窗口读者门禁（提交点门禁链，v2 字节不变零成本）— `evaluate_commit_reader_gate`（ProseEvidence 提取 → 跨章 `reconcile_prose_evidence` → `ReaderQualityGatePolicy`）接入 flow v3 提交点；确定性硬门禁内联（跨章硬一致性 / 重复闭环第二次即阻断 / 契约 forbidden_drifts 子串 / 纯氛围无推进），LLM 读者维度报告武装（`novel reader` 单章 7 维 / `novel reader --window 3|5` 连续章 `SerialReaderUnit` 12 维 → `serial_reader_report.json`，未武装轴显式 unarmed）；route=block/manual → rejected 不提交，通过后 `facts_package_hash` 写入 run manifest；`novel gate` 报告三轴；`run_manifest` 新 run 生命周期（续写下一章归档旧 run）；full baseline 2470 passed
 
 ---
 
@@ -221,7 +238,7 @@ The artifact set is complete and the first running slices are end-to-end validat
 
 Current baseline:
 
-- `pytest -q`: 2460 tests passing
+- `pytest -q`: 2733 tests passing
 - long-form multi-arc stress test: PASS
 - end-to-end Audit / Extend / Compose validation: PASS
 
@@ -321,7 +338,7 @@ Current next decision:
   - Track 3 CharacterModel evidence-leakback checks
   - generative_indicia detection checks
   - Review hard rules extension checks
-  - total validation baseline: 2460 tests passing
+  - total validation baseline: 2733 tests passing
 - **Slice L1: Long-form chapter-level infra** - Complete
   - `src/boundary_control/chunking.py` splits text by chapters
   - `src/boundary_control/report_formatter.py` formats audit reports

@@ -23,6 +23,13 @@ input_short.txt
 input.txt
 .ai-memory/
 .taskflow/
+# A1 canary 运行证据与基准 refs（base state/frames/smoke policy/setup manifest）——
+# doc 48 §5：Provider profile、策略、基准、真实调用审计与 Canary 证据一律留在 gitignored 本地证据目录
+runtime/
+# 临时调试/全量日志（非证据），不入库
+.debug_*
+.calibrate_real.log
+.full_suite*.txt
 # 具体小说信息（标题/正文/工作区/证据源）一律不入 GitHub——GitHub 仅保留工具框架与风格库积累
 novels/*/
 !novels/tier0-*-canary/

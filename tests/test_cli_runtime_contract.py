@@ -11,7 +11,22 @@ import pytest
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-EXPECTED_TEST_BASELINE = "2460"
+# A1 闭环生产测试（autonomous_contracts + provider_adapter + autonomous_runner）
+# 使基线从 Q1 的 2470 升至 2508。基线变化必须与新增测试一一对应，禁止删测试降基线。
+# A1 T4（needs_premise 自动前提搜索 + 事件指纹/语义接缝）：新增
+# test_premise_search.py(29) + test_semantic_seam.py(27) + runner 前提/接缝集成
+# （T3 单测 1 拆为前提搜索 2，净 +1；新增接缝阻断 +1 → +2），基线 2508 → 2566。
+# A1 T5（PlotUnit 候选 + 多版正文 + EvaluatorPrecommit + JudgeClaim）：新增
+# test_plan_search.py(27) + test_precommit.py(11) + test_judge_claim.py(34)，基线 2566 → 2638。
+# A1 T6（匿名 A/B 换位 + 帕累托前沿）：新增 test_pareto_tournament.py(31) + runner
+# 位置偏置夹具(1)，基线 2638 → 2670。
+# A1 T7（长程对账 + 读者响应 + 自动校准）：新增 test_long_horizon.py(15) +
+# test_reader_responses.py(7) + test_auto_calibrate.py(20) + runner 长程集成(3) +
+# contracts 长程优先级(3) + auto-calibrate CLI(test_auto_calibrate_cli.py,6)，
+# 基线 2670 → 2724。
+# A1 G9（统一发布验证）：新增 test_a1_release_validation.py(7)，基线 2724 → 2731。
+# A1 G9 隐私聚合锁：新增 test_a1_release_validation.py 聚合隐私回归(2)，基线 2731 → 2733。
+EXPECTED_TEST_BASELINE = "2733"
 
 
 def run_script(*args: str) -> subprocess.CompletedProcess[str]:
