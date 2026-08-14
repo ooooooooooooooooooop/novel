@@ -53,7 +53,6 @@ from src.workflow_action.preference_review import (
     make_review_judge,
     parse_anchored_arbitration,
     parse_single_review,
-    parse_with_quality_retry,
 )
 
 DEFAULT_ROLE = "reader_judge"
@@ -162,8 +161,9 @@ def main() -> int:
     def review_candidate(prompt, response, role: str, candidate_ref: str):
         """单候选内容无关评审：一次调用只评一个文本，不见槽位/另一候选（G7 协议）.
 
-        协议合规失败（锚点捏造/形状违例）做有界重请求（只重请求、不重试网络）；
-        每次重请求是独立全新调用，由调用方记录次数。
+        单次调用契约（M1）：只调用一次 provider，随后本地严格解析/校验；
+        协议合规失败（锚点捏造/形状违例等）立即抛 ReviewQualityExhaustedError，
+        **不重新请求**（unreviewable 由调用方按不可评审对记录，诚实上报）。
         """
         role_config = getattr(profile.roles, role)
         review_prompt = build_single_review_prompt(prompt, response, role=role)
@@ -172,16 +172,20 @@ def main() -> int:
             provider_call=judge_provider,
             expected_response_model=role_config.expected_actual_model,
         )
-        return parse_with_quality_retry(
-            lambda: interface.call(review_prompt),
-            lambda text: parse_single_review(
+        text = interface.call(review_prompt)
+        try:
+            return parse_single_review(
                 text, candidate_ref=candidate_ref, response=response, role=role
-            ),
-            on_retry=lambda _attempt: record_quality_retry(),
-        )
+            )
+        except ValueError as exc:
+            raise ReviewQualityExhaustedError(str(exc)) from exc
 
     def arbitrate(prompt, r_chosen, r_rejected, response_chosen, response_rejected, role: str):
-        """证据锚定仲裁：仅确定性比较无法分出高下时调用；锚点映射到实际包含它的候选."""
+        """证据锚定仲裁：仅确定性比较无法分出高下时调用；锚点映射到实际包含它的候选.
+
+        单次调用契约（M1）：只调用一次 provider，随后本地严格解析/校验；
+        协议合规失败立即抛 ReviewQualityExhaustedError，不重新请求。
+        """
         role_config = getattr(profile.roles, role)
         arb_prompt = build_anchored_arbitration_prompt(
             prompt, r_chosen, r_rejected, role=role
@@ -191,24 +195,19 @@ def main() -> int:
             provider_call=judge_provider,
             expected_response_model=role_config.expected_actual_model,
         )
-        return parse_with_quality_retry(
-            lambda: interface.call(arb_prompt),
-            lambda text: parse_anchored_arbitration(
+        text = interface.call(arb_prompt)
+        try:
+            return parse_anchored_arbitration(
                 text,
                 pair_id=r_chosen.review_id,
                 response_a=response_chosen,
                 response_b=response_rejected,
-            ),
-            on_retry=lambda _attempt: record_quality_retry(),
-        )
+            )
+        except ValueError as exc:
+            raise ReviewQualityExhaustedError(str(exc)) from exc
 
-    # 质量台账：协议合规重请求次数 + 有界重请求后仍不可评审的对（诚实上报，不静默吞）。
-    quality_retries = 0
+    # 质量台账：单次调用后仍不可评审的对（诚实上报，不静默吞）。
     unreviewable_pairs: list[dict[str, str]] = []
-
-    def record_quality_retry() -> None:
-        nonlocal quality_retries
-        quality_retries += 1
 
     def record_unreviewable(pair, exc: Exception) -> None:
         unreviewable_pairs.append(
@@ -310,7 +309,6 @@ def main() -> int:
         },
         "route": "pass" if holdout_report.met else "fail",
         "quality": {
-            "review_quality_retries": quality_retries,
             "unreviewable_pairs": unreviewable_pairs,
         },
         "frozen_by_run": run_id,
@@ -338,7 +336,6 @@ def main() -> int:
             print(f"    violation: {violation}")
     print(f"  usage:                 {ledger.usage.calls} calls / "
           f"${ledger.usage.cost_usd}")
-    print(f"  quality retries:       {quality_retries}")
     if unreviewable_pairs:
         print(f"  unreviewable pairs:    {len(unreviewable_pairs)}")
         for u in unreviewable_pairs:

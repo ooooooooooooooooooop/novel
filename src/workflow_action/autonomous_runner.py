@@ -96,8 +96,8 @@ from src.workflow_action.pareto_tournament import (
     selection_tournament,
 )
 from src.workflow_action.preference_review import (
+    ReviewQualityExhaustedError,
     parse_anchored_arbitration,
-    parse_with_quality_retry,
 )
 from src.workflow_action.plan_search import (
     build_plot_batch_prompt,
@@ -281,7 +281,6 @@ class AutonomousRunner:
         self._flow_mode = flow_mode
         self._last_accepted_candidate_id: str | None = None
         self._started_at = time.monotonic()
-        self._judge_quality_retries = 0
         self._user_home = Path(user_home) if user_home else Path.home()
         self._target_chars = (
             policy.chapter.target_chinese_characters_min
@@ -582,13 +581,11 @@ class AutonomousRunner:
     def _stage_failure(self, stage: str, exc: Exception) -> AutonomousDecision:
         """Provider/Schema/预算/证据错误：只记错误类型，不落详情、不重试.
 
-        评审/仲裁输出协议合规在有界重请求后仍失败（ReviewQualityExhaustedError）时，
-        把重请求次数附在类型名后诚实上报（如 ``judge failed: ReviewQualityExhaustedError``
-        因 retries=3 耗尽）——这是协议合规的诚实终态，不是网络重试。
+        评审/仲裁输出协议合规失败（ReviewQualityExhaustedError）是单次调用的诚实终态
+        （M1：judge/arbitration 只调用一次，解析失败即终态，不重新请求）；按
+        provider_error 上报，不附重试次数（不存在重试）。
         """
         error_label = type(exc).__name__
-        if error_label == "ReviewQualityExhaustedError":
-            error_label = f"{error_label}(retries={self._judge_quality_retries})"
         decision = resolve_autonomous_decision(
             provider_error=f"{stage} failed: {error_label}",
             viability_verdict="continue",
@@ -1018,10 +1015,6 @@ class AutonomousRunner:
             ),
         )
 
-    def _record_judge_quality_retry(self, _attempt: int) -> None:
-        """有界协议合规重请求计数（评审/仲裁 JSON 解析、锚点捏造等），诚实上报."""
-        self._judge_quality_retries += 1
-
     def _judge_call(
         self, role: str, precommit, prose: str, chapter_ref: str
     ) -> list[JudgeClaim]:
@@ -1031,9 +1024,9 @@ class AutonomousRunner:
         上下文彼此隔离（不读生成 prompt/其他候选）。解析器强制锚点与 precommit_id
         绑定（T5.4），generator_source=角色由运行层注入。
 
-        评审输出协议合规失败（JSON 无法解析/锚点捏造/形状违例）做有界重请求
-        （parse_with_quality_retry）：每次重请求是独立全新调用；provider/网络错误
-        从调用侧立即上抛，绝不重试。耗尽 → ReviewQualityExhaustedError → 诚实失败。
+        单次调用契约（M1）：只调用一次 provider，随后本地严格解析/校验；解析失败
+        （JSON 无法解析/锚点捏造/形状违例）立即抛 ReviewQualityExhaustedError，
+        不重新请求 → 显式终态且零状态污染。provider/网络错误从调用侧直接上抛。
         """
         prompt = build_judge_claim_prompt(
             precommit,
@@ -1045,17 +1038,17 @@ class AutonomousRunner:
             ),
             role=role,
         )
-        return parse_with_quality_retry(
-            lambda: self._invoke(self._judge_providers[role], prompt),
-            lambda text: parse_judge_claims(
+        text = self._invoke(self._judge_providers[role], prompt)
+        try:
+            return parse_judge_claims(
                 text,
                 prose=prose,
                 chapter_ref=chapter_ref,
                 role=role,
                 precommit=precommit,
-            ),
-            on_retry=self._record_judge_quality_retry,
-        )
+            )
+        except ValueError as exc:
+            raise ReviewQualityExhaustedError(str(exc)) from exc
 
     def _arbitrate_pair(
         self,
@@ -1069,7 +1062,8 @@ class AutonomousRunner:
 
         评审命名「甲/乙」槽位无效力——parse_anchored_arbitration 把 decisive_anchor
         映射到实际包含它的候选（内容优先于槽位名，防候选甲槽位锚定偏置）。
-        仲裁输出协议合规失败做有界重请求；provider/网络错误不重试。
+        单次调用契约（M1）：只调用一次 provider，解析失败即抛
+        ReviewQualityExhaustedError，不重新请求。
         """
         prompt = build_anchored_pair_prompt(
             claims_x,
@@ -1081,13 +1075,13 @@ class AutonomousRunner:
                 else ""
             ),
         )
-        return parse_with_quality_retry(
-            lambda: self._invoke(self._tournament_provider, prompt),
-            lambda text: parse_anchored_arbitration(
+        text = self._invoke(self._tournament_provider, prompt)
+        try:
+            return parse_anchored_arbitration(
                 text, pair_id=pair_id, response_a=prose_x, response_b=prose_y
-            ),
-            on_retry=self._record_judge_quality_retry,
-        )
+            )
+        except ValueError as exc:
+            raise ReviewQualityExhaustedError(str(exc)) from exc
 
     def _tournament(
         self,

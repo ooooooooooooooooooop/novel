@@ -36,7 +36,12 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 #   推导回归（test_judge_claim.py,+2）→ 2803。
 # k3 thinking_disabled provider 能力（test_provider_adapter.py,+3：注入开关 /
 #   缺省字节等价 / 按角色隔离），基线 2803 → 2806。
-EXPECTED_TEST_BASELINE = "2806"
+# M1 单次调用契约（test_preference_review.py 重写 3 个重试测试 → 3 个单次契约测试，
+#   数量不变）+ deepseek_active bundle 重建入口（test_build_deepseek_active_bundle.py,+7：
+#   四文件/幂等/隐私/阈值与 v2 划分字节校验/ProviderProfile/AutonomousPolicy/活动选择器）
+# + M1 生产调用链回归（test_autonomous_runner.py,+1：协议违规→单次调用/终态/零污染），
+# 基线 2806 → 2814。
+EXPECTED_TEST_BASELINE = "2814"
 
 
 def run_script(*args: str) -> subprocess.CompletedProcess[str]:

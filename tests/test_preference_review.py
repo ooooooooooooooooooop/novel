@@ -28,7 +28,6 @@ from src.workflow_action.preference_review import (
     make_review_judge,
     parse_anchored_arbitration,
     parse_single_review,
-    parse_with_quality_retry,
     predict_with_reviews,
 )
 from src.object_state.qualitythresholds import PreferencePair
@@ -592,60 +591,58 @@ def test_predict_with_reviews_arbitrates_only_when_undecidable():
 
 
 # ---------------------------------------------------------------------------
-# 有界协议合规重请求（parse_with_quality_retry）——只重请求解析失败，不重试网络
+# M1 单次调用契约——judge/arbitration 只调用一次 provider，解析失败即显式终态，不重新请求
 # ---------------------------------------------------------------------------
 
-def test_quality_retry_returns_first_success():
-    """parse 前两次 ValueError（协议违规）→ 第三次成功，on_retry 记录次数."""
-    calls = []
-    retries = []
+def _m1_review_candidate(calls, *, parse_result=None, fail_with="", network_error=None):
+    """M1 单次调用评审（镜像 auto_calibrate_short_form.review_candidate 调用点）.
 
-    def call():
+    - 只调用一次 provider（计数入 ``calls``），随后本地解析/校验。
+    - 解析抛 ValueError（锚点捏造/形状违例）→ 立即抛 ReviewQualityExhaustedError，不重新请求。
+    - provider/网络错误从调用侧直接上抛，parse 不被调用。
+    """
+
+    def _parse(text):
+        if fail_with:
+            raise ValueError(fail_with)
+        return parse_result
+
+    def review(prompt, response, role, candidate_ref):
         calls.append(1)
-        return "resp"
+        if network_error is not None:
+            raise network_error
+        text = "provider-text"
+        try:
+            return _parse(text)
+        except ValueError as exc:
+            raise ReviewQualityExhaustedError(str(exc)) from exc
 
-    def parse(text):
-        if len(calls) == 1:
-            raise ValueError("fabricated anchor")
-        if len(calls) == 2:
-            raise ValueError("malformed json")
-        return "parsed-ok"
-
-    result = parse_with_quality_retry(
-        call, parse, on_retry=lambda attempt: retries.append(attempt)
-    )
-    assert result == "parsed-ok"
-    assert len(calls) == 3
-    assert retries == [1, 2]
+    return review
 
 
-def test_quality_retry_exhausts_to_review_quality_exhausted_error():
-    """每次 parse 都 ValueError → 有界次数后抛 ReviewQualityExhaustedError（不无限重试）."""
+def test_m1_single_call_success_returns_after_one_provider_call():
+    """M1 成功路径：一次 provider 调用 → 本地解析即返回，无任何重请求."""
     calls = []
-
-    def call():
-        calls.append(1)
-        return "resp"
-
-    def parse(text):
-        raise ValueError("fabricated anchor")
-
-    with pytest.raises(ReviewQualityExhaustedError):
-        parse_with_quality_retry(call, parse, max_attempts=3)
-    assert len(calls) == 3  # 1 次原始 + 2 次重请求
+    parsed = {"reviewed": True}
+    review = _m1_review_candidate(calls, parse_result=parsed)
+    result = review(prompt="p", response=_TEXT_X, role="reader_judge", candidate_ref="x")
+    assert result is parsed
+    assert calls == [1]  # 恰好一次 provider 调用
 
 
-def test_quality_retry_network_error_propagates_without_retry():
-    """provider/网络错误从 call 直接上抛，绝不进入重请求路径."""
+def test_m1_parse_failure_raises_terminal_with_one_provider_call():
+    """M1 解析失败（锚点捏造/形状违例）→ 立即 ReviewQualityExhaustedError，恰好一次调用，不重新请求."""
     calls = []
+    review = _m1_review_candidate(calls, fail_with="fabricated anchor")
+    with pytest.raises(ReviewQualityExhaustedError, match="fabricated anchor"):
+        review(prompt="p", response=_TEXT_X, role="reader_judge", candidate_ref="x")
+    assert calls == [1]  # 无第二次调用
 
-    def call():
-        calls.append(1)
-        raise RuntimeError("provider 5xx")
 
-    def parse(text):
-        raise AssertionError("parse 不应被调用")
-
+def test_m1_network_error_propagates_with_one_provider_call_and_no_parse():
+    """M1 provider/网络错误从调用侧直接上抛（绝不重试）；parse 不被调用."""
+    calls = []
+    review = _m1_review_candidate(calls, network_error=RuntimeError("provider 5xx"))
     with pytest.raises(RuntimeError, match="5xx"):
-        parse_with_quality_retry(call, parse)
-    assert len(calls) == 1  # 单次 attempt，无重试
+        review(prompt="p", response=_TEXT_X, role="reader_judge", candidate_ref="x")
+    assert calls == [1]  # 单次 attempt，无重试

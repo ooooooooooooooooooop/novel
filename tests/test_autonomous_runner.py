@@ -564,6 +564,7 @@ def _fake_urlopen(
     fail_max_tokens: set[int] | None = None,
     error: Exception = RuntimeError("simulated provider failure"),
     tournament_position_biased: bool = False,
+    judge_text=None,
 ):
     """按阶段路由：premise/plan=200、prose=300、judge/arbitration=400.
 
@@ -609,6 +610,10 @@ def _fake_urlopen(
             text = _arbitration_payload(
                 prompt_text, slot_biased=tournament_position_biased
             )
+        elif judge_text is not None:
+            # M1 单次调用契约回归：judge 阶段返回协议违规（不可解析）响应 → 校验其
+            # 恰好调用一次、显式终态、零状态污染（不重请求）。
+            text = judge_text
         elif "你负责【事实】轴" in prompt_text:
             text = _judge_claims_payload(prompt_text, blocking=review_blocking, role="fact_judge")
         elif "你负责【人物】轴" in prompt_text:
@@ -663,6 +668,7 @@ def _make_runner(
     prose_texts=None,
     source_text: str = "",
     objects=None,
+    judge_text=None,
 ):
     _provider_files(tmp_path)
     if policy is None:
@@ -678,6 +684,7 @@ def _make_runner(
                 premise_text=premise_text,
                 prose_text=prose_text,
                 prose_texts=prose_texts,
+                judge_text=judge_text,
             ),
         )
     run_dir = _run_dir(tmp_path)
@@ -1103,6 +1110,35 @@ def test_provider_error_records_type_only_and_stops(tmp_path, monkeypatch):
     assert audit["response_sha256"] is None
     for forbidden in ("prompt", "response", "thinking", "credential"):
         assert forbidden not in audit
+
+
+def test_m1_judge_protocol_violation_single_call_terminal_no_pollution(tmp_path, monkeypatch):
+    """M1 生产调用链回归：真实 AutonomousRunner 走 judge 阶段，fake provider 返回协议违规
+    （不可解析）评审响应 → 对应逻辑任务 Provider 调用**恰好 1 次**、显式终态失败、
+    零章节/零状态污染。锁死「评审协议合规失败立即抛 ReviewQualityExhaustedError，不重新请求」。
+    """
+    runner, run_dir, _, _, calls = _make_runner(
+        tmp_path,
+        monkeypatch=monkeypatch,
+        judge_text="THIS IS NOT A VALID JUDGE JSON{{{",
+    )
+    terminal = runner.run_until_terminal()
+    # 显式终态失败（provider/schema 证据错误，不降级、不静默放行）
+    assert terminal.status == "execution_failed"
+    assert terminal.terminal_reason == (
+        "provider/schema/evidence error: judge failed: ReviewQualityExhaustedError"
+    )
+    assert terminal.committed_chapters == 0
+    # 该逻辑任务（judge）Provider 调用恰好 1 次：plan 1 + prose 4 + judge 1 = 6，无重请求
+    assert len(calls) == 6
+    judge_calls = [
+        c for c in calls
+        if json.loads(c.data.decode("utf-8"))["max_tokens"] == 400
+    ]
+    assert len(judge_calls) == 1
+    # 零状态污染：无章节落盘、无 accepted 候选证据
+    assert not (runner.chapters_dir / "chapter_1.txt").is_file()
+    assert not (run_dir / "state" / "accepted_candidate.json").exists()
 
 
 def test_budget_exhaustion_halts_before_generation(tmp_path, monkeypatch):

@@ -45,44 +45,15 @@ _ROLE_AXIS_GUIDE = {
     "reader_judge": "读者体验轴：是否引人入胜、有现场感、少阅读摩擦、满足写作要求。",
 }
 
-# 单候选评审协议合规失败后的有界重请求次数（只对解析/协议失败，不对网络失败）。
-REVIEW_MAX_QUALITY_ATTEMPTS = 3
-
-
 class ReviewQualityExhaustedError(ValueError):
-    """单候选评审/仲裁在多次有界重请求后仍未通过协议合规校验.
+    """单候选评审/仲裁协议合规校验失败（M1 单次调用契约）.
 
-    与网络重试无关：``call`` 抛出的 provider/网络错误会立即上抛，绝不进入此路径。
-    只有解析层（parse_single_review / parse_anchored_arbitration）判定协议违规
-    （锚点捏造/形状违例等）才会触发有界重请求；耗尽后以此异常诚实上抛。
+    每次 judge/arbitration 只调用一次 provider，随后本地解析/校验；解析层
+    （parse_single_review / parse_anchored_arbitration）判定协议违规
+    （锚点捏造/形状违例等）时立即以此异常诚实上抛，**不重新请求**。
+    调用侧捕获后按不可评审对处理（calibration 记 unreviewable，runner 显式终态），
+    零状态污染。provider/网络错误与协议失败同源上抛，绝不重试。
     """
-
-
-def parse_with_quality_retry(
-    call,
-    parse,
-    *,
-    max_attempts: int = REVIEW_MAX_QUALITY_ATTEMPTS,
-    on_retry=None,
-):
-    """调用 provider 并解析；仅当 parse 抛 ``ValueError``（协议合规失败）时有界重请求.
-
-    - ``call()`` 返回原始响应文本；``parse(text)`` 做严格解析（锚点捏造等 → ValueError）。
-    - 网络/配置错误从 ``call`` 直接上抛，不做重试（与 provider_adapter 的单次尝试契约一致）。
-    - 每次重请求是独立的全新调用；耗尽后抛 ``ReviewQualityExhaustedError``。
-    - ``on_retry(attempt)`` 供调用方记录重请求次数（attempt 从 1 起）。
-    """
-    last_error: Exception | None = None
-    for attempt in range(1, max_attempts + 1):
-        text = call()
-        try:
-            return parse(text)
-        except ValueError as exc:
-            last_error = exc
-            if on_retry is not None:
-                on_retry(attempt)
-    assert last_error is not None
-    raise ReviewQualityExhaustedError(str(last_error)) from last_error
 
 _MIN_EXCERPT_LEN = 6
 _MAX_DIGEST_LEN = 400

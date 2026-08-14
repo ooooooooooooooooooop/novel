@@ -112,11 +112,9 @@ def qualify_judge(
     qualified, pass_reasons, fail_reasons = _judge_reasons(
         report, policy.evaluation, report
     )
-    retries = 0
     unreviewable: list = []
     if calibration_result and calibration_result.is_file():
         cal = json.loads(calibration_result.read_text(encoding="utf-8"))
-        retries = cal.get("quality", {}).get("review_quality_retries", 0)
         unreviewable = cal.get("quality", {}).get("unreviewable_pairs", [])
         if unreviewable:
             fail_reasons.append(f"unreviewable pairs: {len(unreviewable)}")
@@ -127,7 +125,6 @@ def qualify_judge(
         "dimension_met": report.get("dimension_met"),
         "violations": report.get("violations"),
         "thresholds_id": report.get("thresholds_id"),
-        "review_quality_retries": retries,
         "unreviewable_count": len(unreviewable),
     }
     return ProviderCapabilityReport(

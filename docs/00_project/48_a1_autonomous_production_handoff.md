@@ -1,9 +1,8 @@
 # 48. A1 自动叙事生产实施交接
 
-状态：**暂停，未达到 A1/Q2A 生产验收**  
-暂停日期：2026-08-11  
-暂停原因：用户要求停止实施并形成可接力交接  
-基线提交：`ff66b9b24e8fb5099ab3c1b2bfda3b6e60e46fa2`（`v0.1.3-q1`）
+状态：**恢复实施中（k3 provider 承重墙后重跑 G7/G8，未达到 A1/Q2A 生产验收）**  
+更新日期：2026-08-14  
+基线提交：`7c5222f61c2f7516d16db18b0b6c25afebf63ce1`（k3 承重墙 + 内容无关评审）
 
 ## 0. 恢复实施完成更新（2026-08-12）
 
@@ -11,9 +10,9 @@
 诚实状态表述：**合同和 Provider 承重墙已完成，自动生产系统未完成**（§7 末行）。
 
 - G0–T7 均已实现并运行：AutonomousRunner + `novel auto`、可信停止 Canary（G3 真机 run，stop 后零生成调用）、语义接缝、自动新前提、PlotUnit 多候选 + 多版正文 + EvaluatorPrecommit + JudgeClaim、匿名 A/B/B/A 换位竞赛 + 帕累托前沿、长程对账、自动校准（真实 WP_bench 冻结 split，165 calibration / 43 holdout）。
-- **G7 门 FAILED（冻结阈值不降）**：真实 holdout overall 0.8837≥0.65 ✓、分类型全部 ≥0.5 ✓、**position consistency 0.5 < 0.9 ✗**（唯一未达标维）。deepseek-v4-flash 评审器把候选名命到「甲」槽位而非内容 → 换位不稳定。证据：`novels/a1-calibrate/output/calibrate-auto/holdout_report.json`（met=false）。
-- **G8 无人 Canary 无法运行（0/90 章）**：冻结生成 temp0.7 → 该模型任何 cap 都只出 thinking 块、无 text 块（smoke1/smoke2 ProviderSchemaError）；temp0.0+max20000 解锁产出但端点在 120s 超时（smoke3 TimeoutError）与 5xx（smoke4 HTTPError）；即便生成成功，G7 位置偏置使 A/B 淘汰赛必然 `quality_exhausted`（G6 夹具锁定）。每次失败均为显式 execution_failed 终态、零正文、零状态污染、无 `[WAITING]`/manual。
-- **G9 实现级验证通过**：完整 pytest **2733 passed**、Tier 0 三流回归 PASS、隐私扫描干净（novels/runtime/.taskflow 证据全部 gitignored）、Tier 0/Q1 发布记录与 tag 哈希字节不变。单命令 `scripts/a1_release_validation.py` 聚合全部证据并裁决（exit 1，`runtime/a1_gate_result.json`）。
+- **G7 门 FAILED（冻结阈值不降）**：真实 holdout overall 0.8837≥0.65 ✓、分类型全部 ≥0.5 ✓、**position consistency 0.5 < 0.9 ✗**（唯一未达标维）。deepseek-v4-flash 评审器把候选名命到「甲」槽位而非内容 → 换位不稳定。证据：`novels/a1-calibrate/output/calibrate-auto/holdout_report.json`（met=false）。**2026-08-14 曾用 kimi k3（thinking_disabled，judge 三角色）重跑 full calibration（165 cal + 43 holdout + 20 position 采样，`novels/a1-calibrate/output/calibrate-kimi-k3-full/`）——但其 165/43 划分是污染划分（见 §2.1 split 事实纠正），该校准证据只读保留并视为失效，G7 阈值需在 v2 划分（split_manifest_v2.json/c45cd6ad，103 cal/35 holdout）上重冻结（任务 #11）；deepseek 证据已备份 `.private_backup/`。**
+- **G8 无人 Canary（deepseek 时代 0/90 章，k3 已解锁）**：deepseek-v4-flash 冻结生成 temp0.7 → 该模型任何 cap 都只出 thinking 块、无 text 块（smoke1/smoke2 ProviderSchemaError）；temp0.0+max20000 解锁产出但端点在 120s 超时（smoke3 TimeoutError）与 5xx（smoke4 HTTPError）；即便生成成功，G7 位置偏置使 A/B 淘汰赛必然 `quality_exhausted`（G6 夹具锁定）。**2026-08-14 换 k3 后全链端到端无人提交 PASS（diag3：`novels/canary-contemporary-officialdom/output/kimi-gen-diag3/`，chapter_1 committed，24 calls / $0.55，status=completed）——viability→plan→precommit→4 prose 候选（全过 falsify+seam 硬闸）→fact/character/reader 三评审→A/B+B/A tournament（position_consistency=1.0）→reader gate pass→commit。G8 的 90 章 Canary 在 G7 holdout 通过后即可运行。**
+- **G9 实现级验证通过**：完整 pytest **2814 passed**（2026-08-14 k3 承重墙基线 2806 → M1 单次调用契约重写 + deepseek_active bundle 重建入口 7 测试 + M1 生产调用链回归 1 测试 = 2814）、Tier 0 三流回归 PASS、隐私扫描干净（novels/runtime/.taskflow 证据全部 gitignored）、Tier 0/Q1 发布记录与 tag 哈希字节不变。单命令 `scripts/a1_release_validation.py` 聚合全部证据并裁决（exit 1，`runtime/a1_gate_result.json`）。
 - **发布**：Q2A/A1 release record + 不可变 tag **未生成**（G7/G8 未达 §7）；不触碰任何旧记录/tag。
 - 实施记录与全部真实证据留在 gitignored 本地 `.taskflow/active/autonomous-high-quality-production/`（已归档）；框架改动已提交，证据不入 GitHub。
 
@@ -42,15 +41,20 @@
 
 本地冻结策略上限为 2,500 calls、30M input tokens、15M output tokens、10 USD、三类各 30 章。冻结价格下 token 双上限的理论费用为 8.40 USD，不穿透费用上限。
 
-G0 的 profile、policy、数据和证据位于 gitignored 目录，只能作为本机证据，不能提交 GitHub。最后一次 profile 增加兼容 User-Agent 后，profile canonical SHA-256 已变为：
+G0 的 profile、policy、数据和证据位于 gitignored 目录，只能作为本机证据，不能提交 GitHub。**2026-08-14 恢复实施后 G0 报告已针对 k3 provider 重生成**（`runtime/g0_report.json`，status=pass），当前 profile/policy canonical SHA-256 为：
 
-`e6041d094e38a33a6368b8c3d02a93f699385aa31effc46704da6ee217820b3a`
+- kimi k3 provider profile：`8fa66f1f2a2baadda66ec0a3de7a344bc77ad24cb33ebe931447103c503a8884`
+- canary policy（plot_candidates=2，$25/genre）：`92a6bbcd798a467e1f6a3380a752742116aaebec751046b398d7f58ca91c8765`
+- calibrate policy（plot_candidates=4，$20）：`7025a022280ab0edf0b9f88f632d74f86e97e5db15ffb15122c962592d11bc9d`
 
-policy canonical SHA-256 为：
-
-`05989ff30ebd63a6999aec39bf508fa918fca782dc9240ad746743c84862bead`
-
-注意：现有 `g0_report.json` 早于最后一次 profile 变更，其中保存的 profile 文件哈希已经陈旧。恢复实施后的第一个动作必须重生成 G0 报告并重新核对所有引用哈希，不能复用旧报告宣称 G0 通过。
+**split 事实纠正（2026-08-14，以文件字节为准）**：旧划分 `split_manifest.json`
+（SHA `20864f824a91acfd406ee2cf72ecceb576141900b1b9ef4cffed79fbcc6bd560`，165 cal /
+43 holdout，tag_regex=小说|故事|童话|剧本|角色扮演）是**污染划分**——被 A1 早期轮次用于
+协议调参，不得再作 G7 holdout。无交叉 v2 划分在 `split_manifest_v2.json`
+（SHA `c45cd6ad1640fb9688aba6bdb65973bc886237ca3f3b7d7555c9d86390f9ac01`，103 cal /
+35 holdout，文学非虚构 tag，由 `scripts/build_split_manifest_v2.py` 生成，与旧划分
+68 个 prompt_id 零交叉）。**上文 G0 冻结的 20864f82 是污染划分：只读保留为历史证据并
+视为失效，不得沿用；G7 阈值需在 v2 划分上重冻结（见任务 #11）。**
 
 ### 2.2 T1/G1：合同、状态机和决策优先级
 

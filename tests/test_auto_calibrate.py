@@ -28,6 +28,10 @@ from src.workflow_action.auto_calibrate import (
 )
 from src.workflow_action.preference_review import ReviewQualityExhaustedError
 
+# 【split 事实纠正 2026-08-14】以下 _SPLIT/_SPLIT_SHA 是**污染划分**
+# split_manifest.json/20864f82（165 cal/43 holdout，被 A1 早期调参），本测试冻结的阈值
+# 基于该污染数据——只读保留为历史冻结证据并**视为失效**；不得在 v2 划分（split_manifest_v2.json/
+# c45cd6ad，103 cal/35 holdout）上沿用。G7 阈值需在 v2 重冻结（任务 #11）。
 _BENCH = (
     "reference_texts/a1_benchmark/sources/writing_preference_bench/"
     "WP_bench_chinese.json"
