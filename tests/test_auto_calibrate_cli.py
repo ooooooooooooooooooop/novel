@@ -6,6 +6,7 @@ calibration 冻结阈值（唯一来源）+ holdout 只读验证 + 凭证无关�
 
 import hashlib
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -18,6 +19,15 @@ from src.object_state.autonomous import AutonomousPolicy, ProviderProfile
 # 内容稳定偏好「甲文」，既正确（选 chosen）又换位稳定（两轮命名同一内容）。
 _CALIBRATION = 12  # 12 个不同 prompt_id ≥ MIN_CALIBRATION_PROMPT_IDS(10)
 _HOLDOUT = 4
+
+
+@pytest.fixture(autouse=True)
+def _isolate_provider_env(monkeypatch):
+    """隔离进程环境中的 Anthropic 凭据变量（env-first 适配器下走 settings 文件路径）."""
+    monkeypatch.delenv("ANTHROPIC_BASE_URL", raising=False)
+    monkeypatch.delenv("ANTHROPIC_AUTH_TOKEN", raising=False)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    yield
 
 
 def _bench_row(prompt_id: str, tag: str, split: str) -> dict:
@@ -248,33 +258,96 @@ def _success_payload(text: str, model: str = "model-a") -> dict:
 
 
 def _fake_urlopen(calls: list, *, prefer_marker: str = "甲文"):
-    """按【候选甲/候选乙】内容路由：恒偏好含 prefer_marker 的候选（内容稳定）."""
+    """按 G7 内容无关协议模拟 provider：单候选评审 + 证据锚定仲裁（内容稳定）.
+
+    评审按候选正文是否含 prefer_marker 给 satisfied/violated（内容决定，与展示顺序
+    无关）；锚点逐字取自候选正文 → 锚点真实性必然通过。需要仲裁时引用被选候选评审
+    证据里的「锚点原文」，同样逐字存在于其正文。
+    """
 
     def fake(request, timeout=None):
         calls.append(request)
         body = json.loads(request.data.decode("utf-8"))
         prompt = body["messages"][-1]["content"]
-        a_marker = "【候选甲（匿名）】\n"
-        b_marker = "【候选乙（匿名）】\n"
-        a_start = prompt.find(a_marker)
-        b_start = prompt.find(b_marker)
-        assert a_start >= 0 and b_start >= 0
-        prose_a = prompt[a_start + len(a_marker):b_start]
-        b_body = prompt[b_start + len(b_marker):]
-        prose_b = b_body[: b_body.find("\n\n【输出格式】")]
-        if prefer_marker in prose_a:
-            preferred = "A"
-        elif prefer_marker in prose_b:
-            preferred = "B"
-        else:
-            raise AssertionError("candidate prose lacks marker")
-        return _Response(
-            _success_payload(
-                json.dumps({"preferred": preferred, "rationale": "测试注入。"})
-            )
-        )
+        if "【单候选评审】" in prompt:
+            return _fake_review_response(prompt, prefer_marker)
+        if "【证据锚定仲裁】" in prompt:
+            return _fake_arbitration_response(prompt, prefer_marker)
+        raise AssertionError("unknown prompt type in fake provider")
 
     return fake
+
+
+def _fake_review_response(prompt: str, prefer_marker: str):
+    start_marker = "【待评审候选】\n"
+    start = prompt.find(start_marker)
+    assert start >= 0, "single-review prompt must contain 【待评审候选】"
+    prose = prompt[start + len(start_marker):]
+    end_marker = "\n\n【评审要求】"
+    end = prose.find(end_marker)
+    assert end > 0, "single-review prompt must end before 【评审要求】"
+    prose = prose[:end].rstrip()
+    assert prose, "candidate prose empty"
+    excerpt = prose[:12]  # 逐字取自候选正文 → 锚点真实
+    verdict = "satisfied" if prefer_marker in prose else "violated"
+    payload = {
+        "content_digest": (
+            f"含{prefer_marker}的候选" if verdict == "satisfied"
+            else f"不含{prefer_marker}的候选"
+        ),
+        "claims": [
+            {
+                "claim_id": "c1",
+                "axis": "推进",
+                "verdict": verdict,
+                "severity": "advisory",
+                "anchors": [
+                    {"excerpt": excerpt, "char_start": 0, "char_end": len(excerpt)}
+                ],
+                "confidence": 0.9,
+                "rationale": "测试注入。",
+            }
+        ],
+        "experience_rating": 4 if verdict == "satisfied" else 1,
+        "overall_confidence": 0.8,
+        "abstain": False,
+        "abstain_reason": "",
+    }
+    return _Response(_success_payload(json.dumps(payload, ensure_ascii=False)))
+
+
+def _section(prompt: str, header: str, next_headers: list[str]) -> str:
+    start = prompt.find(header)
+    assert start >= 0, f"prompt missing {header!r}"
+    body = prompt[start + len(header):]
+    for nxt in next_headers:
+        pos = body.find("\n" + nxt)
+        if pos >= 0:
+            return body[:pos].strip()
+    return body.strip()
+
+
+def _fake_arbitration_response(prompt: str, prefer_marker: str):
+    digest_a = _section(prompt, "【候选甲 内容摘要】\n", ["【候选甲 评审证据】"])
+    digest_b = _section(prompt, "【候选乙 内容摘要】\n", ["【候选乙 评审证据】"])
+    preferred = "A" if prefer_marker in digest_a else "B"
+    evidence_header = f"【候选{'甲' if preferred == 'A' else '乙'} 评审证据】\n"
+    evidence = _section(
+        prompt, evidence_header, ["【候选甲 内容摘要】", "【候选乙 内容摘要】"]
+    )
+    match = re.search(r"锚点原文: ([^\n]+)", evidence)
+    assert match, "arbitration evidence must contain 锚点原文"
+    excerpt = match.group(1).strip()
+    payload = {
+        "preferred": preferred,
+        "decisive_anchor": {
+            "excerpt": excerpt,
+            "char_start": 0,
+            "char_end": len(excerpt),
+        },
+        "rationale": "测试注入仲裁。",
+    }
+    return _Response(_success_payload(json.dumps(payload, ensure_ascii=False)))
 
 
 def _run_cli(tmp_path: Path, monkeypatch, *, prefer_marker="甲文", **kwargs):

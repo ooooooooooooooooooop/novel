@@ -21,6 +21,20 @@ from src.provider_adapter import (
 )
 
 
+@pytest.fixture(autouse=True)
+def _isolate_provider_env(monkeypatch):
+    """隔离进程环境中的 Anthropic 凭据变量.
+
+    provider_adapter 现在是 env-first（进程环境优先于 settings 文件）。本模块的测试
+    通过 user_home 下的 settings.json 注入凭据，必须清除会遮蔽它们的进程环境变量，
+    否则会读到宿主会话（Claude Code 加载的 ~/.claude/settings.json）的真实凭据。
+    """
+    monkeypatch.delenv("ANTHROPIC_BASE_URL", raising=False)
+    monkeypatch.delenv("ANTHROPIC_AUTH_TOKEN", raising=False)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    yield
+
+
 class _Response:
     def __init__(self, payload: dict, status: int = 200):
         self.payload = json.dumps(payload).encode("utf-8")
@@ -267,6 +281,66 @@ def test_network_failure_is_audited_once_without_error_message(
     assert "secret network detail" not in raw_audit
     assert "private" not in raw_audit
     assert json.loads(raw_audit)["error_type"] == "URLError"
+
+
+def _capture_body(tmp_path, monkeypatch, profile, *, role: str = "reader_judge") -> dict:
+    """Run one adapter call and return the parsed JSON request body."""
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    _provider_files(tmp_path)
+    ledger = AutonomousBudgetLedger(
+        budget=_budget(), pricing=profile.pricing_usd_per_million_tokens
+    )
+    adapter = AnthropicMessagesProvider(
+        profile=profile,
+        role=role,
+        max_output_tokens=100,
+        audit_dir=tmp_path / "audit",
+        ledger=ledger,
+        user_home=tmp_path,
+    )
+    captured = {}
+
+    def fake_post_once(body_bytes):
+        captured["body"] = json.loads(body_bytes.decode("utf-8"))
+        return json.dumps(_success_payload()).encode("utf-8")
+
+    monkeypatch.setattr(adapter, "_post_once", fake_post_once)
+    DirectAPIInterface(model="model-a", provider_call=adapter).call("prompt")
+    return captured["body"]
+
+
+def test_thinking_disabled_injects_control_flag(tmp_path, monkeypatch):
+    payload = _profile_payload()
+    payload["roles"]["reader_judge"]["thinking_disabled"] = True
+    profile = ProviderProfile.model_validate(payload)
+
+    body = _capture_body(tmp_path, monkeypatch, profile, role="reader_judge")
+
+    assert body["thinking"] == {"type": "disabled"}
+
+
+def test_thinking_disabled_absent_leaves_body_byte_equivalent(tmp_path, monkeypatch):
+    # Default profile has no thinking_disabled field -> body must not carry the flag.
+    profile = ProviderProfile.model_validate(_profile_payload())
+
+    body = _capture_body(tmp_path, monkeypatch, profile, role="reader_judge")
+
+    assert "thinking" not in body
+    assert set(body) == {"model", "max_tokens", "temperature", "system", "messages"}
+
+
+def test_thinking_disabled_is_per_role(tmp_path, monkeypatch):
+    # generation omits the flag while judges carry it (kimi k3 production split).
+    payload = _profile_payload()
+    for role in ("fact_judge", "character_judge", "reader_judge"):
+        payload["roles"][role]["thinking_disabled"] = True
+    profile = ProviderProfile.model_validate(payload)
+
+    gen_body = _capture_body(tmp_path / "gen", monkeypatch, profile, role="generation")
+    judge_body = _capture_body(tmp_path / "judge", monkeypatch, profile, role="reader_judge")
+
+    assert "thinking" not in gen_body
+    assert judge_body["thinking"] == {"type": "disabled"}
 
 
 def test_constructor_refuses_provider_identity_drift(tmp_path):

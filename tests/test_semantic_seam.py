@@ -162,6 +162,31 @@ class TestExtractEventFingerprints:
         assert fps
         assert fps[0].result != ""
 
+    def test_leading_connective_not_empty_behavior(self):
+        # 句子以连接词开头（如「便向码头走去」）时，连接词是过渡标记而非结果
+        # 引入词；behavior 不得为空串（回归：曾经触发 EventFingerprint 契约违例）。
+        fps = extract_event_fingerprints(
+            "便向码头走去。",
+            chapter_number=2,
+            entities=["码头"],
+            position="start",
+        )
+        assert fps
+        assert fps[0].behavior != ""
+        assert fps[0].result == ""
+
+    def test_leading_connective_then_real_connective(self):
+        # 先导连接词跳过，后续真正连接词仍切出 result。
+        fps = extract_event_fingerprints(
+            "便决定答应林越，于是去了码头。",
+            chapter_number=2,
+            entities=["林越", "码头"],
+            position="start",
+        )
+        assert fps
+        assert fps[0].behavior != ""
+        assert fps[0].result != ""
+
 
 class TestCharacterNames:
     def test_collects_names(self):

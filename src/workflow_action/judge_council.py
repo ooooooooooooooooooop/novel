@@ -20,7 +20,13 @@ import json
 
 from src.object_state.judge_claim import JudgeClaim, ProseAnchor
 from src.object_state.evaluator_precommit import EvaluatorPrecommit
+from src.workflow_action.json_repair import parse_json
 from src.workflow_action.plan_search import compact_text
+# 锚点重定位（位置映射）：评审模型在长正文上算 [char_start, char_end) 偏移经常偏差，
+# 但引用必须逐字真实——与 G7 校准路径（preference_review._locate_excerpt）同一套折叠
+# 检索语义，保证生产评审与校准评审对「锚点真实性」口径一致（无依赖环：preference_review
+# 不反向导入本模块）。
+from src.workflow_action.preference_review import _locate_excerpt
 
 # 软质量轴（design §7：推进 / 人物 / 契约 / 阅读摩擦 / 语言辨识度 / 建设性歧义）。
 SOFT_AXES = (
@@ -39,6 +45,24 @@ HARD_AXES = (
     "plotunit_expected_change",
     "state_necessity",
 )
+
+
+def _derive_anchor_position(char_start: int, prose_len: int) -> str:
+    """按锚点**核验后**的真实起始位置推导描述性标签（start/middle/end）。
+
+    评审模型自报的 position（core/mid/primary/…）在长正文上不可靠，且该标签
+    不参与任何门禁逻辑（仅描述锚点在正文中的大致位置）——故由系统从核验后的
+    真实偏移确定性推导，而不是信任模型值。证据强度完全由 excerpt + char 区间
+    的真实性核验承担，标签不降低任何标准。
+    """
+    if prose_len <= 0:
+        return "middle"
+    third = prose_len // 3
+    if char_start < third:
+        return "start"
+    if char_start < third * 2:
+        return "middle"
+    return "end"
 
 
 def build_judge_claim_prompt(
@@ -125,7 +149,7 @@ def parse_judge_claims(
             / 非唯一 claims 键 / 多余字段 —— 由 runner 记为 schema/证据错误 →
             execution_failed（不重试、不吞异常）。
     """
-    data = json.loads(response)
+    data = parse_json(response)
     if not isinstance(data, dict) or set(data) != {"claims"}:
         raise ValueError("judge response must be a JSON object with only 'claims'")
     claims = data["claims"]
@@ -173,26 +197,33 @@ def parse_judge_claims(
             excerpt = anchor["excerpt"]
             if not isinstance(excerpt, str) or not excerpt.strip():
                 raise ValueError(f"judge claim {index} anchor {anchor_index} excerpt must be non-empty")
-            if (
-                not isinstance(char_start, int)
-                or not isinstance(char_end, int)
-                or char_start < 0
-                or char_start >= char_end
-                or char_end > len(prose)
+            if not isinstance(char_start, int) or not isinstance(char_end, int):
+                raise ValueError(
+                    f"judge claim {index} anchor {anchor_index} char_start/char_end must be integers"
+                )
+            # 锚点真实性核验：excerpt 必须逐字来自被评审正文。
+            # 快速路径：模型声称偏移的区间在规范化后与 excerpt 全等 → 直接用。
+            # 兜底路径：模型算偏移偏差（长正文常见）且区间不匹配或越界（char_end
+            # 超出正文长度）——在正文内检索 excerpt（折叠空白/标点/引号字形差异），
+            # 命中则把锚点重映射到真实偏移；检索不到才是伪造（paraphrase 冒充原文
+            # / 越界引用），整批拒绝。与 G7 校准路径 preference_review 的锚点口径一致。
+            if not (
+                char_start >= 0
+                and char_start < char_end
+                and char_end <= len(prose)
+                and compact_text(prose[char_start:char_end]) == compact_text(excerpt)
             ):
-                raise ValueError(
-                    f"judge claim {index} anchor {anchor_index} has invalid char bounds"
-                )
-            # 锚点真实性核验：excerpt 必须与正文该区间规范化后逐字全等。
-            if compact_text(prose[char_start:char_end]) != compact_text(excerpt):
-                raise ValueError(
-                    f"judge claim {index} anchor {anchor_index} excerpt does not match prose "
-                    f"at [{char_start},{char_end}) — fabricated anchor"
-                )
+                located = _locate_excerpt(prose, excerpt)
+                if located is None:
+                    raise ValueError(
+                        f"judge claim {index} anchor {anchor_index} excerpt not found "
+                        f"in prose — fabricated anchor"
+                    )
+                char_start, char_end = located
             anchors.append(
                 ProseAnchor(
                     chapter_ref=chapter_ref,
-                    position=anchor["position"],
+                    position=_derive_anchor_position(char_start, len(prose)),
                     excerpt=prose[char_start:char_end],
                     char_start=char_start,
                     char_end=char_end,

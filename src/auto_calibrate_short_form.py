@@ -40,13 +40,20 @@ from src.llm_interface import DirectAPIInterface
 from src.object_state.autonomous import AutonomousPolicy, ProviderProfile
 from src.provider_adapter import AnthropicMessagesProvider, AutonomousBudgetLedger
 from src.workflow_action.auto_calibrate import (
-    build_preference_judge_prompt,
     compute_accuracy,
     freeze_quality_thresholds,
     load_frozen_preference_bench,
-    parse_preference_response,
     run_holdout,
     run_preference_judge,
+)
+from src.workflow_action.preference_review import (
+    ReviewQualityExhaustedError,
+    build_anchored_arbitration_prompt,
+    build_single_review_prompt,
+    make_review_judge,
+    parse_anchored_arbitration,
+    parse_single_review,
+    parse_with_quality_retry,
 )
 
 DEFAULT_ROLE = "reader_judge"
@@ -152,23 +159,75 @@ def main() -> int:
         print(f"Error: provider 初始化失败: {type(exc).__name__}")
         return 1
 
-    def judge_pair(pair, role: str) -> str:
-        """匿名 A/B 偏好评审：单次调用，错误原样上抛（无重试/无回退/无吞错）."""
+    def review_candidate(prompt, response, role: str, candidate_ref: str):
+        """单候选内容无关评审：一次调用只评一个文本，不见槽位/另一候选（G7 协议）.
+
+        协议合规失败（锚点捏造/形状违例）做有界重请求（只重请求、不重试网络）；
+        每次重请求是独立全新调用，由调用方记录次数。
+        """
         role_config = getattr(profile.roles, role)
-        prompt = build_preference_judge_prompt(
-            pair.prompt, pair.chosen, pair.rejected, role=role
+        review_prompt = build_single_review_prompt(prompt, response, role=role)
+        interface = DirectAPIInterface(
+            model=role_config.request_model,
+            provider_call=judge_provider,
+            expected_response_model=role_config.expected_actual_model,
+        )
+        return parse_with_quality_retry(
+            lambda: interface.call(review_prompt),
+            lambda text: parse_single_review(
+                text, candidate_ref=candidate_ref, response=response, role=role
+            ),
+            on_retry=lambda _attempt: record_quality_retry(),
+        )
+
+    def arbitrate(prompt, r_chosen, r_rejected, response_chosen, response_rejected, role: str):
+        """证据锚定仲裁：仅确定性比较无法分出高下时调用；锚点映射到实际包含它的候选."""
+        role_config = getattr(profile.roles, role)
+        arb_prompt = build_anchored_arbitration_prompt(
+            prompt, r_chosen, r_rejected, role=role
         )
         interface = DirectAPIInterface(
-            model=role_config.request_model, provider_call=judge_provider
+            model=role_config.request_model,
+            provider_call=judge_provider,
+            expected_response_model=role_config.expected_actual_model,
         )
-        return parse_preference_response(
-            interface.call(prompt), pair_id=pair.prompt_id
+        return parse_with_quality_retry(
+            lambda: interface.call(arb_prompt),
+            lambda text: parse_anchored_arbitration(
+                text,
+                pair_id=r_chosen.review_id,
+                response_a=response_chosen,
+                response_b=response_rejected,
+            ),
+            on_retry=lambda _attempt: record_quality_retry(),
         )
+
+    # 质量台账：协议合规重请求次数 + 有界重请求后仍不可评审的对（诚实上报，不静默吞）。
+    quality_retries = 0
+    unreviewable_pairs: list[dict[str, str]] = []
+
+    def record_quality_retry() -> None:
+        nonlocal quality_retries
+        quality_retries += 1
+
+    def record_unreviewable(pair, exc: Exception) -> None:
+        unreviewable_pairs.append(
+            {
+                "prompt_id": pair.prompt_id,
+                "tag": pair.tag,
+                "error_type": type(exc).__name__,
+            }
+        )
+
+    judge_pair = make_review_judge(review_candidate, arbitrate)
 
     # ---- 1. calibration：跑评审 → 准确率 → 冻结阈值（唯一来源 = calibration）。
     try:
         calib_predictions = run_preference_judge(
-            calibration_pairs, args.role, judge_pair
+            calibration_pairs,
+            args.role,
+            judge_pair,
+            on_pair_unreviewable=record_unreviewable,
         )
         calib_report = compute_accuracy(calib_predictions)
     except Exception as exc:
@@ -202,6 +261,7 @@ def main() -> int:
             run_id=run_id,
             run_at=_utc_now(),
             position_sample=args.position_sample or None,
+            on_pair_unreviewable=record_unreviewable,
         )
     except Exception as exc:
         print(f"Error: holdout 失败: {type(exc).__name__}")
@@ -249,6 +309,10 @@ def main() -> int:
             "violations": holdout_report.violations,
         },
         "route": "pass" if holdout_report.met else "fail",
+        "quality": {
+            "review_quality_retries": quality_retries,
+            "unreviewable_pairs": unreviewable_pairs,
+        },
         "frozen_by_run": run_id,
     }
     output_dir.joinpath("calibration_result.json").write_text(
@@ -274,6 +338,11 @@ def main() -> int:
             print(f"    violation: {violation}")
     print(f"  usage:                 {ledger.usage.calls} calls / "
           f"${ledger.usage.cost_usd}")
+    print(f"  quality retries:       {quality_retries}")
+    if unreviewable_pairs:
+        print(f"  unreviewable pairs:    {len(unreviewable_pairs)}")
+        for u in unreviewable_pairs:
+            print(f"    - {u['prompt_id']} ({u['tag']}): {u['error_type']}")
     print(f"  thresholds:            {output_dir / 'thresholds.json'}")
     if holdout_report.met:
         return 0

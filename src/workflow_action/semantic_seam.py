@@ -118,11 +118,19 @@ def _trailing_result(core: str) -> tuple[str, str]:
     """连接词后落点作 result；核心其余作行为主体。
 
     返回 (behavior, result)。无连接词时 result 为空串。
+    句子核心以连接词开头（如「便向码头走去」被剥离参与者后仍以「便」起头）
+    时，该连接词是语篇过渡标记而非结果引入词：跳过它再找后续连接词；无后续
+    则整个核心作行为主体（否则 behavior 会为空串，违反 EventFingerprint 契约）。
     """
     match = _CONNECTIVE_MATCHER.search(core)
     if match is None:
         return core, ""
     split_at = match.start()
+    if split_at == 0:
+        match = _CONNECTIVE_MATCHER.search(core, match.end())
+        if match is None:
+            return core, ""
+        split_at = match.start()
     return core[:split_at], core[match.end():]
 
 

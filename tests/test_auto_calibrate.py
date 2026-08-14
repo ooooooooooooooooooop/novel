@@ -26,6 +26,7 @@ from src.workflow_action.auto_calibrate import (
     run_holdout,
     run_preference_judge,
 )
+from src.workflow_action.preference_review import ReviewQualityExhaustedError
 
 _BENCH = (
     "reference_texts/a1_benchmark/sources/writing_preference_bench/"
@@ -235,6 +236,56 @@ def test_compute_accuracy_counts_abstain_as_incorrect():
     report = compute_accuracy(run_preference_judge(pairs, "reader_judge", _abstain_judge))
     assert report.overall_accuracy == 0.0
     assert report.abstain_count == 2
+
+
+def _failing_judge(fail_prompt_id):
+    def judge(pair, role):
+        if pair.prompt_id == fail_prompt_id:
+            raise ReviewQualityExhaustedError("fabricated anchor exhausted")
+        # 非失败对走内容稳定评审（恒偏好「甲文」内容 → 换位稳定）
+        return _stable_correct_judge(pair, role)
+    return judge
+
+
+def test_run_preference_judge_on_unreviewable_records_and_continues():
+    pairs = [_pair(prompt_id="p-1"), _pair(prompt_id="p-2"), _pair(prompt_id="p-3")]
+    recorded = []
+    predictions = run_preference_judge(
+        pairs, "reader_judge", _failing_judge("p-2"),
+        on_pair_unreviewable=lambda pair, exc: recorded.append(
+            (pair.prompt_id, type(exc).__name__)
+        ),
+    )
+    assert [p.prompt_id for p in predictions] == ["p-1", "p-3"]
+    assert recorded == [("p-2", "ReviewQualityExhaustedError")]
+
+
+def test_run_preference_judge_unreviewable_without_callback_raises():
+    pairs = [_pair(prompt_id="p-1"), _pair(prompt_id="p-2")]
+    with pytest.raises(ReviewQualityExhaustedError):
+        run_preference_judge(pairs, "reader_judge", _failing_judge("p-2"))
+
+
+def test_run_preference_judge_nonquality_error_still_raises_with_callback():
+    def bad_judge(pair, role):
+        raise RuntimeError("network 5xx")
+
+    with pytest.raises(RuntimeError, match="5xx"):
+        run_preference_judge(
+            [_pair(prompt_id="p-1")], "reader_judge", bad_judge,
+            on_pair_unreviewable=lambda pair, exc: None,
+        )
+
+
+def test_position_consistency_skips_unreviewable_pair():
+    pairs = [_pair(prompt_id="p-1"), _pair(prompt_id="p-2")]
+    recorded = []
+    position = measure_position_consistency(
+        pairs, _failing_judge("p-2"), role="reader_judge",
+        on_pair_unreviewable=lambda pair, exc: recorded.append(pair.prompt_id),
+    )
+    assert position == 1.0  # 只评估了 p-1（换位稳定），p-2 跳过并上报
+    assert recorded == ["p-2"]
 
 
 # ---------------------------------------------------------------------------

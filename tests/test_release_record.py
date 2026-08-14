@@ -31,11 +31,15 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 # + plan_search/precommit/judge_claim/pareto_tournament/long_horizon/reader_responses
 # + auto_calibrate + auto-calibrate CLI）使当前基线从 Q1 的 2470 升至 2724；
 # A1 G9（统一发布验证 test_a1_release_validation.py,7）再升至 2731；A1 G9 隐私聚合锁
-# （聚合隐私回归,2）升至 2733；与
+# （聚合隐私回归,2）升至 2733；G7 内容无关评审协议（test_preference_review.py,87 +
+# test_pareto_tournament.py 锚定仲裁夹具,1）再升至 2764；G8 评审锚点偏移重映射
+# 回归（test_judge_claim.py,1）升至 2801；G8 评审越界偏移重映射 + 非标 position
+# 推导回归（test_judge_claim.py,2）再升至 2803；k3 thinking_disabled 能力
+# （test_provider_adapter.py,3）升至 2806；与
 # test_cli_runtime_contract 的 EXPECTED_TEST_BASELINE 及
 # tier0_release_record.example.json 保持一致。冻结的 releases/tier0-release.json
 # 用其自身记录的 baseline（2301）自校验，不随此漂移。
-EXPECTED_BASELINE = 2733
+EXPECTED_BASELINE = 2806
 EXAMPLE_PATH = "docs/00_project/tier0_release_record.example.json"
 CANARY_EVIDENCE_EXAMPLE_PATH = "docs/00_project/tier0_canary_evidence.example.json"
 COMMITTED_RELEASE_RECORD_PATH = "docs/00_project/releases/tier0-release.json"

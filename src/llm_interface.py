@@ -726,10 +726,12 @@ class DirectAPIInterface(LLMInterface):
         api_key: str | None = None,
         model: str = "unconfigured-model",
         provider_call: Callable[[DirectAPIRequest], DirectAPIResponse] | None = None,
+        expected_response_model: str | None = None,
     ):
         self.api_key = api_key
         self.model = model
         self.provider_call = provider_call
+        self.expected_response_model = expected_response_model
 
     @property
     def api_key(self) -> str | None:
@@ -763,6 +765,19 @@ class DirectAPIInterface(LLMInterface):
             raise TypeError("DirectAPI provider_call must be callable")
         self._provider_call = value
 
+    @property
+    def expected_response_model(self) -> str | None:
+        return self._expected_response_model
+
+    @expected_response_model.setter
+    def expected_response_model(self, value: str | None) -> None:
+        # 端点声明的响应模型标识（代理端点可能把请求别名映射到固定实体模型）：
+        # 显式提供时用它校验响应身份，缺省回落 request_model（保持既有契约）。
+        self._expected_response_model = _require_optional_identifier_string(
+            value,
+            "DirectAPI expected_response_model",
+        )
+
     def name(self) -> str:
         model = _require_identifier_string(self.model, "DirectAPI model")
         return f"DirectAPIInterface({model})"
@@ -772,6 +787,14 @@ class DirectAPIInterface(LLMInterface):
         request_model = _require_identifier_string(
             self.model,
             "DirectAPI model",
+        )
+        response_expected_model = (
+            _require_optional_identifier_string(
+                self.expected_response_model,
+                "DirectAPI expected_response_model",
+            )
+            if self.expected_response_model is not None
+            else request_model
         )
         request_api_key = _require_optional_identifier_string(
             self.api_key,
@@ -811,13 +834,23 @@ class DirectAPIInterface(LLMInterface):
                 "DirectAPI model changed during provider call: "
                 f"expected {request_model}, got {current_model}"
             )
+        current_response_expected_model = (
+            self.expected_response_model
+            if self.expected_response_model is not None
+            else request_model
+        )
+        if current_response_expected_model != response_expected_model:
+            raise ValueError(
+                "DirectAPI expected_response_model changed during provider call: "
+                f"expected {response_expected_model}, got {current_response_expected_model}"
+            )
         if current_api_key != request_api_key:
             raise ValueError("DirectAPI api_key changed during provider call")
         if current_provider_call is not provider_call:
             raise ValueError("DirectAPI provider_call changed during provider call")
-        if response.model != request_model:
+        if response.model != response_expected_model:
             raise ValueError(
-                f"DirectAPI response model mismatch: expected {request_model}, "
+                f"DirectAPI response model mismatch: expected {response_expected_model}, "
                 f"got {response.model}"
             )
         return response.text

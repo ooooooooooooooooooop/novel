@@ -30,6 +30,7 @@ from src.object_state.qualitythresholds import (
     PreferencePair,
     QualityThresholds,
 )
+from src.workflow_action.preference_review import ReviewQualityExhaustedError
 
 MIN_CALIBRATION_PROMPT_IDS = 10
 MIN_CALIBRATION_TAGS = 2
@@ -209,15 +210,27 @@ def run_preference_judge(
     pairs: list[PreferencePair],
     role: str,
     judge_fn,
+    *,
+    on_pair_unreviewable=None,
 ) -> list[JudgePreferencePrediction]:
     """对每对运行评审（chosen=甲 / rejected=乙），返回带人类标签的预测.
 
     judge_fn(pair, role) → "A" / "B" / "no_difference"（评审不可见哪份是偏好）。
     正确口径：A=选 chosen（正确），B=选 rejected（错误），no_difference=弃权（错误）。
+
+    ``on_pair_unreviewable(pair, exc)``：judge_fn 抛 ReviewQualityExhaustedError
+    （单候选评审协议合规在有界重请求后仍失败）时调用；回调后可继续下一对，该对不记预测。
+    其余异常（含网络/配置错误）一律上抛，不做静默跳过。
     """
     predictions: list[JudgePreferencePrediction] = []
     for pair in pairs:
-        predicted = judge_fn(pair, role)
+        try:
+            predicted = judge_fn(pair, role)
+        except ReviewQualityExhaustedError as exc:
+            if on_pair_unreviewable is None:
+                raise
+            on_pair_unreviewable(pair, exc)
+            continue
         if predicted == "A":
             correct, human_label = True, "chosen"
         elif predicted == "B":
@@ -350,34 +363,52 @@ def measure_position_consistency(
     *,
     role: str = "reader_judge",
     sample: int | None = None,
+    on_pair_unreviewable=None,
 ) -> float:
     """A/B 与 B/A 换位稳定率：同对换序后评审仍命名同一响应 → 一致.
 
     call1: chosen=甲/rejected=乙；call2: rejected=甲/chosen=乙。
     (A,B) 与 (B,A) 两轮都选中 chosen → 一致；任一 no_difference 或命名不同 → 不一致。
+
+    ``on_pair_unreviewable(pair, exc)``：任一轮评审协议合规耗尽时回调（不把该对计为
+    「不一致」，而是整体跳过并报告）；缺省回调时异常上抛。
     """
     if sample is not None:
         pairs = pairs[:sample]
     if not pairs:
         return 1.0
     consistent = 0
+    total = 0
     for pair in pairs:
-        first = judge_fn(pair, role)          # chosen=甲
-        swapped = judge_fn(
-            PreferencePair(
-                prompt_id=pair.prompt_id,
-                tag=pair.tag,
-                prompt=pair.prompt,
-                chosen=pair.rejected,
-                rejected=pair.chosen,
-                split=pair.split,
-                bucket=pair.bucket,
-            ),
-            role,
-        )                                     # chosen=乙
+        try:
+            first = judge_fn(pair, role)          # chosen=甲
+        except ReviewQualityExhaustedError as exc:
+            if on_pair_unreviewable is None:
+                raise
+            on_pair_unreviewable(pair, exc)
+            continue
+        swapped_pair = PreferencePair(
+            prompt_id=pair.prompt_id,
+            tag=pair.tag,
+            prompt=pair.prompt,
+            chosen=pair.rejected,
+            rejected=pair.chosen,
+            split=pair.split,
+            bucket=pair.bucket,
+        )
+        try:
+            swapped = judge_fn(swapped_pair, role)  # chosen=乙
+        except ReviewQualityExhaustedError as exc:
+            if on_pair_unreviewable is None:
+                raise
+            on_pair_unreviewable(pair, exc)
+            continue
+        total += 1
         if (first, swapped) in (("A", "B"), ("B", "A")):
             consistent += 1
-    return round(consistent / len(pairs), 4)
+    if total == 0:
+        return 1.0
+    return round(consistent / total, 4)
 
 
 def run_holdout(
@@ -389,12 +420,16 @@ def run_holdout(
     run_id: str,
     run_at: str,
     position_sample: int | None = 20,
+    on_pair_unreviewable=None,
 ) -> HoldoutReport:
     """在 holdout 上验证冻结阈值（只读，不回写阈值；T7.6）."""
-    predictions = run_preference_judge(holdout_pairs, role, judge_fn)
+    predictions = run_preference_judge(
+        holdout_pairs, role, judge_fn, on_pair_unreviewable=on_pair_unreviewable
+    )
     report = compute_accuracy(predictions)
     position = measure_position_consistency(
-        holdout_pairs, judge_fn, role=role, sample=position_sample
+        holdout_pairs, judge_fn, role=role, sample=position_sample,
+        on_pair_unreviewable=on_pair_unreviewable,
     )
     overall_met = report.overall_accuracy >= thresholds.overall_accuracy_min
     per_tag_met = all(

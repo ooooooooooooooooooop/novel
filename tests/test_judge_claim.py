@@ -268,8 +268,10 @@ class TestParseJudgeClaims:
         with pytest.raises(ValueError, match="non-empty list"):
             _parse(claims=[_claim_json(anchors=[])])
 
-    def test_out_of_bounds_anchor_rejected(self):
-        with pytest.raises(ValueError, match="invalid char bounds"):
+    def test_out_of_bounds_fabricated_rejected(self):
+        # 越界偏移不再是硬拒绝——excerpt 真实则重映射（见下面重映射测试）；
+        # 越界 + 引文不在正文 → 仍是伪造，整批拒绝。
+        with pytest.raises(ValueError, match="fabricated anchor"):
             _parse(claims=[_claim_json(anchors=[{
                 "position": "start",
                 "excerpt": "越界",
@@ -277,8 +279,9 @@ class TestParseJudgeClaims:
                 "char_end": len(_PROSE) + 5,
             }])])
 
-    def test_anchor_order_reversed_rejected(self):
-        with pytest.raises(ValueError, match="invalid char bounds"):
+    def test_anchor_order_reversed_fabricated_rejected(self):
+        # 倒序偏移不再是硬拒绝——excerpt 真实则重映射；倒序 + 伪造 → 拒绝。
+        with pytest.raises(ValueError, match="fabricated anchor"):
             _parse(claims=[_claim_json(anchors=[{
                 "position": "start",
                 "excerpt": "倒序",
@@ -295,6 +298,75 @@ class TestParseJudgeClaims:
                 "char_start": 0,
                 "char_end": 12,
             }])])
+
+    def test_anchor_wrong_offset_remapped_to_real_position(self):
+        # 评审算偏移偏差（长正文常见）：excerpt 逐字真实但在正文别处，声称区间不匹配。
+        # 必须位置映射到真实偏移（G8 根因：3 次重试全因「offset 与 excerpt 不一致」失败），
+        # 而不是整批拒绝；检索不到才拒绝（伪造）。
+        real = "实名举报确实是正式登记的一般要件，这一点内部操作规程上写得清楚"
+        prose = real + "。" + "后来这事又拖了半个月。" * 2
+        with pytest.raises(ValueError, match="fabricated anchor"):
+            # 完全不在正文里 → 仍拒绝
+            _parse(prose=prose, claims=[_claim_json(anchors=[{
+                "position": "middle",
+                "excerpt": "完全不相干的伪造引文",
+                "char_start": 0,
+                "char_end": 10,
+            }])])
+        # excerpt 在正文开头，模型声称 [5, 40) 区间（界内但错位）→ 位置映射到 (0, len(real))
+        parsed = _parse(prose=prose, claims=[_claim_json(anchors=[{
+            "position": "middle",
+            "excerpt": real,
+            "char_start": 5,
+            "char_end": 40,
+        }])])
+        anchor = parsed[0].anchors[0]
+        assert anchor.char_start == 0
+        assert anchor.char_end == len(real)
+        assert anchor.excerpt == real
+
+    def test_out_of_bounds_char_end_relocated_to_real_position(self):
+        # G8 复现（smoke12 attempt1）：长正文上模型把 char_end 算到正文长度之外
+        # （2532 字符正文声称 [2498,2562)）。不整批拒绝，按 excerpt 重映射到真实偏移。
+        real = "实名举报确实是正式登记的一般要件，这一点内部操作规程上写得清楚"
+        prose = real + "。" + "后来这事又拖了半个月。" * 2
+        parsed = _parse(prose=prose, claims=[_claim_json(anchors=[{
+            "position": "start",
+            "excerpt": real,
+            "char_start": 2498,
+            "char_end": 2562,  # 越界（超出 len(prose)）
+        }])])
+        anchor = parsed[0].anchors[0]
+        assert anchor.char_start == 0
+        assert anchor.char_end == len(real)
+        assert anchor.excerpt == real
+
+    def test_nonstandard_position_derived_from_verified_location(self):
+        # G8 复现（smoke12 attempt2/3）：模型自报 position=mid/primary/core，不在
+        # start/middle/end 枚举内 → 不拒绝；系统从核验后的真实偏移确定性推导标签。
+        parsed = _parse(claims=[_claim_json(anchors=[{
+            "position": "core",
+            "excerpt": _PROSE[0:12],
+            "char_start": 0,
+            "char_end": 12,
+        }])])
+        assert parsed[0].anchors[0].position == "start"
+        parsed = _parse(claims=[_claim_json(anchors=[{
+            "position": "mid",
+            "excerpt": _PROSE[20:30],
+            "char_start": 20,
+            "char_end": 30,
+        }])])
+        assert parsed[0].anchors[0].position == "middle"
+        # 末尾锚点 → end
+        tail = _PROSE[-8:]
+        parsed = _parse(claims=[_claim_json(anchors=[{
+            "position": "primary",
+            "excerpt": tail,
+            "char_start": len(_PROSE) - 8,
+            "char_end": len(_PROSE),
+        }])])
+        assert parsed[0].anchors[0].position == "end"
 
     def test_anchor_with_extra_field_rejected(self):
         with pytest.raises(ValueError, match="must have exactly"):

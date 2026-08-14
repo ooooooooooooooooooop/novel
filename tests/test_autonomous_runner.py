@@ -36,6 +36,15 @@ from src.workflow_action.frame import NarrativeFrameUnit
 from src.domain_layer.rules import get_structure_template
 
 
+@pytest.fixture(autouse=True)
+def _isolate_provider_env(monkeypatch):
+    """隔离进程环境中的 Anthropic 凭据变量（env-first 适配器下走 settings 文件路径）."""
+    monkeypatch.delenv("ANTHROPIC_BASE_URL", raising=False)
+    monkeypatch.delenv("ANTHROPIC_AUTH_TOKEN", raising=False)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    yield
+
+
 class _Response:
     def __init__(self, payload: dict, status: int = 200):
         self.payload = json.dumps(payload).encode("utf-8")
@@ -419,30 +428,65 @@ def _extract_precommit_id(prompt: str) -> str:
     raise AssertionError("judge prompt missing precommit id line")
 
 
-def _tournament_payload(prompt: str) -> str:
-    """匿名换位评审响应：偏好含「甲方案」标记的正文，返回其在当前 prompt 中的位置.
+def _section(prompt: str, header: str, next_headers: list[str]) -> str:
+    """提取 prompt 中 header 之后、任一 next_header 之前的段落."""
+    start = prompt.find(header)
+    assert start >= 0, f"prompt missing {header!r}"
+    body = prompt[start + len(header):]
+    for nxt in next_headers:
+        pos = body.find("\n" + nxt)
+        if pos >= 0:
+            return body[:pos].strip()
+    return body.strip()
 
-    A/B 轮：候选甲=text_x、候选乙=text_y；B/A 轮：候选甲=text_y、候选乙=text_x。
-    同一正文（甲方案标记）在两轮中会被换到不同位置——按「在当前 prompt 中的位置」
-    返回，两轮便命名同一正文 → 位置一致（T6.3）。
+
+def _evidence_anchor(evidence: str) -> str:
+    """从单候选评审证据段提取锚点原文（可能跨多行，须整体引用以保持逐字真实）."""
+    marker = "锚点原文: "
+    start = evidence.find(marker)
+    assert start >= 0, "arbitration evidence must contain 锚点原文"
+    return evidence[start + len(marker):].strip()
+
+
+def _arbitration_payload(prompt: str, *, slot_biased: bool = False) -> str:
+    """证据锚定仲裁响应：decisive_anchor 必须逐字来自候选正文（锚点真实性）.
+
+    content（默认）：偏好「推进轴 satisfied」证据的候选（v1）——锚点取自该候选
+    评审证据里的锚点原文；两轮换位命名同一正文 → 位置一致（T6.3）。slot_biased：
+    恒命名「甲」并引当前甲槽位证据的锚点 → 两轮命名不同正文 → 位置不一致
+    （T6.6 位置偏置夹具，换位测量下必须暴露为不稳定）。
     """
-    a_marker = "【候选甲（匿名）】\n"
-    b_marker = "【候选乙（匿名）】\n"
-    a_start = prompt.find(a_marker)
-    b_start = prompt.find(b_marker)
-    if a_start < 0 or b_start < 0:
-        raise AssertionError("tournament prompt missing anonymous markers")
-    prose_a = prompt[a_start + len(a_marker):b_start]
-    b_body = prompt[b_start + len(b_marker):]
-    prose_b = b_body[: b_body.find("\n\n【评审要求】")]
-    if "甲方案" in prose_a:
+    evidence_a = _section(
+        prompt, "【候选甲 评审证据】\n", ["【候选乙 评审证据】"]
+    )
+    evidence_b = _section(
+        prompt, "【候选乙 评审证据】\n", ["【裁定要求】"]
+    )
+    anchor_a = _evidence_anchor(evidence_a)
+    anchor_b = _evidence_anchor(evidence_b)
+    if slot_biased:
         preferred = "A"
-    elif "甲方案" in prose_b:
-        preferred = "B"
+        excerpt = anchor_a
+        rationale = "恒甲槽位（位置偏置夹具）。"
     else:
-        raise AssertionError("tournament prose lacks 甲方案 marker")
+        # 内容基：恰好一个证据块是「推进轴 satisfied」（v1 的判别信号）。
+        a_is_v1 = "progression / satisfied" in evidence_a
+        b_is_v1 = "progression / satisfied" in evidence_b
+        assert a_is_v1 != b_is_v1, "exactly one evidence block must show progression satisfied"
+        preferred = "A" if a_is_v1 else "B"
+        excerpt = anchor_a if a_is_v1 else anchor_b
+        rationale = "推进证据判别（测试注入）。"
     return json.dumps(
-        {"preferred": preferred, "rationale": "内容基偏好（测试注入）。"}
+        {
+            "preferred": preferred,
+            "decisive_anchor": {
+                "excerpt": excerpt,
+                "char_start": 0,
+                "char_end": len(excerpt),
+            },
+            "rationale": rationale,
+        },
+        ensure_ascii=False,
     )
 
 
@@ -470,10 +514,19 @@ def _judge_claims_payload(prompt: str, *, blocking: bool, role: str) -> str:
             }
         ]
     elif role == "reader_judge":
-        # T6：软轴驱动前沿——计划 1 候选全部 satisfied（进入前沿），计划 2 候选
-        # 全部 violated（被支配）。三角色中仅读者体验轴参与软分数。
+        # T6：软轴驱动前沿 + 证据锚定仲裁。计划 1 候选 satisfied——v1（甲方案）
+        # 走推进轴、v2（乙方案）走语言轴 → 两版证据互不支配 → 淘汰赛触发仲裁；
+        # 计划 2 候选 violated（语言轴 -1，被支配淘汰）。
+        # 锚点引正文尾部（含「甲/乙方案」判别标记，逐字真实）——两版正文头 40 字
+        # 相同，若锚点引头会两候选同现 → 仲裁误判 no_difference。
         satisfied = precommit_id == "precommit_plan_0001"
-        axis = "progression" if satisfied else "language_distinctiveness"
+        axis = (
+            "progression"
+            if (satisfied and "甲方案" in prose)
+            else "language_distinctiveness"
+        )
+        tail_len = min(30, len(prose))
+        tail_start = len(prose) - tail_len
         claims = [
             {
                 "claim_id": "cl_soft",
@@ -484,9 +537,9 @@ def _judge_claims_payload(prompt: str, *, blocking: bool, role: str) -> str:
                 "anchors": [
                     {
                         "position": "start",
-                        "excerpt": prose[0:end],
-                        "char_start": 0,
-                        "char_end": end,
+                        "excerpt": prose[tail_start:],
+                        "char_start": tail_start,
+                        "char_end": len(prose),
                     }
                 ],
                 "rationale": (
@@ -512,13 +565,14 @@ def _fake_urlopen(
     error: Exception = RuntimeError("simulated provider failure"),
     tournament_position_biased: bool = False,
 ):
-    """按阶段路由：premise/plan=200、prose=300、judge/tournament=400.
+    """按阶段路由：premise/plan=200、prose=300、judge/arbitration=400.
 
     前提搜索与规划共用 plan provider（max_tokens=200），以「【前提要求】」标记区分。
     评审按三角色独立调用：以「你负责【事实】/【人物】/【读者体验】轴」标记路由；
-    匿名换位评审以「【匿名换位评审】」标记路由（max_tokens=400）。正文按调用
-    次序取 prose_texts（默认逐版标记的甲/乙/丙/丁方案），换位评审按正文内
-    「甲方案」标记所在位置返回，保证两轮换位命名同一正文（位置一致）。
+    证据锚定仲裁以「【证据锚定仲裁】」标记路由（其 prompt 含读者体验轴角色指引，
+    必须先于轴判定匹配）。正文按调用次序取 prose_texts（默认逐版标记的甲/乙/丙/丁
+    方案）；评审 claims 里 v1=推进满足 / v2=语言满足 互不支配 → 仲裁按「推进满足」
+    证据判别返回决定性锚点，两轮命名同一正文（位置一致）。
     """
     _prose_seen: list = []
 
@@ -551,11 +605,9 @@ def _fake_urlopen(
                 texts = prose_texts if prose_texts is not None else _DEFAULT_PROSE_TEXTS
                 text = texts[len(_prose_seen)]
                 _prose_seen.append(text)
-        elif "【匿名换位评审】" in prompt_text:
-            text = (
-                json.dumps({"preferred": "A", "rationale": "位置甲偏好（测试夹具）。"})
-                if tournament_position_biased
-                else _tournament_payload(prompt_text)
+        elif "【证据锚定仲裁】" in prompt_text:
+            text = _arbitration_payload(
+                prompt_text, slot_biased=tournament_position_biased
             )
         elif "你负责【事实】轴" in prompt_text:
             text = _judge_claims_payload(prompt_text, blocking=review_blocking, role="fact_judge")
@@ -737,7 +789,7 @@ def test_needs_premise_search_finds_premise_then_commits(tmp_path, monkeypatch):
     terminal = runner.run_until_terminal()
     assert terminal.status == "completed"
     assert terminal.committed_chapters == 1
-    # premise 搜索 1 + plan 批次 1 + 4 版正文 + 12 次评审（三角色）+ 2 次换位 = 20
+    # premise 搜索 1 + plan 批次 1 + 4 版正文 + 12 次评审（三角色）+ 2 次证据锚定仲裁 = 20
     assert terminal.usage.calls == 20
     assert len(calls) == 20
     assert (run_dir / "premise.json").is_file()
@@ -921,7 +973,7 @@ def test_full_accept_cycle_commits_chapter_and_records_usage(
     terminal = runner.run_until_terminal()
     assert terminal.status == "completed"
     assert terminal.committed_chapters == 1
-    # plan 批次 1 + 4 版正文 + 12 次评审（三角色）+ 2 次匿名换位 = 19
+    # plan 批次 1 + 4 版正文 + 12 次评审（三角色）+ 2 次证据锚定仲裁 = 19
     assert terminal.usage.calls == 19
     assert len(calls) == 19
     assert (runner.chapters_dir / "chapter_1.txt").is_file()
@@ -953,20 +1005,21 @@ def test_full_accept_cycle_commits_chapter_and_records_usage(
     assert role_counts["generation"] == 5  # plan 批次 1 + 正文 4
     assert role_counts["fact_judge"] == 4
     assert role_counts["character_judge"] == 4
-    assert role_counts["reader_judge"] == 6  # reader 评审 4 + 匿名换位 2
+    assert role_counts["reader_judge"] == 6  # reader 评审 4 + 证据锚定仲裁 2
 
-    # T6.1/T6.3/T6.4 选择证据：前沿 + 匿名换位 + 位置一致率落盘。
+    # T6.1/T6.3/T6.4 选择证据：前沿 + 证据锚定仲裁 + 位置一致率落盘。
     selection = json.loads(
         (run_dir / "candidate_selection.json").read_text(encoding="utf-8")
     )["chapters"]["chapter_1"]
     assert selection["selected"] == "prose_pu_candidate_v1"
-    # 计划 1 的两版（satisfied）构成前沿；计划 2 的两版（violated）被支配淘汰。
+    # 计划 1 的两版（v1 推进满足 / v2 语言满足）互不支配 → 构成前沿；计划 2 的两版
+    # （violated）被支配淘汰。
     assert set(selection["frontier"]) == {"prose_pu_candidate_v1", "prose_pu_candidate_v2"}
     assert set(selection["soft_dominated"]) == {
         "prose_pu_candidate_b_v1",
         "prose_pu_candidate_b_v2",
     }
-    assert "anonymous A/B + B/A" in selection["selection_rule"]
+    assert "A/B + B/A" in selection["selection_rule"]
     tournament = json.loads(
         (run_dir / "tournament.json").read_text(encoding="utf-8")
     )["chapters"]["chapter_1"]
@@ -997,8 +1050,9 @@ def test_reject_path_quality_exhausted(tmp_path, monkeypatch):
 
 
 def test_tournament_position_bias_quality_exhausted(tmp_path, monkeypatch):
-    # T6.6 位置偏置夹具：评审总是偏好位置甲 → 两轮换位命名不同正文 → 判别轮后
-    # 仍不稳定 → 该对双方淘汰 → 无稳定胜者 → quality_exhausted（不转人工）。
+    # T6.6 位置偏置夹具：仲裁恒命名「甲」并引当前甲槽位证据的锚点 → A/B 轮甲=v1、
+    # B/A 轮甲=v2 → 两轮命名不同正文 → 判别轮后仍不稳定 → 该对双方淘汰 → 无稳定
+    # 胜者 → quality_exhausted（不转人工）。换位测量下槽位命名仲裁必然暴露为 0.0。
     runner, run_dir, _, _, calls = _make_runner(
         tmp_path, monkeypatch=monkeypatch, install_fake=False
     )
@@ -1010,7 +1064,7 @@ def test_tournament_position_bias_quality_exhausted(tmp_path, monkeypatch):
     assert terminal.status == "quality_exhausted"
     assert terminal.committed_chapters == 0
     assert terminal.terminal_reason == "no stable pairwise winner on the Pareto frontier"
-    # plan 1 + 4 正文 + 12 评审 + 2 换位（1 对，位置不一致，max_rounds=1）= 19
+    # plan 1 + 4 正文 + 12 评审 + 2 证据锚定仲裁（1 对，位置不一致，max_rounds=1）= 19
     assert terminal.usage.calls == 19
     assert not (runner.chapters_dir / "chapter_1.txt").exists()
     tournament = json.loads(

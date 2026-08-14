@@ -12,9 +12,12 @@
 
 import pytest
 
+from src.object_state.judge_claim import JudgeClaim, ProseAnchor
 from src.workflow_action.pareto_tournament import (
     PairTournamentResult,
+    build_anchored_pair_prompt,
     build_anonymous_pair_prompt,
+    compare_judge_claims,
     parse_anonymous_pair_response,
     pareto_frontier,
     resolve_pair,
@@ -23,6 +26,27 @@ from src.workflow_action.pareto_tournament import (
 
 _X = "prose_pu_candidate_v1"
 _Y = "prose_pu_candidate_v2"
+
+
+def _jc(claim_id, axis, verdict, severity="advisory", excerpt="正文原文片段"):
+    return JudgeClaim(
+        claim_id=claim_id,
+        precommit_id="precommit_plan_0001",
+        axis=axis,
+        verdict=verdict,
+        severity=severity,
+        anchors=tuple([
+            ProseAnchor(
+                chapter_ref="ch1",
+                position="start",
+                excerpt=excerpt,
+                char_start=0,
+                char_end=len(excerpt),
+            )
+        ]),
+        rationale="测试。",
+        generator_source="reader_judge",
+    )
 
 
 # ---------------------------------------------------------------- T6.4 帕累托前沿
@@ -300,3 +324,158 @@ class TestSelectionTournament:
         result = selection_tournament([_X], _position_biased_judge, max_rounds=1)
         assert result.winner == _X
         assert result.position_consistency_rate == 1.0
+
+
+# ------------------------------------------- G7 内容无关：确定性比较 + 锚定仲裁
+
+
+class TestCompareJudgeClaims:
+    def test_hard_axis_elimination(self):
+        hard = [_jc("a1", "fact_conflict", "violated", severity="blocking")]
+        soft = [_jc("a2", "progression", "violated", severity="advisory")]
+        assert compare_judge_claims(soft, hard) == "X"  # 硬违例少者胜
+        assert compare_judge_claims(hard, soft) == "Y"
+
+    def test_soft_pareto_dominance(self):
+        better = [_jc("a1", "progression", "satisfied")]
+        worse = [_jc("a2", "progression", "violated")]
+        assert compare_judge_claims(better, worse) == "X"
+        assert compare_judge_claims(worse, better) == "Y"
+
+    def test_cross_dominating_undecidable(self):
+        x = [_jc("a1", "progression", "satisfied")]
+        y = [_jc("a2", "language_distinctiveness", "satisfied")]
+        assert compare_judge_claims(x, y) == "undecidable"
+
+    def test_all_equal_no_difference(self):
+        x = [_jc("a1", "progression", "satisfied")]
+        y = [_jc("a2", "progression", "satisfied")]
+        assert compare_judge_claims(x, y) == "no_difference"
+
+    def test_empty_evidence_undecidable(self):
+        # 双方证据皆空 → 不静默放行（不能算平手），交给仲裁。
+        assert compare_judge_claims([], []) == "undecidable"
+        assert compare_judge_claims([], [_jc("a1", "progression", "satisfied")]) == "Y"
+
+
+class TestAnchoredPairPrompt:
+    def test_renders_both_evidence_with_anchors(self):
+        prompt = build_anchored_pair_prompt(
+            [_jc("a1", "progression", "satisfied", excerpt="主线在发展")],
+            [_jc("a2", "friction", "violated", excerpt="读起来很费劲")],
+        )
+        assert "【候选甲 评审证据】" in prompt
+        assert "【候选乙 评审证据】" in prompt
+        assert "主线在发展" in prompt and "读起来很费劲" in prompt
+        assert "decisive_anchor" in prompt
+
+    def test_no_candidate_identity_leaks(self):
+        prompt = build_anchored_pair_prompt([_jc("a1", "progression", "satisfied")],
+                                            [_jc("a2", "progression", "violated")])
+        for leak in (
+            "prose_pu_candidate",
+            "precommit_plan",
+            "candidate_id",
+            "generation",
+            "request_model",
+            "actual_model",
+            "reader_judge",
+            "sha256",
+        ):
+            assert leak not in prompt, f"锚定仲裁 prompt 泄漏身份旁证: {leak}"
+
+    def test_contract_section_optional(self):
+        with_contract = build_anchored_pair_prompt(
+            [_jc("a1", "progression", "satisfied")],
+            [_jc("a2", "progression", "violated")],
+            reader_contract_context="契约正文",
+        )
+        without = build_anchored_pair_prompt(
+            [_jc("a1", "progression", "satisfied")],
+            [_jc("a2", "progression", "violated")],
+        )
+        assert "契约正文" in with_contract
+        assert "契约正文" not in without
+
+
+def _anchored_judge(claims_by_id, arbitrate_fn):
+    """模拟 runner 新 judge_pair：确定性比较优先，undecidable / no_difference 才仲裁."""
+
+    def judge(x, y):
+        decision = compare_judge_claims(claims_by_id.get(x, []), claims_by_id.get(y, []))
+        if decision == "X":
+            return ("A", "B")
+        if decision == "Y":
+            return ("B", "A")
+        # no_difference（证据完全等价）不直接淘汰——正文可能证据打平但内容可分，
+        # 交给证据锚定仲裁判别；与 undecidable 同路径。
+        pref_ab = arbitrate_fn(claims_by_id.get(x, []), claims_by_id.get(y, []), "A", "B")
+        pref_ba = arbitrate_fn(claims_by_id.get(y, []), claims_by_id.get(x, []), "A", "B")
+        return pref_ab, pref_ba
+
+    return judge
+
+
+class TestSelectionTournamentAnchored:
+    def test_deterministic_winner_no_arbitration(self):
+        claims_by_id = {
+            _X: [_jc("a1", "progression", "satisfied")],
+            _Y: [_jc("a2", "progression", "violated")],
+        }
+        arbitrations = {"n": 0}
+
+        def arbitrate(*args):
+            arbitrations["n"] += 1
+            return "A"
+
+        result = selection_tournament(
+            [_X, _Y], _anchored_judge(claims_by_id, arbitrate), max_rounds=1
+        )
+        assert result.winner == _X
+        assert result.position_consistency_rate == 1.0
+        assert arbitrations["n"] == 0  # 确定性可判 → 零 provider 仲裁调用
+
+    def test_all_equal_evidence_triggers_arbitration(self):
+        # 证据完全等价（no_difference）不再直接淘汰——交给证据锚定仲裁判别正文。
+        claims_by_id = {
+            _X: [_jc("a1", "progression", "satisfied")],
+            _Y: [_jc("a2", "progression", "satisfied")],
+        }
+        arbitrations = {"n": 0}
+
+        def arbitrate(*args):
+            arbitrations["n"] += 1
+            return "A"
+
+        result = selection_tournament(
+            [_X, _Y], _anchored_judge(claims_by_id, arbitrate), max_rounds=1
+        )
+        assert arbitrations["n"] == 2  # no_difference → 仲裁 ab+ba 两轮
+        # 槽位命名仲裁在换位下命名不同正文 → 无稳定胜者（不误判质量耗尽也不静默放行）。
+        assert result.winner is None
+
+    def test_content_stable_arbitration_converges(self):
+        # 两份证据互不支配（推进 vs 语言）→ undecidable → 仲裁内容稳定偏好 X.
+        claims_by_id = {
+            _X: [_jc("a1", "progression", "satisfied")],
+            _Y: [_jc("a2", "language_distinctiveness", "satisfied")],
+        }
+        result = selection_tournament(
+            [_X, _Y], _anchored_judge(claims_by_id, lambda *a: "A"), max_rounds=1
+        )
+        # A/B 轮仲裁 → X；B/A 轮仲裁 → 候选甲=Y 返回 "A"（Y 胜）→ 不一致 → 无稳定胜者。
+        assert result.winner is None
+
+    def test_slot_naming_arbitration_exposed(self):
+        # 仲裁恒命名甲槽位 → 两轮命名不同正文 → 位置不一致 → 双方淘汰。
+        claims_by_id = {
+            _X: [_jc("a1", "progression", "satisfied")],
+            _Y: [_jc("a2", "language_distinctiveness", "satisfied")],
+        }
+        result = selection_tournament(
+            [_X, _Y],
+            _anchored_judge(claims_by_id, lambda *a: "A"),
+            max_rounds=2,
+        )
+        assert result.winner is None
+        assert result.position_consistency_rate == 0.0

@@ -90,10 +90,14 @@ from src.workflow_action.judge_council import (
     parse_judge_claims,
 )
 from src.workflow_action.pareto_tournament import (
-    build_anonymous_pair_prompt,
-    parse_anonymous_pair_response,
+    build_anchored_pair_prompt,
+    compare_judge_claims,
     pareto_frontier,
     selection_tournament,
+)
+from src.workflow_action.preference_review import (
+    parse_anchored_arbitration,
+    parse_with_quality_retry,
 )
 from src.workflow_action.plan_search import (
     build_plot_batch_prompt,
@@ -106,6 +110,7 @@ from src.workflow_action.plan_search import (
 )
 from src.workflow_action.precommit import (
     build_evaluator_precommit,
+    falsify_blocking,
     falsify_prose_against_precommit,
 )
 from src.workflow_action.reader_contract import scene_experience_guard_review_issues
@@ -276,6 +281,7 @@ class AutonomousRunner:
         self._flow_mode = flow_mode
         self._last_accepted_candidate_id: str | None = None
         self._started_at = time.monotonic()
+        self._judge_quality_retries = 0
         self._user_home = Path(user_home) if user_home else Path.home()
         self._target_chars = (
             policy.chapter.target_chinese_characters_min
@@ -574,9 +580,17 @@ class AutonomousRunner:
         return decision
 
     def _stage_failure(self, stage: str, exc: Exception) -> AutonomousDecision:
-        """Provider/Schema/预算/证据错误：只记错误类型，不落详情、不重试."""
+        """Provider/Schema/预算/证据错误：只记错误类型，不落详情、不重试.
+
+        评审/仲裁输出协议合规在有界重请求后仍失败（ReviewQualityExhaustedError）时，
+        把重请求次数附在类型名后诚实上报（如 ``judge failed: ReviewQualityExhaustedError``
+        因 retries=3 耗尽）——这是协议合规的诚实终态，不是网络重试。
+        """
+        error_label = type(exc).__name__
+        if error_label == "ReviewQualityExhaustedError":
+            error_label = f"{error_label}(retries={self._judge_quality_retries})"
         decision = resolve_autonomous_decision(
-            provider_error=f"{stage} failed: {type(exc).__name__}",
+            provider_error=f"{stage} failed: {error_label}",
             viability_verdict="continue",
             premise_candidates_remaining=0,
             required_axes_armed=True,
@@ -610,7 +624,9 @@ class AutonomousRunner:
     def _invoke(self, provider: AnthropicMessagesProvider, prompt: str) -> str:
         role_config = getattr(provider.profile.roles, provider.role)
         interface = DirectAPIInterface(
-            model=role_config.request_model, provider_call=provider
+            model=role_config.request_model,
+            provider_call=provider,
+            expected_response_model=role_config.expected_actual_model,
         )
         return interface.call(prompt)
 
@@ -929,7 +945,7 @@ class AutonomousRunner:
             ],
             "selection_rule": (
                 "hard-axis elimination + soft-axis Pareto frontier + "
-                "anonymous A/B + B/A position-stable selection (T6)"
+                "deterministic compare + evidence-anchored A/B + B/A arbitration (T6)"
             ),
         }
         if frontier:
@@ -1002,6 +1018,10 @@ class AutonomousRunner:
             ),
         )
 
+    def _record_judge_quality_retry(self, _attempt: int) -> None:
+        """有界协议合规重请求计数（评审/仲裁 JSON 解析、锚点捏造等），诚实上报."""
+        self._judge_quality_retries += 1
+
     def _judge_call(
         self, role: str, precommit, prose: str, chapter_ref: str
     ) -> list[JudgeClaim]:
@@ -1010,47 +1030,97 @@ class AutonomousRunner:
         三角色（fact_judge / character_judge / reader_judge）各自独立调用，评审
         上下文彼此隔离（不读生成 prompt/其他候选）。解析器强制锚点与 precommit_id
         绑定（T5.4），generator_source=角色由运行层注入。
+
+        评审输出协议合规失败（JSON 无法解析/锚点捏造/形状违例）做有界重请求
+        （parse_with_quality_retry）：每次重请求是独立全新调用；provider/网络错误
+        从调用侧立即上抛，绝不重试。耗尽 → ReviewQualityExhaustedError → 诚实失败。
         """
-        response = self._invoke(
-            self._judge_providers[role],
-            build_judge_claim_prompt(
-                precommit,
-                prose,
-                reader_contract_context=(
-                    self._reader_contract.to_prompt_context()
-                    if self._reader_contract
-                    else ""
-                ),
+        prompt = build_judge_claim_prompt(
+            precommit,
+            prose,
+            reader_contract_context=(
+                self._reader_contract.to_prompt_context()
+                if self._reader_contract
+                else ""
+            ),
+            role=role,
+        )
+        return parse_with_quality_retry(
+            lambda: self._invoke(self._judge_providers[role], prompt),
+            lambda text: parse_judge_claims(
+                text,
+                prose=prose,
+                chapter_ref=chapter_ref,
                 role=role,
+                precommit=precommit,
+            ),
+            on_retry=self._record_judge_quality_retry,
+        )
+
+    def _arbitrate_pair(
+        self,
+        claims_x: list,
+        claims_y: list,
+        prose_x: str,
+        prose_y: str,
+        pair_id: str,
+    ) -> str:
+        """T6.2 证据锚定仲裁（单轮）：给两份单候选评审证据 + 决定性锚点 → 内容映射.
+
+        评审命名「甲/乙」槽位无效力——parse_anchored_arbitration 把 decisive_anchor
+        映射到实际包含它的候选（内容优先于槽位名，防候选甲槽位锚定偏置）。
+        仲裁输出协议合规失败做有界重请求；provider/网络错误不重试。
+        """
+        prompt = build_anchored_pair_prompt(
+            claims_x,
+            claims_y,
+            role="reader_judge",
+            reader_contract_context=(
+                self._reader_contract.to_prompt_context()
+                if self._reader_contract
+                else ""
             ),
         )
-        return parse_judge_claims(
-            response,
-            prose=prose,
-            chapter_ref=chapter_ref,
-            role=role,
-            precommit=precommit,
+        return parse_with_quality_retry(
+            lambda: self._invoke(self._tournament_provider, prompt),
+            lambda text: parse_anchored_arbitration(
+                text, pair_id=pair_id, response_a=prose_x, response_b=prose_y
+            ),
+            on_retry=self._record_judge_quality_retry,
         )
 
-    def _pair_call(self, prose_a: str, prose_b: str, pair_id: str) -> str:
-        """T6.2：匿名 A/B 单轮换位评审（两段无标识正文）→ "A"/"B"/"no_difference"."""
-        response = self._invoke(
-            self._tournament_provider,
-            build_anonymous_pair_prompt(prose_a, prose_b, role="reader_judge"),
-        )
-        return parse_anonymous_pair_response(response, pair_id)
+    def _tournament(
+        self,
+        prose_by_id: dict,
+        claims_by_id: dict,
+        frontier: list,
+        chapter_ref: str,
+    ):
+        """T6.3：帕累托前沿淘汰赛——确定性比较优先，证据锚定仲裁兜底.
 
-    def _tournament(self, prose_by_id: dict, frontier: list, chapter_ref: str):
-        """T6.3：帕累托前沿淘汰赛——逐对 A/B+B/A，位置一致率与稳定胜者落盘.
-
-        位置不稳定执行判别轮（策略 max_decision_rounds），仍不稳定该对淘汰；
-        无法收敛到唯一稳定胜者 → winner None → 运行层 quality_exhausted（T6.5）。
-        落盘只记候选 id 与偏好，正文只在内存。
+        确定性可判（硬轴消除 / 软轴支配）→ 零 provider 调用，两轮换位必然一致；
+        证据互不支配（undecidable）**或完全等价（no_difference）** → 逐对 A/B +
+        B/A 证据锚定仲裁（内容映射，两轮命名同一正文才一致）。no_difference 不直接
+        淘汰：两份正文可能证据打平但正文内容可分（决定性锚点不同），直接淘汰会把
+        有效候选误判为质量耗尽。位置不稳定执行判别轮（策略 max_decision_rounds），
+        仍不稳定该对淘汰；无法收敛到唯一稳定胜者 → winner None → 运行层
+        quality_exhausted（T6.5）。落盘只记候选 id、偏好与仲裁方式，正文只在内存。
         """
         def judge_pair(x: str, y: str) -> tuple[str, str]:
             pair_id = f"{chapter_ref}:{x}|{y}"
-            pref_ab = self._pair_call(prose_by_id[x], prose_by_id[y], pair_id)
-            pref_ba = self._pair_call(prose_by_id[y], prose_by_id[x], pair_id)
+            claims_x = claims_by_id.get(x, [])
+            claims_y = claims_by_id.get(y, [])
+            decision = compare_judge_claims(claims_x, claims_y)
+            if decision == "X":
+                return ("A", "B")  # 确定性：x 胜，两轮一致（零 provider 调用）
+            if decision == "Y":
+                return ("B", "A")
+            pref_ab = self._arbitrate_pair(
+                claims_x, claims_y, prose_by_id[x], prose_by_id[y], pair_id + ":ab"
+            )
+            pref_ba = self._arbitrate_pair(
+                claims_y, claims_x, prose_by_id[y], prose_by_id[x], pair_id + ":ba"
+            )
             return pref_ab, pref_ba
 
         result = selection_tournament(
@@ -1302,9 +1372,7 @@ class AutonomousRunner:
                 )
                 if seam_findings:
                     self._record_seam_findings(seam_findings)
-                hard = any(
-                    claim_is_hard_violation(claim) for claim in code_claims
-                ) or bool(seam_findings)
+                hard = falsify_blocking(code_claims) or bool(seam_findings)
                 variant_records.append(
                     _VariantRecord(
                         plan_index=index,
@@ -1369,14 +1437,21 @@ class AutonomousRunner:
         frontier = pareto_frontier(list(axis_scores), axis_scores)
         tournament = None
         if len(frontier) > 1:
-            # 多候选前沿 → 匿名 A/B + B/A 淘汰赛；无法收敛稳定胜者 → quality_exhausted。
+            # 多候选前沿 → 确定性比较优先，证据锚定仲裁兜底；无法收敛 → quality_exhausted。
             prose_by_id = {
                 record.prose_candidate.candidate_id: record.text
                 for record in variant_records
                 if record.status == "candidate"
             }
+            claims_by_id = {
+                record.prose_candidate.candidate_id: tuple(record.judge_claims)
+                for record in variant_records
+                if record.status == "candidate"
+            }
             try:
-                tournament = self._tournament(prose_by_id, frontier, chapter_ref)
+                tournament = self._tournament(
+                    prose_by_id, claims_by_id, frontier, chapter_ref
+                )
             except Exception as exc:
                 return self._stage_failure("tournament", exc)
             if tournament.winner is not None:

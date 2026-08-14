@@ -89,6 +89,11 @@ class ProviderRole(_StrictModel):
     request_model: str = Field(min_length=1)
     expected_actual_model: str = Field(min_length=1)
     temperature: float = Field(ge=0.0, le=2.0)
+    # Provider capability knob: send "thinking": {"type": "disabled"} on this
+    # role's requests.  Required for thinking-native providers (e.g. kimi k3)
+    # where hidden thinking tokens otherwise consume the whole judge output
+    # budget and truncate the JSON text block.  Absent -> body unchanged.
+    thinking_disabled: bool = False
 
 
 class ProviderRoles(_StrictModel):

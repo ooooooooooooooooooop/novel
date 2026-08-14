@@ -9,11 +9,21 @@
 claim_is_hard_violation 判定为 blocking → 候选淘汰，软分数不能抵消
 （requirement §5 规则 7：「每个提交状态变化都有正文证据」）。
 
+匹配是三级确定性近似（``_find_item``）：逐字子串 → 压缩整串子串 → 子句内容二元组
+局部成簇（去掉高频功能字后，条目任一分句的内容词对在正文同一 ≤400 字符窗口内
+去重命中 ≥4 且 包含率 ≥0.35）。前两级保持「短短语逐字命中」的既有口径；第三级让
+长句条目在自然意译下也能被证伪而不是无谓阻断——正文确以词结构在同一场景段重述了
+条目内容即视为落地（G8 根因：plan 层产出句子级条目，prose 层必然意译，全句逐字
+匹配在真实生成中恒为缺失）。条目内容完全缺失（词对不局部成簇）仍然
+violated/blocking。
+
 锚点必须真实：excerpt 直接取自被评审正文的 [char_start, char_end) 区间，
 不可能捏造（与 judge 路径同一核验口径）。
 """
 
 from __future__ import annotations
+
+import re
 
 from src.object_state.evaluator_precommit import EvaluatorPrecommit
 from src.object_state.judge_claim import JudgeClaim, ProseAnchor
@@ -22,6 +32,27 @@ from src.object_state.plotunit import PlotUnit
 from src.workflow_action.plan_search import compact_text
 
 _ANCHOR_OPENING_CHARS = 160
+
+# 内容词匹配（意译容忍）：去掉高频功能字后，测条目子句的内容字符在正文中的保序
+# 覆盖率。正文以自然语序重述条目内容时（如「评估价低于基准两成」→「低于同区域
+# 近三年成交均价约两成」），内容字符（名词/动词/修饰词）的保序覆盖仍高；条目内容
+# 完全缺失时覆盖趋近于零。这是 doc 47 §3.3「从正文重建状态能否得到计划声称的变化」
+# 的确定性近似——不是固定句式搜索，也不是把短语交给 LLM 判定。
+_CONTENT_STOP = frozenset(
+    "的了着在是有被把让它我你他她我们你们她们咱们自己"
+    "这那也还就才都和与或但而于其从对向又以及"
+    "因为所以虽然但是为了不是过没并没已还要会能可正在"
+    "吗呢吧啊哦嗯却则便仍尤其并且况且就算哪怕"
+)
+_CLAUSE_SPLIT_RE = re.compile(r"[，。；：、,.!?;:！？…—～\s「」『』“”‘’()（）【】《》]+")
+# 子句命中阈值：内容字符二元组（词结构）在正文**同一局部窗口**内的去重命中数。
+# 二元组要求局部邻接——意译保留词结构（「举报信…评估价偏低」→ 举报/报信/评估/偏低
+# 等词对仍在），而散落的通用字（人名 + 说/动/作 各自出现）无法拼出 4 个不同词对。
+# 窗口要求把「正文证据」限定为局部成簇：真实落地时条目的词对出现在同一场景段
+# （≤400 字符）内；不同段落偶发共现（同一题材的常用词散落全章）构不成证据。
+_CLAUSE_BIGRAM_MIN = 0.35
+_CLAUSE_BIGRAM_HITS_MIN = 4
+_EVIDENCE_WINDOW_CHARS = 400
 
 
 def build_evaluator_precommit(
@@ -52,8 +83,113 @@ def build_evaluator_precommit(
     )
 
 
+def _content_chars(text: str) -> str:
+    """去高频功能字后的内容字符（仅 CJK，不含标点/空白/数字）。"""
+    return "".join(
+        ch for ch in text if "一" <= ch <= "鿿" and ch not in _CONTENT_STOP
+    )
+
+
+def _content_bigrams(text: str) -> set[str]:
+    """内容字符的相邻二元组集合（词结构的最小单元，意译稳定）。"""
+    return {text[i:i + 2] for i in range(len(text) - 1)}
+
+
+def _windowed_clause_hits(ci: str, prose: str) -> int:
+    """子句内容二元组在正文任一局部窗口内的去重命中数（正文证据的局部成簇度量）.
+
+    对每个子句内容二元组收集其在正文中的所有命中位置；滑动窗口统计任一
+    ``_EVIDENCE_WINDOW_CHARS`` 区间内最多能同时命中的**不同**二元组数。
+    """
+    clause_bigrams = _content_bigrams(ci)
+    positions: list[tuple[int, str]] = []
+    for bigram in clause_bigrams:
+        start = 0
+        while True:
+            index = prose.find(bigram, start)
+            if index < 0:
+                break
+            positions.append((index, bigram))
+            start = index + 1
+    if not positions:
+        return 0
+    positions.sort()
+    best = 0
+    for i in range(len(positions)):
+        distinct: set[str] = set()
+        for j in range(i, len(positions)):
+            if positions[j][0] - positions[i][0] >= _EVIDENCE_WINDOW_CHARS:
+                break
+            distinct.add(positions[j][1])
+        best = max(best, len(distinct))
+    return best
+
+
+def _clause_content_match(clause: str, prose: str) -> tuple[bool, str]:
+    """子句内容二元组是否在正文某局部窗口内成批出现；返回 (命中, 子句内容字符)。"""
+    ci = _content_chars(compact_text(clause))
+    if len(ci) < _CLAUSE_BIGRAM_HITS_MIN + 1:  # 至少要能形成 4 个二元组
+        return False, ci
+    clause_bigrams = _content_bigrams(ci)
+    hits = _windowed_clause_hits(ci, prose)
+    return (
+        hits >= _CLAUSE_BIGRAM_HITS_MIN
+        and hits / len(clause_bigrams) >= _CLAUSE_BIGRAM_MIN
+    ), ci
+
+
+def _locate_content_anchor(prose: str, ci: str) -> int:
+    """在原始正文中定位子句内容字符首次成词出现的位置（锚点必须是真实正文区间）。"""
+    for k in range(len(ci) - 1):
+        index = prose.find(ci[k:k + 2])
+        if index >= 0:
+            return index
+    index = prose.find(ci[0]) if ci else -1
+    return index if index >= 0 else 0
+
+
+def falsify_blocking(code_claims: list[JudgeClaim]) -> bool:
+    """候选级证伪聚合判定：仅当 effective 单元缺失项**不少于**已落地项才硬阻断.
+
+    单项缺失 → 不阻断（正文意译措辞不同是软质量问题，交给带正文锚点的 LLM 评审维
+    权衡；缺失项仍以 blocking 严重级进入 claim 集，在帕累托/淘汰赛中降低该候选的
+    plotunit_expected_change 软轴分数，让更忠实于计划的候选胜出）。缺失项 ≥ 已落地项
+    → 正文没有实质兑现计划声称的多数状态变化，构成硬证据缺口
+    （doc 47 §5「每个状态变化都有正文证据」的实质口径），阻断候选。
+
+    注意：satisfied 项的严重级恒为 advisory（无论 effective 与否），故是否 effective
+    以「缺失项中存在 blocking 严重级」为判据；非 effective 计划的缺失全为 advisory，
+    永不硬阻断。
+    """
+    missing = 0
+    found = 0
+    effective = False
+    for claim in code_claims:
+        if claim.axis != "plotunit_expected_change":
+            continue
+        if claim.verdict == "violated":
+            missing += 1
+            if claim.severity == "blocking":
+                effective = True
+        elif claim.verdict == "satisfied":
+            found += 1
+    if not effective or missing == 0:
+        return False
+    return missing >= found
+
+
 def _find_item(prose: str, item: str) -> int:
-    """在正文中定位一项计划内容；返回原始下标，找不到返回 -1."""
+    """在正文中定位一项计划内容；返回原始下标，找不到返回 -1.
+
+    三级确定性匹配：
+    1. 原始逐字子串；
+    2. 压缩（去空白标点）整串子串；
+    3. 意译容忍：条目任一分句的内容二元组在正文**同一局部窗口**内成批出现
+       （去重命中 ≥4 且 包含率 ≥0.35）。
+    前两级保持既有口径（短短语/逐字引用直接命中），第三级让长句条目在自然意译下
+    也能被证伪而非无谓阻断——正文确以词结构在同一场景段重述了条目内容即视为落地；
+    内容真正缺失（词对不局部成簇）仍然 violated/blocking。
+    """
     if not item:
         return -1
     index = prose.find(item)
@@ -63,6 +199,10 @@ def _find_item(prose: str, item: str) -> int:
     compact_item = compact_text(item)
     if compact_item and compact_item in compact_prose:
         return compact_prose.find(compact_item)
+    for clause in _CLAUSE_SPLIT_RE.split(item):
+        matched, ci = _clause_content_match(clause, prose)
+        if matched:
+            return _locate_content_anchor(prose, ci)
     return -1
 
 
@@ -143,7 +283,7 @@ def falsify_prose_against_precommit(
                 )
             )
     if compact_text(precommit.expected_output_situation):
-        if compact_text(precommit.expected_output_situation) in compact_text(prose):
+        if _find_item(prose, precommit.expected_output_situation) >= 0:
             claims.append(
                 JudgeClaim(
                     claim_id="code_situation_ok",

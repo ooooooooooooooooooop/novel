@@ -20,6 +20,7 @@ from src.object_state.continuation_viability import (
     ContinuationViabilitySignal,
 )
 from src.object_state.readercontract import ReaderContract
+from src.workflow_action.json_repair import parse_json
 
 
 def _signal(signal_id: str, direction: str, strength: str, evidence: str) -> ContinuationViabilitySignal:
@@ -201,7 +202,7 @@ class ContinuationViabilityUnit:
 """
 
     def parse_response(self, response: str) -> ContinuationViabilityDecision:
-        data = json.loads(response)
+        data = parse_json(response)
         if not isinstance(data, dict):
             raise ValueError("ContinuationViability response must be a JSON object")
         required = ("verdict", "reasons")

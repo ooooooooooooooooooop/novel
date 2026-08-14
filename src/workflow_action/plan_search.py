@@ -21,6 +21,7 @@ import unicodedata
 
 from src.object_state.narrativestate import NarrativeState
 from src.object_state.plotunit import PlotUnit
+from src.workflow_action.json_repair import parse_json
 
 # 规范化：NFKC + 去空白与标点（与语义接缝共用同一套「不改变事件身份」的纪律）。
 _COMPACT_RE = re.compile(r"[\s，。！？；：、,.!?;:“”‘’—…・\-—…~·（()）【】《》「」『』]+")
@@ -67,6 +68,10 @@ def build_plot_batch_prompt(base_continue_prompt: str, count: int) -> str:
    released_information 与 consequences 不得彼此雷同（语义重复候选会被淘汰）。
 3. 候选之间可以有不同倾向（有的保守推进、有的制造转折），但都必须忠实于当前
    可信状态、角色与承诺，不得引入与已发生事件矛盾的新设定。
+4. released_information 与 consequences 每项必须是**简洁、可辨识的要点**：一条一个
+   关键事实，含具体名词/数字/人物/动作（如「举报信点名评估价低于基准两成」），
+   以短语或短句为宜，**不要写成多分句的完整叙述段**。正文层将以这些要点的词结构
+   为证据校验其落地——冗长整句在正文中必然被意译，无法通过确定性证伪。
 """
 
 
@@ -82,7 +87,7 @@ def parse_plot_batch_response(
     """
     if count < 1:
         raise ValueError("plot candidate count must be at least 1")
-    data = json.loads(response)
+    data = parse_json(response)
     if not isinstance(data, dict) or set(data) != {"candidates"}:
         raise ValueError("plot batch response must be a JSON object with only 'candidates'")
     candidates = data["candidates"]

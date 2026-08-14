@@ -198,6 +198,16 @@ class AnthropicMessagesProvider:
         self._verify_provider_identity()
 
     def _load_external_settings(self) -> tuple[str, str]:
+        # 进程环境优先（凭据不落盘、可注入沙箱校准/生产运行）；缺省回落 settings 文件。
+        # 环境变量名来自 profile 的 json 路径（如 "env.ANTHROPIC_BASE_URL" → ANTHROPIC_BASE_URL）。
+        base_env = os.environ.get(
+            self.profile.endpoint.base_url_json_path.removeprefix("env."), ""
+        )
+        auth_env = os.environ.get(
+            self.profile.endpoint.credential_json_path.removeprefix("env."), ""
+        )
+        if base_env and auth_env:
+            return base_env.rstrip("/"), auth_env
         path = self.user_home / self.profile.endpoint.settings_path_from_user_home
         payload = json.loads(path.read_text(encoding="utf-8"))
         base_url = _require_text(
@@ -246,6 +256,8 @@ class AnthropicMessagesProvider:
             "system": self._system_prompt(),
             "messages": [{"role": "user", "content": request.prompt}],
         }
+        if self._role_config.thinking_disabled:
+            body["thinking"] = {"type": "disabled"}
         body_bytes = json.dumps(
             body, ensure_ascii=False, separators=(",", ":")
         ).encode("utf-8")

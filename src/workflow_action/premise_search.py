@@ -18,6 +18,7 @@ from src.object_state.premise_candidate import PremiseCandidate
 from src.object_state.foreshadowgraph import ForeshadowEntry
 from src.workflow_action.continuation_viability import analyze_continuation_viability
 from src.workflow_action.frame import NarrativeFrameUnit
+from src.workflow_action.json_repair import parse_json
 
 
 def build_premise_search_prompt(
@@ -85,7 +86,7 @@ def build_premise_search_prompt(
 
 def parse_premise_candidates(response: str) -> list[PremiseCandidate]:
     """严格解析前提候选；多余字段/缺失字段/形状错误一律拒绝（不宽容）。"""
-    data = json.loads(response)
+    data = parse_json(response)
     if not isinstance(data, dict) or "candidates" not in data:
         raise ValueError("premise search response must be an object with candidates")
     candidates = data["candidates"]

@@ -26,7 +26,17 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 # 基线 2670 → 2724。
 # A1 G9（统一发布验证）：新增 test_a1_release_validation.py(7)，基线 2724 → 2731。
 # A1 G9 隐私聚合锁：新增 test_a1_release_validation.py 聚合隐私回归(2)，基线 2731 → 2733。
-EXPECTED_TEST_BASELINE = "2733"
+# G7 内容无关评审协议：新增 test_preference_review.py(87)、test_pareto_tournament.py
+#   锚定仲裁夹具(+1)，基线 2733 → 2764。
+# A1 G8 根因（prism 评审 JSON 前导散文/围栏/未转义引号）：工作区 Phase 2/G8 未提交
+#   测试（test_preference_review.py 扩展、test_provider_qualification.py、
+#   test_auto_calibrate.py 等）+33 → 2797；再新增前导散文提取回归(+2) → 2799；
+#   散文内花括号逐个候选提取回归(+1) → 2800；G8 评审锚点偏移重映射回归
+#   （test_judge_claim.py,+1）→ 2801；G8 评审越界偏移重映射 + 非标 position
+#   推导回归（test_judge_claim.py,+2）→ 2803。
+# k3 thinking_disabled provider 能力（test_provider_adapter.py,+3：注入开关 /
+#   缺省字节等价 / 按角色隔离），基线 2803 → 2806。
+EXPECTED_TEST_BASELINE = "2806"
 
 
 def run_script(*args: str) -> subprocess.CompletedProcess[str]:

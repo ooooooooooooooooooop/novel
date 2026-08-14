@@ -1,22 +1,31 @@
-"""A1 T6 — 帕累托前沿 + 匿名 A/B 换位选择（design §7；tasks.md T6）。
+"""A1 T6 — 帕累托前沿 + 内容无关换位选择（design §7；tasks.md T6）。
 
-T6.2/T6.3：对帕累托前沿候选执行匿名 A/B 与 B/A 成对比较——评审 prompt 只含两段
-无标识正文（候选甲/候选乙），**不含**候选 id / 预承诺 id / 计划标签 / 版本号 /
-正文哈希 / 生成模型身份（reward hacking 与同模型自偏好的隔离面）。每对同时跑
-A/B 与 B/A 两轮换位；两轮命名同一正文 → 位置一致（position-consistent）。
+T6.2/T6.3：对帕累托前沿候选执行**内容无关**成对比较——不再把两段正文并排展示让评审
+按「候选甲/候选乙」槽位作答（deepseek-v4-flash temp0 实测把偏好名到「甲」槽位 →
+换位不稳定）。每个候选**已先经单候选带锚点评审**（autonomous_runner._judge_call 产出
+JudgeClaim），淘汰赛先做确定性程序比较（compare_judge_claims：硬轴消除 → 软轴帕累托）；
+只有确定性比较无法分出高下时，才做**证据锚定仲裁**（build_anchored_pair_prompt →
+parse_anchored_arbitration）：评审引用被选候选**自己的正文**的 decisive_anchor，程序把
+锚点映射到实际包含它的候选（内容优先于槽位名）。
 
 T6.4：``pareto_frontier`` 做软轴帕累托前沿——候选 X 支配 Y ⟺ 所有软轴 X≥Y 且
 至少一轴 X>Y；非支配候选构成前沿。硬轴违例已在前一阶段淘汰，不能进入前沿。
 
-T6.5：``selection_tournament`` 淘汰赛——逐对比较（每对 A/B + B/A），胜者前进；
-位置不一致时执行判别轮（至多 ``max_rounds``），仍不一致即该对双方淘汰；
-无法收敛到唯一稳定胜者 → 返回 None → 运行层 quality_exhausted（不转人工）。
+T6.5：``selection_tournament`` 淘汰赛——逐对比较；确定性可判时零 provider 调用、
+两轮换位必然一致；需仲裁时每对 A/B + B/A 两轮，位置不一致执行判别轮（至多
+``max_rounds``），仍不一致即该对双方淘汰；无法收敛到唯一稳定胜者 → 返回 None →
+运行层 quality_exhausted（不转人工）。
 """
 
 from __future__ import annotations
 
 import json
 from typing import Callable, NamedTuple
+
+from src.object_state.judge_claim import claim_is_hard_violation, soft_axis_score
+from src.workflow_action.judge_council import SOFT_AXES
+from src.workflow_action.preference_review import parse_anchored_arbitration
+from src.workflow_action.json_repair import parse_json
 
 # 匿名换位评审的严格输出：preferred ∈ {A, B, no_difference}。
 PairPreference = str  # "A" | "B" | "no_difference"
@@ -63,6 +72,94 @@ def _dominates(a: dict[str, int], b: dict[str, int]) -> bool:
         if a.get(axis, 0) > b.get(axis, 0):
             strictly_better = True
     return strictly_better
+
+
+def compare_judge_claims(claims_x: list, claims_y: list) -> str:
+    """确定性比较两份候选的评审证据 → "X"(x 更优) / "Y"(y 更优) / "no_difference" / "undecidable".
+
+    与 preference_review.compare_single_reviews 同构：硬轴消除（blocking+violated 少者胜）
+    → 软轴帕累托（SOFT_AXES 逐轴 ≥ 且至少一轴 >）；双方证据皆空 → undecidable（交给
+    证据锚定仲裁，不静默放行）。评审证据来自单候选带锚点 JudgeClaim，与展示顺序无关。
+    """
+    hard_x = sum(1 for c in claims_x if claim_is_hard_violation(c))
+    hard_y = sum(1 for c in claims_y if claim_is_hard_violation(c))
+    if hard_x != hard_y:
+        return "X" if hard_x < hard_y else "Y"
+    scores_x = {axis: soft_axis_score(tuple(claims_x), axis) for axis in SOFT_AXES}
+    scores_y = {axis: soft_axis_score(tuple(claims_y), axis) for axis in SOFT_AXES}
+    if all(score == 0 for score in scores_x.values()) and all(
+        score == 0 for score in scores_y.values()
+    ):
+        return "undecidable"
+    ge_x = all(scores_x[axis] >= scores_y[axis] for axis in SOFT_AXES)
+    ge_y = all(scores_y[axis] >= scores_x[axis] for axis in SOFT_AXES)
+    if ge_x and not ge_y:
+        return "X"
+    if ge_y and not ge_x:
+        return "Y"
+    if ge_x and ge_y:
+        return "no_difference"
+    return "undecidable"
+
+
+def build_anchored_pair_prompt(
+    claims_x: list,
+    claims_y: list,
+    *,
+    role: str = "reader_judge",
+    reader_contract_context: str = "",
+) -> str:
+    """证据锚定仲裁 prompt：只给两份单候选评审证据（轴/结论/severity/锚点原文/理由）.
+
+    评审不见候选 id / 预承诺 id / 生成方式（T5.6 隔离），只比较证据与锚点原文；
+    decisive_anchor 必须从被选候选**自己的正文**引用，程序随后映射到实际包含它的候选。
+    """
+    role_guide = {
+        "fact_judge": "你负责【事实】轴：正文与可信事实的一致性、确定性是否站得住。",
+        "character_judge": "你负责【人物】轴：角色行为是否符合其驱动力与连续性。",
+        "reader_judge": "你负责【读者体验】轴：推进、阅读摩擦、契约、语言辨识度、建设性歧义。",
+    }.get(role, "你负责综合判断两段正文的质量。")
+    contract_section = (
+        f"\n【读者契约】\n{reader_contract_context}" if reader_contract_context else ""
+    )
+
+    def _render(claims: list) -> str:
+        lines: list[str] = []
+        for claim in claims:
+            anchor_text = "；".join(a.excerpt for a in claim.anchors)
+            lines.append(
+                f"- {claim.axis} / {claim.verdict} / {claim.severity}: "
+                f"{claim.rationale} | 锚点原文: {anchor_text}"
+            )
+        return "\n".join(lines) if lines else "（无判断）"
+
+    return f"""【证据锚定仲裁】
+两个候选的章节正文都通过了独立单候选评审（带正文锚点），但评审证据未能直接分出高下。
+请你比较下面两份**评审证据**（逐条判断 + 正文锚点原文），并引用你裁定所依据的
+**决定性正文片段**来仲裁。
+
+{role_guide}{contract_section}
+
+【候选甲 评审证据】
+{_render(claims_x)}
+
+【候选乙 评审证据】
+{_render(claims_y)}
+
+【裁定要求】
+1. preferred ∈ "A" / "B" / "no_difference"：哪个候选的正文更优。
+2. decisive_anchor：从你选中的候选**自己的正文**中引用一段决定性证据（excerpt 必须
+   逐字来自该候选正文，给 [char_start, char_end) 偏移）。preferred 为 "no_difference"
+   时 decisive_anchor 为 null。
+3. rationale：一句话理由。禁止捏造锚点。
+
+【输出格式】严格 JSON（只输出 JSON，不要 Markdown 代码块）：
+{{
+  "preferred": "A",
+  "decisive_anchor": {{"excerpt": "…", "char_start": 0, "char_end": 40}},
+  "rationale": "…"
+}}
+"""
 
 
 def build_anonymous_pair_prompt(
@@ -118,7 +215,7 @@ def parse_anonymous_pair_response(response: str, pair_id: str) -> PairPreference
         ValueError: 非 JSON / 非对象 / 多余字段 / 缺 preferred / preferred 非法
             / rationale 空白 —— 运行层记为 schema 错误 → execution_failed。
     """
-    data = json.loads(response)
+    data = parse_json(response)
     if not isinstance(data, dict):
         raise ValueError(f"pair {pair_id}: response must be a JSON object")
     required = {"preferred", "rationale"}
