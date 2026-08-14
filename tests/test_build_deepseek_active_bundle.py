@@ -14,6 +14,10 @@
 * 端点/凭证经 env 变量**名**引用（env.ANTHROPIC_BASE_URL 等），不落任何值；唯一含 URL 的
   输出字段是 runtime profile 的 provider_audit.upstream_url（执行时从 ANTHROPIC_BASE_URL
   注入**实际值**，缺失即显式失败，值不打印）；其余输出无 URL/凭证/机器路径/小说内容。
+* provider_audit 的 id/name/expected_actual_model 由执行时从 cc-switch **当前 claude
+  provider** 冻结（`CC_SWITCH_DB` env 指向的 DB，测试注入夹具 DB，与真实 DB/凭据隔离）——
+  非 stylized 标签（ProviderAdapter 构造时以相同查询核对）；当前 provider 非生产允许模型
+  deepseek-v4-flash 或处于 failover 即显式失败。settings_config 中的凭证值绝不读取打印。
 
 无 provider/LLM 调用；纯确定性文件生成。
 """
@@ -24,6 +28,7 @@ import hashlib
 import importlib.util
 import json
 import os
+import sqlite3
 from pathlib import Path
 
 import pytest
@@ -57,12 +62,49 @@ def _actual_split_sha256() -> str:
     return hashlib.sha256((REPO_ROOT / SPLIT_V2_PATH).read_bytes()).hexdigest()
 
 
+def _write_fixture_db(
+    tmp_path: Path,
+    *,
+    provider_id: str = "fixture-deepseek-id",
+    provider_name: str = "Fixture DeepSeek",
+    model: str = "deepseek-v4-flash",
+    in_failover: int = 0,
+    is_current: int = 1,
+) -> Path:
+    """写一个夹具 cc-switch DB（当前 claude provider 行）；与真实 DB/凭据完全隔离."""
+    db_path = tmp_path / "db" / "cc-switch.db"
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    con = sqlite3.connect(db_path)
+    con.execute("DROP TABLE IF EXISTS providers")
+    con.execute(
+        "CREATE TABLE providers (id TEXT, app_type TEXT, name TEXT, "
+        "in_failover_queue INTEGER, settings_config TEXT, is_current INTEGER)"
+    )
+    con.execute(
+        "INSERT INTO providers VALUES (?, 'claude', ?, ?, ?, ?)",
+        (
+            provider_id,
+            provider_name,
+            in_failover,
+            json.dumps({"env": {"ANTHROPIC_DEFAULT_HAIKU_MODEL": model}}),
+            is_current,
+        ),
+    )
+    con.commit()
+    con.close()
+    return db_path
+
+
 @pytest.fixture(autouse=True)
-def _deepseek_env(monkeypatch):
+def _deepseek_env(monkeypatch, tmp_path_factory):
     """builder main() 执行时从 ANTHROPIC_BASE_URL 注入实际上游 URL；测试注入不冲突的
-    显式值（https://provider.invalid），与真实凭据/端点完全隔离。"""
+    显式值（https://provider.invalid），与真实凭据/端点完全隔离；cc-switch DB 指向夹具
+    DB（当前 claude provider = deepseek-v4-flash，放在测试 tmp_path 之外，不污染
+    output_dir 计数），与真实 DB/凭据隔离。"""
     monkeypatch.setenv("ANTHROPIC_BASE_URL", "https://provider.invalid")
     monkeypatch.setenv("ANTHROPIC_AUTH_TOKEN", "test-token")
+    db_dir = tmp_path_factory.mktemp("fixture_db")
+    monkeypatch.setenv("CC_SWITCH_DB", str(_write_fixture_db(db_dir)))
     yield
 
 
@@ -123,6 +165,41 @@ def test_build_requires_base_url_env(tmp_path, monkeypatch):
     assert not (tmp_path / "active_provider.json").exists()
 
 
+def test_build_derives_provider_identity_from_live_db(tmp_path):
+    """provider_audit 的 id/name/expected_actual_model 冻结自 cc-switch 当前 claude
+    provider（夹具 DB）——非 stylized 标签；与 ProviderAdapter 构造时同查询核对逐字一致。"""
+    contents = _run(tmp_path)
+    profile = json.loads(contents["provider_profile_deepseek_v4_flash.json"])
+    pa = profile["provider_audit"]
+    assert pa["provider_id"] == "fixture-deepseek-id"
+    assert pa["provider_name"] == "Fixture DeepSeek"
+    assert pa["expected_actual_model"] == "deepseek-v4-flash"
+    assert pa["failover_allowed"] is False
+    # active selector 仍是模型标签声明（与 provider 行身份分离的公共事实）
+    active = json.loads(contents["active_provider.json"])
+    assert active["active_provider"] == "deepseek_v4_flash"
+
+
+def test_build_refuses_non_deepseek_current_provider(tmp_path, monkeypatch):
+    """当前 claude provider 非生产允许模型 deepseek-v4-flash → 显式失败，不写任何文件。"""
+    monkeypatch.setenv(
+        "CC_SWITCH_DB", str(_write_fixture_db(tmp_path, model="kimi-k2.6"))
+    )
+    with pytest.raises(RuntimeError, match="deepseek-v4-flash"):
+        bd.main(output_dir=tmp_path)
+    assert not (tmp_path / "provider_profile_deepseek_v4_flash.json").exists()
+
+
+def test_build_refuses_failover_current_provider(tmp_path, monkeypatch):
+    """当前 provider 处于 failover 队列 → 显式失败（禁止冻结 failover provider）。"""
+    monkeypatch.setenv(
+        "CC_SWITCH_DB", str(_write_fixture_db(tmp_path, in_failover=1))
+    )
+    with pytest.raises(RuntimeError, match="failover"):
+        bd.main(output_dir=tmp_path)
+    assert not (tmp_path / "active_provider.json").exists()
+
+
 def test_build_frozen_thresholds_and_uncontaminated_split(tmp_path):
     contents = _run(tmp_path)
     policy = json.loads(contents["canary_policy_deepseek_v4_flash.json"])
@@ -179,6 +256,19 @@ def test_build_policy_passes_autonomous_policy_validation(tmp_path):
     assert policy.benchmarks.preference_split_manifest_sha256 == SPLIT_V2_SHA256
     assert policy.evaluation.holdout_overall_accuracy_min == 0.65
     assert policy.budget.max_total_cost_usd > 0
+
+
+def test_build_judge_roles_disable_thinking(tmp_path):
+    """deepseek-v4-flash 是 thinking-native provider：judge 角色必须发
+    ``thinking: {"type": "disabled"}``，否则隐藏思考 token 耗尽 judge 输出预算、
+    JSON text 块被截断（ProviderSchemaError）。生成角色不强制（M2 只用 judge）。"""
+    contents = _run(tmp_path)
+    profile = ProviderProfile.model_validate(
+        json.loads(contents["provider_profile_deepseek_v4_flash.json"])
+    )
+    for name in ("fact_judge", "character_judge", "reader_judge"):
+        assert getattr(profile.roles, name).thinking_disabled is True, name
+    assert profile.roles.generation.thinking_disabled is False
 
 
 def test_build_active_selector_points_only_deepseek(tmp_path):

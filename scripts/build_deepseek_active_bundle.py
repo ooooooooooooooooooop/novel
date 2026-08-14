@@ -22,6 +22,12 @@ g0_report.json、calibrate-kimi-k3-full/calls/）一律不改写。
   holdout，叙事 tag，被 A1 早期轮次用于协议调参）已废弃——**不得**把干净哈希配到该文件。
   `main()` 运行时用实际文件字节校验 v2 SHA，防漂移/错配。
 - 输出 JSON 确定性幂等（sort_keys + 固定 indent），重跑字节不变。
+- provider_audit.provider_id/provider_name/expected_actual_model 由执行时读取
+  cc-switch **当前 claude provider** 的真实身份（id/name/`env.ANTHROPIC_DEFAULT_HAIKU_MODEL`）
+  冻结——不是 stylized 标签（ProviderAdapter 构造时以相同查询核对，profile 必须与 live DB
+  逐字一致）；当前 provider 非生产唯一允许模型（deepseek-v4-flash）或处于 failover 即显式
+  失败。DB 路径 `CC_SWITCH_DB` env 优先、缺省 `~/.cc-switch/cc-switch.db`；只读 id/name/model，
+  绝不读取/打印 settings_config 中的凭证值。
 - 输出（gitignored runtime 本地证据）唯一含 URL 的字段是 provider_audit.upstream_url，
   由执行时 `ANTHROPIC_BASE_URL` env 注入**实际值**（缺失即显式失败、值不打印）；tracked
   模板/文档不含任何凭证值 / URL / 机器绝对路径 / 小说名或正文。ProviderAdapter 调用前
@@ -36,6 +42,7 @@ import hashlib
 import json
 import os
 import re
+import sqlite3
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -43,7 +50,9 @@ BUNDLE_DIR = REPO_ROOT / "runtime/refs/deepseek_active"
 
 # ---- 公共常量（只含 Provider/model/环境变量名/确定性政策；无凭证值、无私有端点 URL）----
 
-# Provider 身份（公共事实）
+# Provider 模型标签（公共事实；用于 active selector 声明与模板占位）
+# provider_audit 的 id/name/expected_actual_model 由 main() 执行时从 cc-switch live DB
+# 冻结**实际**当前 provider 身份（见 _load_db_provider_identity），不用本标签代替真实行。
 PROVIDER_ID = "deepseek_v4_flash"
 PROVIDER_NAME = "OpenCode"
 PROVIDER_CATEGORY = "third_party"
@@ -119,6 +128,56 @@ def _load_env_base_url() -> str:
             "never printed or committed)"
         )
     return value
+
+
+def _resolve_db_path() -> Path:
+    """cc-switch DB 路径：`CC_SWITCH_DB` env 优先（测试隔离/其他设备），缺省 `~/.cc-switch/cc-switch.db`.
+
+    与 ProviderAdapter 的打开方式（``user_home / database_path_from_user_home``）指向同一
+    物理文件，故 build 时冻结的身份与 adapter 运行时核对的身份逐字一致。只读取 id/name/model
+    等非机密字段；settings_config 中的凭证值绝不读取打印、绝不出现在任何输出。
+    """
+    env = os.environ.get(ENV_CC_SWITCH_DB, "").strip()
+    if env:
+        return Path(env).expanduser()
+    return Path.home() / ".cc-switch" / "cc-switch.db"
+
+
+def _load_db_provider_identity() -> tuple[str, str, str]:
+    """冻结 cc-switch **当前 claude provider** 的真实身份（id / name / 实际模型）。
+
+    冻结实际当前 provider，而非 stylized 标签——ProviderAdapter 构造时以相同查询核对
+    当前 provider（id/name/model/failover），profile 的 provider_audit 必须与 live DB
+    逐字一致。生产唯一允许模型是 MODEL：当前 provider 的
+    ``env.ANTHROPIC_DEFAULT_HAIKU_MODEL`` != MODEL，或处于 failover 队列，即显式失败
+    （不换 provider、不回落、不写任何 bundle 文件）。
+    """
+    db = _resolve_db_path()
+    if not db.is_file():
+        raise RuntimeError(f"cc-switch DB missing: {db}")
+    with sqlite3.connect(db) as connection:
+        row = connection.execute(
+            """
+            SELECT id, name, in_failover_queue, settings_config
+            FROM providers
+            WHERE app_type = 'claude' AND is_current = 1
+            """
+        ).fetchone()
+    if row is None:
+        raise RuntimeError("no current claude provider is configured in cc-switch DB")
+    provider_id, provider_name, in_failover_queue, settings_json = row
+    settings = json.loads(settings_json)
+    actual_model = (settings.get("env") or {}).get("ANTHROPIC_DEFAULT_HAIKU_MODEL")
+    if bool(in_failover_queue):
+        raise RuntimeError(
+            "current provider is in failover queue; refusing to freeze a failover provider"
+        )
+    if actual_model != MODEL:
+        raise RuntimeError(
+            f"current claude provider is not production-allowed model {MODEL!r} "
+            f"(got {actual_model!r}); refusing to freeze"
+        )
+    return provider_id, provider_name, actual_model
 
 
 def _active_provider() -> dict:
@@ -201,9 +260,24 @@ def _profile() -> dict:
         },
         "roles": {
             "generation": {"request_model": MODEL, "expected_actual_model": MODEL, "temperature": 0.0},
-            "fact_judge": {"request_model": MODEL, "expected_actual_model": MODEL, "temperature": 0.0},
-            "character_judge": {"request_model": MODEL, "expected_actual_model": MODEL, "temperature": 0.0},
-            "reader_judge": {"request_model": MODEL, "expected_actual_model": MODEL, "temperature": 0.0},
+            "fact_judge": {
+                "request_model": MODEL,
+                "expected_actual_model": MODEL,
+                "temperature": 0.0,
+                "thinking_disabled": True,
+            },
+            "character_judge": {
+                "request_model": MODEL,
+                "expected_actual_model": MODEL,
+                "temperature": 0.0,
+                "thinking_disabled": True,
+            },
+            "reader_judge": {
+                "request_model": MODEL,
+                "expected_actual_model": MODEL,
+                "temperature": 0.0,
+                "thinking_disabled": True,
+            },
         },
         "pricing_usd_per_million_tokens": {
             "input": 0.14, "output": 0.28, "cache_read": 0.0028, "cache_creation": 0.0,
@@ -340,7 +414,13 @@ def main(output_dir: Path | None = None) -> bool:
     _assert_split_manifest_bytes()
 
     base_url = _load_env_base_url()
+    # 冻结 cc-switch 当前 claude provider 的真实身份（id/name/model），保证 adapter 构造时
+    # 的 provider 身份核对（live DB 同查询）通过；非生产允许模型即显式失败（见函数 docstring）。
+    provider_id, provider_name, actual_model = _load_db_provider_identity()
     profile = _profile()
+    profile["provider_audit"]["provider_id"] = provider_id
+    profile["provider_audit"]["provider_name"] = provider_name
+    profile["provider_audit"]["expected_actual_model"] = actual_model  # == MODEL（已断言）
     profile["provider_audit"]["upstream_url"] = base_url  # 实际上游身份注入 runtime profile
 
     files = {
