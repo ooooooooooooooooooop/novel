@@ -22,7 +22,10 @@ g0_report.json、calibrate-kimi-k3-full/calls/）一律不改写。
   holdout，叙事 tag，被 A1 早期轮次用于协议调参）已废弃——**不得**把干净哈希配到该文件。
   `main()` 运行时用实际文件字节校验 v2 SHA，防漂移/错配。
 - 输出 JSON 确定性幂等（sort_keys + 固定 indent），重跑字节不变。
-- 输出不含任何凭证值 / 私有端点 URL / 机器绝对路径 / 小说名或正文。
+- 输出（gitignored runtime 本地证据）唯一含 URL 的字段是 provider_audit.upstream_url，
+  由执行时 `ANTHROPIC_BASE_URL` env 注入**实际值**（缺失即显式失败、值不打印）；tracked
+  模板/文档不含任何凭证值 / URL / 机器绝对路径 / 小说名或正文。ProviderAdapter 调用前
+  校验已加载 base_url 与 profile 的 upstream_url 一致（规范化尾斜杠）。
 
 用法：python scripts/build_deepseek_active_bundle.py
 产物：runtime/refs/deepseek_active/（active_provider.json + provider_profile_*.json +
@@ -31,6 +34,7 @@ g0_report.json、calibrate-kimi-k3-full/calls/）一律不改写。
 
 import hashlib
 import json
+import os
 import re
 from pathlib import Path
 
@@ -65,7 +69,7 @@ SOURCE_SHA256 = "fd9c8faf85b7f4ae4b48f938c9fd608e5ed2011f726789130b37c1588f2ab6e
 HUMAN_SHA256 = "96c8dffbe12238f9a4823da2b3e2aca204d411bf927ce8f140924c9c05042ebf"
 
 # 活动 bundle 元数据
-EVIDENCE_VERSION = "deepseek-active-v20260814-m1"
+EVIDENCE_VERSION = "deepseek-active-v20260814-m1b"
 RUN_ID_NAMESPACE = "canary-deepseek-active-<seq>"
 DECISION_SOURCE = "switchboard 72606eb9（声称用户决定已直接确认）"
 
@@ -101,6 +105,22 @@ def _assert_split_manifest_bytes() -> None:
     )
 
 
+def _load_env_base_url() -> str:
+    """读取 ANTHROPIC_BASE_URL **实际值**，注入 gitignored runtime profile 的 upstream_url.
+
+    缺失/空白即显式失败——runtime profile 的 upstream_url 必须是实际上游身份，不能回落到
+    描述性假值或 env 符号名。值本身绝不打印、绝不进入 tracked 字节（GitHub 只看 tracked）。
+    """
+    value = os.environ.get(ENV_BASE_URL, "").strip().rstrip("/")
+    if not value:
+        raise RuntimeError(
+            f"{ENV_BASE_URL} is required to rebuild the runtime profile "
+            "(actual upstream URL is injected into the gitignored runtime profile; "
+            "never printed or committed)"
+        )
+    return value
+
+
 def _active_provider() -> dict:
     return {
         "schema_version": "1.0",
@@ -109,6 +129,11 @@ def _active_provider() -> dict:
         "evidence_version": EVIDENCE_VERSION,
         "run_id_namespace": RUN_ID_NAMESPACE,
         "decision_source": DECISION_SOURCE,
+        "provider_eligibility": {
+            "production_only": "OpenCode deepseek-v4-flash (deepseek_v4_flash)",
+            "future_m2_candidate": "CPA Gemini（仅作 M2 待资格候选，未资格化前不启用）",
+            "disabled": ["kimi k3（K3 禁用 2026-08-14；冻结证据只读保留）"],
+        },
         "active_policy": {
             "policy_id": "a1-q2a-canary-deepseek-v4-flash-m1",
             "file": "runtime/refs/deepseek_active/canary_policy_deepseek_v4_flash.json",
@@ -128,6 +153,10 @@ def _active_provider() -> dict:
             "本 bundle 是活动配置登记（按传达决定），不构成能通过 G7/G8 的可执行路径；实际运行在资格门显式失败并保留证据。",
             "preference split 用无交叉 v2 划分（split_manifest_v2.json/c45cd6ad，103 cal/35 holdout）；"
             "旧污染划分 split_manifest.json/20864f82（165 cal/43 holdout，被 A1 早期调参）已废弃。",
+            "upstream_url 是实际上游身份：tracked 模板只保存 env 变量名（env:ANTHROPIC_BASE_URL），"
+            "执行时从 ANTHROPIC_BASE_URL 注入实际值到 gitignored runtime profile（缺失即失败、不打印值）；"
+            "ProviderAdapter 调用前校验 base_url 与 upstream_url 一致。",
+            "K3 禁用（2026-08-14）；CPA Gemini 仅作 M2 待资格候选。",
             "k3 冻结 G0/哈希/证据不改写（其 split=20864f82 为污染划分，只读保留并视为失效，待 v2 重冻结）。",
         ],
         "k3_frozen_not_rewritten": [
@@ -140,10 +169,12 @@ def _active_provider() -> dict:
 
 
 def _profile() -> dict:
-    """Provider 档案：端点/凭证经 env 变量**名**引用；数据库走既有跨设备合同
+    """Provider 档案**模板**：端点/凭证经 env 变量**名**引用；数据库走既有跨设备合同
     ``~/.cc-switch/cc-switch.db``（ProviderAdapter 以 ``user_home / 该路径`` 打开，
-    不解析 env 值，故不得写 ``env:CC_SWITCH_DB``）。``upstream_url`` 只作审计元数据
-    （运行时不消费），以非 URL 描述写明真实端点经 env 注入，避免把任何端点写进 bundle。"""
+    不解析 env 值，故不得写 ``env:CC_SWITCH_DB``）。``upstream_url`` 在模板中是
+    ``env:ANTHROPIC_BASE_URL`` 符号名（不落任何端点值）；``main()`` 执行时从
+    ANTHROPIC_BASE_URL 读取**实际值**写入 gitignored runtime profile（缺失即显式失败、
+    不打印值）。ProviderAdapter 调用前校验已加载 base_url 与 profile upstream_url 一致。"""
     return {
         "schema_version": "1.0",
         "profile_id": PROFILE_ID,
@@ -164,7 +195,7 @@ def _profile() -> dict:
             "provider_name": PROVIDER_NAME,
             "provider_category": PROVIDER_CATEGORY,
             "database_path_from_user_home": ".cc-switch/cc-switch.db",
-            "upstream_url": "opencode.ai (public vendor; real endpoint routed via env:ANTHROPIC_BASE_URL)",
+            "upstream_url": f"env:{ENV_BASE_URL}",
             "expected_actual_model": MODEL,
             "failover_allowed": False,
         },
@@ -285,6 +316,8 @@ def _setup_manifest() -> dict:
             "M1 删除评审协议合规重请求后只会更诚实失败。",
             "本 bundle 不构成能通过 G7/G8 的可执行路径；实际运行在资格门显式失败并保留证据。",
             "split 用无交叉 v2 划分（c45cd6ad）；旧污染 20864f82 已废弃，只读保留并标注失效。",
+            "upstream_url 由执行时 ANTHROPIC_BASE_URL 注入 runtime profile（实际上游身份，"
+            "gitignored 本地证据；缺失即失败，值不落 tracked 字节）。",
             "未发起任何外部调用；未生成任何 deepseek G0 新证据。",
         ],
     }
@@ -294,6 +327,8 @@ def main(output_dir: Path | None = None) -> bool:
     """重建 deepseek_active bundle。``output_dir`` 缺省为仓库内 runtime/refs/deepseek_active/.
 
     ``output_dir`` 可覆盖（测试用临时目录）；写出的文件结构与默认目录完全相同。
+    执行时从 ``ANTHROPIC_BASE_URL`` 读取**实际值**注入 runtime profile 的 upstream_url
+    （gitignored 本地证据；缺失即显式失败、值不打印、不进 tracked 字节）。
     """
     out = Path(output_dir) if output_dir is not None else BUNDLE_DIR
     # 冻结阈值不变式（不得降低）
@@ -304,9 +339,13 @@ def main(output_dir: Path | None = None) -> bool:
     assert SPLIT_MANIFEST_SHA256 == "c45cd6ad1640fb9688aba6bdb65973bc886237ca3f3b7d7555c9d86390f9ac01"
     _assert_split_manifest_bytes()
 
+    base_url = _load_env_base_url()
+    profile = _profile()
+    profile["provider_audit"]["upstream_url"] = base_url  # 实际上游身份注入 runtime profile
+
     files = {
         "active_provider.json": _active_provider(),
-        "provider_profile_deepseek_v4_flash.json": _profile(),
+        "provider_profile_deepseek_v4_flash.json": profile,
         "canary_policy_deepseek_v4_flash.json": _policy(),
         "setup_manifest.json": _setup_manifest(),
     }
@@ -314,7 +353,10 @@ def main(output_dir: Path | None = None) -> bool:
     out.mkdir(parents=True, exist_ok=True)
     for name, obj in files.items():
         text = _dump(obj)
-        _assert_no_secrets(text)  # 输出前隐私闸：任何凭证/URL/机器路径/小说内容即断言失败
+        # 隐私闸：唯一合法 URL 是 env 注入的 upstream_url 值；掩码后任何其他 URL/凭证/
+        # 机器路径/小说内容即断言失败（tracked 模板本身零 URL，见 _profile 的 env 符号名）。
+        masked = text.replace(base_url, "<upstream-url-redacted>")
+        _assert_no_secrets(masked)
         (out / name).write_text(text, encoding="utf-8")
         print(f"wrote {out / name}")
     print(f"bundle rebuilt: {out} (evidence_version={EVIDENCE_VERSION})")

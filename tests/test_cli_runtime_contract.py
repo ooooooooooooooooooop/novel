@@ -40,8 +40,9 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 #   数量不变）+ deepseek_active bundle 重建入口（test_build_deepseek_active_bundle.py,+7：
 #   四文件/幂等/隐私/阈值与 v2 划分字节校验/ProviderProfile/AutonomousPolicy/活动选择器）
 # + M1 生产调用链回归（test_autonomous_runner.py,+1：协议违规→单次调用/终态/零污染），
-# 基线 2806 → 2814。
-EXPECTED_TEST_BASELINE = "2814"
+# 基线 2806 → 2814；M1b upstream_url 校验（+1 adapter 调用前 mismatch 测试）
+# + 2 builder 测试（env 注入/缺失失败）→ 2817。
+EXPECTED_TEST_BASELINE = "2817"
 
 
 def run_script(*args: str) -> subprocess.CompletedProcess[str]:

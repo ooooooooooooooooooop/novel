@@ -11,7 +11,9 @@
 * 生成 profile/policy 必须通过真实 `ProviderProfile` / `AutonomousPolicy` Pydantic 校验
   （provider_audit.database_path_from_user_home=`.cc-switch/cc-switch.db` 既有跨设备合同，
   非 env 假值）。
-* 端点/凭证经 env 变量**名**引用（env:ANTHROPIC_BASE_URL 等），不落任何值。
+* 端点/凭证经 env 变量**名**引用（env.ANTHROPIC_BASE_URL 等），不落任何值；唯一含 URL 的
+  输出字段是 runtime profile 的 provider_audit.upstream_url（执行时从 ANTHROPIC_BASE_URL
+  注入**实际值**，缺失即显式失败，值不打印）；其余输出无 URL/凭证/机器路径/小说内容。
 
 无 provider/LLM 调用；纯确定性文件生成。
 """
@@ -21,7 +23,10 @@ from __future__ import annotations
 import hashlib
 import importlib.util
 import json
+import os
 from pathlib import Path
+
+import pytest
 
 from src.object_state.autonomous import AutonomousPolicy, ProviderProfile
 
@@ -52,6 +57,15 @@ def _actual_split_sha256() -> str:
     return hashlib.sha256((REPO_ROOT / SPLIT_V2_PATH).read_bytes()).hexdigest()
 
 
+@pytest.fixture(autouse=True)
+def _deepseek_env(monkeypatch):
+    """builder main() 执行时从 ANTHROPIC_BASE_URL 注入实际上游 URL；测试注入不冲突的
+    显式值（https://provider.invalid），与真实凭据/端点完全隔离。"""
+    monkeypatch.setenv("ANTHROPIC_BASE_URL", "https://provider.invalid")
+    monkeypatch.setenv("ANTHROPIC_AUTH_TOKEN", "test-token")
+    yield
+
+
 def _run(tmp_path: Path):
     assert bd.main(output_dir=tmp_path)
     return {name: (tmp_path / name).read_text(encoding="utf-8") for name in EXPECTED_FILES}
@@ -73,17 +87,40 @@ def test_build_is_idempotent_byte_stable(tmp_path):
 
 def test_build_output_has_no_forbidden_secrets(tmp_path):
     contents = _run(tmp_path)
+    upstream = os.environ["ANTHROPIC_BASE_URL"].rstrip("/")
     for name, text in contents.items():
-        bd._assert_no_secrets(text)
-        # 脚本内置隐私闸之外再独立断言：无任何 cred/密钥形态、无 URL、无绝对路径
-        low = text.lower()
+        # 唯一合法 URL：runtime profile 的 provider_audit.upstream_url（env 注入的实际上游
+        # 身份）。掩码后任何其他 URL/凭证/机器路径/小说内容即断言失败。
+        masked = text.replace(upstream, "<upstream-url-redacted>")
+        bd._assert_no_secrets(masked)
+        low = masked.lower()
         assert "sk-" not in low
         assert "bearer " not in low
         assert "https://" not in low and "http://" not in low
         assert "/users/" not in low and ":\\users\\" not in low
-    # 确认 env 引用是「变量名」而非「值」（profile 用 dot 记法，与既有 Provider 档案一致）
+    profile = json.loads(contents["provider_profile_deepseek_v4_flash.json"])
+    assert profile["provider_audit"]["upstream_url"] == upstream
+    # 端点/凭证引用仍是 env 变量**名**而非值（profile 用 dot 记法，与既有 Provider 档案一致）
     assert "env.ANTHROPIC_BASE_URL" in contents["provider_profile_deepseek_v4_flash.json"]
     assert "env.ANTHROPIC_AUTH_TOKEN" in contents["provider_profile_deepseek_v4_flash.json"]
+
+
+def test_build_template_upstream_url_is_env_name_not_value():
+    """tracked 模板的 upstream_url 是 env 符号名（env:ANTHROPIC_BASE_URL），绝不落端点值；
+    实际值只由 main() 在写 gitignored runtime profile 时从 env 注入。"""
+    profile = bd._profile()
+    assert profile["provider_audit"]["upstream_url"] == "env:ANTHROPIC_BASE_URL"
+    # 模板本身通过完整隐私闸（env 符号名不是 URL；模板含任何 URL/凭证/路径即断言失败）
+    bd._assert_no_secrets(bd._dump(profile))
+
+
+def test_build_requires_base_url_env(tmp_path, monkeypatch):
+    """ANTHROPIC_BASE_URL 缺失 → 显式失败，不产出任何 bundle 文件（不回落描述性假值）。"""
+    monkeypatch.delenv("ANTHROPIC_BASE_URL", raising=False)
+    with pytest.raises(RuntimeError, match="ANTHROPIC_BASE_URL"):
+        bd.main(output_dir=tmp_path)
+    assert not (tmp_path / "provider_profile_deepseek_v4_flash.json").exists()
+    assert not (tmp_path / "active_provider.json").exists()
 
 
 def test_build_frozen_thresholds_and_uncontaminated_split(tmp_path):

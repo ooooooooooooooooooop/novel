@@ -161,7 +161,7 @@ def _profile_payload() -> dict:
             "provider_id": "provider-id",
             "provider_name": "provider-name",
             "provider_category": "third_party",
-            "upstream_url": "https://provider.invalid",
+            "upstream_url": "http://127.0.0.1:15721",
             "expected_actual_model": "model-a",
             "failover_allowed": False,
         },

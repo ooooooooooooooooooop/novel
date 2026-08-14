@@ -192,6 +192,7 @@ class AnthropicMessagesProvider:
         self.user_home = Path(user_home) if user_home else Path.home()
         self._role_config = getattr(profile.roles, role)
         self._base_url, self._auth_value = self._load_external_settings()
+        self._verify_upstream_url()
         self.endpoint_identity = _endpoint_identity(
             self._base_url, profile.endpoint.messages_path
         )
@@ -219,6 +220,20 @@ class AnthropicMessagesProvider:
             "provider auth value",
         )
         return base_url.rstrip("/"), auth_value
+
+    def _verify_upstream_url(self) -> None:
+        """调用前校验已加载 base_url 与冻结 profile 的 upstream_url 一致（规范化尾斜杠）。
+
+        upstream_url 是实际上游身份：runtime profile 由 builder 从 ANTHROPIC_BASE_URL 注入
+        实际值，运行期 env 必须与冻结值一致，否则在首次调用前显式失败（不发起任何网络请求，
+        不落任何审计）。
+        """
+        expected = self.profile.provider_audit.upstream_url.rstrip("/")
+        actual = self._base_url.rstrip("/")
+        if actual != expected:
+            raise ProviderConfigurationError(
+                "provider base URL differs from frozen profile upstream_url"
+            )
 
     def _verify_provider_identity(self) -> None:
         db_path = self.user_home / self.profile.provider_audit.database_path_from_user_home

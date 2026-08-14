@@ -71,7 +71,7 @@ def _profile_payload() -> dict:
             "provider_id": "provider-id",
             "provider_name": "provider-name",
             "provider_category": "third_party",
-            "upstream_url": "https://provider.invalid",
+            "upstream_url": "http://127.0.0.1:15721",
             "expected_actual_model": "model-a",
             "failover_allowed": False,
         },
@@ -358,3 +358,31 @@ def test_constructor_refuses_provider_identity_drift(tmp_path):
             ledger=ledger,
             user_home=tmp_path,
         )
+
+
+def test_upstream_url_mismatch_refuses_before_any_call(tmp_path, monkeypatch):
+    """env base_url 与冻结 profile 的 upstream_url 不一致 → 构造期（调用前）显式失败，
+    零网络请求、零审计落盘。注入 https://provider.invalid 作为不一致 base_url。"""
+    _provider_files(tmp_path)
+    monkeypatch.setenv("ANTHROPIC_BASE_URL", "https://provider.invalid")
+    monkeypatch.setenv("ANTHROPIC_AUTH_TOKEN", "secret-value")
+    profile = ProviderProfile.model_validate(_profile_payload())
+    ledger = AutonomousBudgetLedger(
+        budget=_budget(), pricing=profile.pricing_usd_per_million_tokens
+    )
+    calls = []
+    monkeypatch.setattr(
+        "src.provider_adapter.urllib.request.urlopen",
+        lambda request, timeout: calls.append(request),
+    )
+    with pytest.raises(ProviderConfigurationError, match="upstream_url"):
+        AnthropicMessagesProvider(
+            profile=profile,
+            role="reader_judge",
+            max_output_tokens=100,
+            audit_dir=tmp_path / "audit",
+            ledger=ledger,
+            user_home=tmp_path,
+        )
+    assert calls == []
+    assert not (tmp_path / "audit").exists()

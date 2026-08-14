@@ -14,7 +14,7 @@ The repository is currently **end_to_end_validated** and **Tier 0 production rea
 
 Tier 0 (local staged CLI v0, operator-in-the-loop) was validated on 2026-07-28:
 
-- full pytest baseline: 2814 tests passing
+- full pytest baseline: 2817 tests passing
 - audit canary (`tier0-canary`) passed `novel gate`: `ok=true`, `review_route=pass`, `next_workflow=ContinueUnit`, `blocking_pending_count=0`
 - canary evidence: `docs/00_project/releases/tier0-canary-evidence.json`
 - saved canary gate result: `docs/00_project/releases/tier0-canary-gate.json`
@@ -61,7 +61,7 @@ A1 自动叙事生产（`novel auto` / AutonomousRunner）实现了严格状态�
   deepseek-v4-flash 评审器把候选名命到位置槽而非内容 → A/B 换位不稳定。
 - **G8 无人 Canary 无法运行（0/90 章）**：冻结生成 temp0.7 下该模型只出 thinking 块无正文（4 次冒烟各在不同层显式失败：
   ProviderSchemaError×2 / TimeoutError / HTTPError）；即便生成成功，G7 位置偏置使淘汰赛必然 `quality_exhausted`。
-- **G9 实现级验证通过**：完整 pytest **2814 passed**、Tier 0 三流回归 PASS、隐私扫描干净、旧记录/tag 不变；
+- **G9 实现级验证通过**：完整 pytest **2817 passed**、Tier 0 三流回归 PASS、隐私扫描干净、旧记录/tag 不变；
   单命令 `scripts/a1_release_validation.py` 聚合全部证据（exit 1，`a1_gate_result.json`，release record/tag withheld）。
 - 发布：Q2A/A1 release record + 新 tag **未生成**；旧 tag 未移动。证据与实施记录留在 gitignored `.taskflow/`（已归档）。
 
@@ -238,7 +238,7 @@ The artifact set is complete and the first running slices are end-to-end validat
 
 Current baseline:
 
-- `pytest -q`: 2814 tests passing
+- `pytest -q`: 2817 tests passing
 - long-form multi-arc stress test: PASS
 - end-to-end Audit / Extend / Compose validation: PASS
 
@@ -338,7 +338,7 @@ Current next decision:
   - Track 3 CharacterModel evidence-leakback checks
   - generative_indicia detection checks
   - Review hard rules extension checks
-  - total validation baseline: 2814 tests passing
+  - total validation baseline: 2817 tests passing
 - **Slice L1: Long-form chapter-level infra** - Complete
   - `src/boundary_control/chunking.py` splits text by chapters
   - `src/boundary_control/report_formatter.py` formats audit reports
