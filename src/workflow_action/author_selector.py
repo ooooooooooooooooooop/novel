@@ -44,6 +44,7 @@ from src.object_state.choicerecord import (
 )
 from src.object_state.readercontract import ReaderContract
 from src.object_state.styleprofile import StyleProfile
+from src.object_state.orchestration import OrchestrationState
 from src.workflow_action.authormemory import infer_value_conflicts
 from src.workflow_action.continuation import ContinueUnit
 from src.workflow_action.proposal_generator import candidate_label
@@ -78,6 +79,12 @@ class CandidateEvaluation(BaseModel):
         default_factory=list, description="该候选触及的价值冲突（受限词汇表键）"
     )
     tradeoff_hint: str = Field(default="", description="LLM 附带的候选取舍提示")
+    orchestration_score: Optional[float] = Field(
+        default=None, ge=0, le=1, description="长程编排对齐分（0-1，未开启=None）"
+    )
+    orchestration_notes: list[str] = Field(
+        default_factory=list, description="编排对齐诊断说明"
+    )
 
 
 class SelectionOutcome(BaseModel):
@@ -305,8 +312,9 @@ def evaluate_candidates(
     review: Optional[ReviewUnit] = None,
     author_judge: Optional[AuthorJudge] = None,
     contract: Optional[ReaderContract] = None,
+    orchestration_state: Optional[OrchestrationState] = None,
 ) -> dict[str, CandidateEvaluation]:
-    """对 N 个候选做四视角评估.
+    """对 N 个候选做多视角评估.
 
     Consistency Gate：复用 review._hard_rules + 候选 new_state 匹配检查 +
     读者契约 forbidden_drifts 子串检查（blocking issue → consistency_pass=False）。
@@ -365,7 +373,7 @@ def evaluate_candidates(
                 )
                 pass_gate = False
 
-        # ---- 三视角（不阻断）----
+        # ---- 多视角（不阻断）----
         reader_score, reader_notes = reader_proxy_score(package)
         style_score, style_notes = style_proxy_score(package, style_profile)
         if author_judge is not None:
@@ -379,6 +387,15 @@ def evaluate_candidates(
             author_score, author_veto, author_notes, conflicts = author_proxy_score(
                 package, kernel
             )
+
+        orch_score: Optional[float] = None
+        orch_notes: list[str] = []
+        if orchestration_state is not None:
+            from src.workflow_action.narrative_orchestrator import NarrativeOrchestrator
+            raw_orch_score, orch_notes = NarrativeOrchestrator().score_proposal_alignment(
+                orchestration_state, package
+            )
+            orch_score = round(raw_orch_score, 4)
 
         evals[label] = CandidateEvaluation(
             label=label,
@@ -394,6 +411,8 @@ def evaluate_candidates(
             author_veto=author_veto,
             value_conflicts=conflicts,
             tradeoff_hint=package.get("tradeoff_hint", ""),
+            orchestration_score=orch_score,
+            orchestration_notes=orch_notes,
         )
     return evals
 

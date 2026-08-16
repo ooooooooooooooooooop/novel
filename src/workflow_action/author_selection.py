@@ -19,7 +19,11 @@ from pathlib import Path
 from typing import Optional
 
 from src.object_state.authorkernel import AuthorKernel
+from src.object_state.narrativestate import NarrativeState
+from src.object_state.orchestration import OrchestrationState
+from src.object_state.structural_search import StructuralProposal, StructuralSearchResult
 from src.object_state.styleprofile import StyleProfile
+from src.object_state.workspec import WorkSpec
 from src.workflow_action.authormemory import (
     load_author_kernel,
     save_author_kernel,
@@ -272,6 +276,63 @@ def _selected_text(package: dict) -> str:
     return " ".join(parts)
 
 
+def packages_to_structural_proposals(
+    packages: list[dict],
+    orchestration_state: Optional[OrchestrationState] = None,
+) -> list[StructuralProposal]:
+    """将 proposal packages 转换为 StructuralProposal 结构候选."""
+    proposals: list[StructuralProposal] = []
+    for index, package in enumerate(packages):
+        label = candidate_label(index)
+        pu = package["plotunit"]
+        se = getattr(pu, "scene_experience", None)
+        new_state = package.get("new_state")
+        primary_actor = (
+            list(pu.participants)[0]
+            if pu.participants
+            else (getattr(se, "protagonist_sees", "")[:10] or "主角")
+        )
+        core_choice = (
+            getattr(se, "choice_grounding", "")
+            or pu.goal
+            or "核心剧情推进"
+        )
+        resistance = (
+            " ".join(getattr(se, "obstacles", []))
+            if se and getattr(se, "obstacles", None)
+            else (pu.conflict or "常规阻碍")
+        )
+        cost = " ".join(pu.consequences) if pu.consequences else "常规精力消耗"
+        state_change = (
+            getattr(se, "outcome", "")
+            or (getattr(new_state, "current_situation", "") if new_state else "")
+            or "状态转移"
+        )
+        chapter_fn = (
+            getattr(orchestration_state.chapter_function, "primary_function", "推进")
+            if orchestration_state
+            else "推进"
+        )
+        proposals.append(
+            StructuralProposal(
+                proposal_id=label,
+                primary_actor=primary_actor,
+                core_choice=core_choice,
+                resistance_source=resistance,
+                cost=cost,
+                state_change=state_change,
+                relationship_change=getattr(pu, "relationship_change", ""),
+                information_reveal=" ".join(pu.released_information) if pu.released_information else "",
+                reader_expectation_delta=pu.hook or "",
+                impact_next_3_to_5_chapters=" ".join(pu.consequences) if pu.consequences else "",
+                primary_risk="因果失衡风险",
+                chapter_function=chapter_fn,
+                summary=_one_line_summary(package),
+            )
+        )
+    return proposals
+
+
 def run_author_selection(
     packages: list[dict],
     objects: list,
@@ -286,6 +347,7 @@ def run_author_selection(
     author_mode_on: bool = False,
     shadow_on: bool = False,
     drift_review_on: bool = False,
+    structural_search_on: bool = False,
     review: Optional[ReviewUnit] = None,
     timestamp: Optional[str] = None,
     chapter_number: Optional[int] = None,
@@ -317,6 +379,16 @@ def run_author_selection(
         }
     """
     review = review or ReviewUnit()
+    orchestration_state = None
+    orch_file = output_dir / "orchestration_state.json"
+    if orch_file.exists():
+        try:
+            orchestration_state = OrchestrationState.model_validate_json(
+                orch_file.read_text(encoding="utf-8")
+            )
+        except Exception:
+            pass
+
     evals = evaluate_candidates(
         packages,
         objects,
@@ -326,7 +398,29 @@ def run_author_selection(
         review=review,
         author_judge=author_judge,
         contract=contract,
+        orchestration_state=orchestration_state,
     )
+
+    structural_search_result: Optional[StructuralSearchResult] = None
+    if structural_search_on:
+        from src.workflow_action.structural_search import StructuralSearchEngine
+        props = packages_to_structural_proposals(packages, orchestration_state=orchestration_state)
+        curr_state = next((o for o in objects if isinstance(o, NarrativeState)), NarrativeState())
+        workspec = next((o for o in objects if isinstance(o, WorkSpec)), None)
+        engine = StructuralSearchEngine(rollout_steps=3)
+        structural_search_result = engine.search_and_evaluate(
+            props,
+            curr_state,
+            objects,
+            target_chapter=chapter_number or 1,
+            workspec=workspec,
+            orchestration_state=orchestration_state,
+            output_dir=output_dir,
+        )
+        print(f"\n[P3 结构搜索] 帕累托前沿: {structural_search_result.pareto_frontier}，推荐候选: {structural_search_result.selected_proposal_id}")
+        if structural_search_result.diversity_report.near_duplicates:
+            print(f"  结构近重复检出: {len(structural_search_result.diversity_report.near_duplicates)} 对")
+
     production_kernel = kernel if author_mode_on else None
     outcome = select_candidate(packages, evals, kernel=production_kernel)
     print(render_selection_report(outcome))

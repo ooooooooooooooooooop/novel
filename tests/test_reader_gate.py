@@ -284,6 +284,77 @@ class TestCommitGateChain:
         assert report_match is not None
 
 
+class TestCausalDefenseInGateChain:
+    """P1 长程因果防线接入提交点：causal_objects 提供时运行，缺省零成本."""
+
+    def _chain(self, tmp_path, causal_objects=None, draft_text="主角继续调查。"):
+        base = Path(tmp_path)
+        out = base / "output" / "extend"
+        chapters = base / "chapters"
+        out.mkdir(parents=True)
+        chapters.mkdir()
+        return evaluate_commit_reader_gate(
+            output_dir=out,
+            chapters_dir=chapters,
+            draft_text=draft_text,
+            facts=None,
+            characters=None,
+            chapter_ref="chapter_1",
+            causal_objects=causal_objects,
+        )
+
+    def test_erased_event_blocks_with_causal_objects(self, tmp_path):
+        from src.object_state import FactEntry, FactLedger, PlotUnit
+
+        ledger = FactLedger(entries=[
+            FactEntry(
+                fact_id="f_d", statement="古堡已被焚毁", fact_type="event",
+                involved_entities=["古堡"], confirmed=True,
+            )
+        ])
+        pu = PlotUnit(
+            unit_id="pu_a", level="scene", goal="探查", conflict="寻找线索",
+            participants=["c001"], input_state_ref="s_in", output_state_ref="s_out",
+            released_information=["古堡竟完好如初"],
+        )
+        verdict, _, _ = self._chain(
+            tmp_path,
+            causal_objects=[ledger, pu],
+            draft_text="主角重访古堡，发现它完好如初。",
+        )
+        assert verdict.route == "block"
+        assert any(i.issue_type == "fact_conflict" for i in verdict.issues)
+
+    def test_clean_causal_objects_still_pass(self, tmp_path):
+        from src.object_state import FactEntry, FactLedger, PlotUnit
+
+        ledger = FactLedger(entries=[
+            FactEntry(
+                fact_id="f_ok", statement="主角到达王城", fact_type="event",
+                involved_entities=["主角"], confirmed=True,
+            )
+        ])
+        pu = PlotUnit(
+            unit_id="pu_b", level="scene", goal="拜会", conflict="投帖",
+            participants=["c001"], input_state_ref="s_in", output_state_ref="s_out",
+            released_information=["他递上拜帖"],
+            consequences=["通报"],
+        )
+        verdict, _, _ = self._chain(
+            tmp_path,
+            causal_objects=[ledger, pu],
+            draft_text="主角抵达王城，递上拜帖等待接见。",
+        )
+        assert verdict.route == "pass"
+
+    def test_no_causal_objects_zero_cost(self, tmp_path):
+        # 缺省 causal_objects=None → 不运行因果防线，行为与旧版一致
+        verdict, _, _ = self._chain(
+            tmp_path, draft_text="主角决定追查，结果发现了新证据。"
+        )
+        assert verdict.route == "pass"
+
+
 class TestLoadHelpers:
     def test_load_recent_chapters_order(self, tmp_path):
         d = Path(tmp_path)

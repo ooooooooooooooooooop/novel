@@ -8,13 +8,56 @@ Update this file after each meaningful round of project-shaping work.
 
 ---
 
+## 0. 状态主入口快照（2026-08-16，P0 统一事实状态）
+
+> 本节是本仓库**当前真实状态**的唯一优先入口。下方历史章节只描述对应时间点的状态，
+> 以本节为准。数字均为实机验证，不把 collected 写成 passed。
+
+### 0.1 真实基线
+
+- commit：`e25983d`（Working tree 干净）
+- pytest：`2902 passed, 1 skipped`（收集 2903；合同测试 `EXPECTED_TEST_BASELINE="2903"` 锁收集数）
+- Tier 0 三流 Canary：`python scripts/tier0_canary_regression.py` → **PASS**（audit/extend/compose `novel gate` 均 ok=True, route=pass, blocking=0）
+- 发布记录：`docs/00_project/releases/tier0-release.json`（2301 历史）、`q1-release.json`（v0.1.3-q1）——**不可变，不修改**
+- tags：`v0.1.1-tier0`、`v0.1.2-tier0`、`v0.1.3-q1`——**不可移动**
+
+### 0.2 能力边界（冻结）
+
+- **Tier 0**：人工/Codex 分阶段生产（operator-in-the-loop staged CLI）——**验证通过，生产就绪**
+- **Q1**：连续生产、Reader Gate、事务提交与崩溃恢复——**验证通过（v0.1.3-q1）**
+- **A1**：自动调用与单章自动生产链**已存在**，但 **G7 自动审美终端资格失败**、G8 无人 Canary 未授权——**未获得生产资格**（详见 §1.5 与 `48_a1_autonomous_production_handoff.md`）
+- **大神级系统**：**尚处建设阶段**——本轮（P0–P7）目标是建立「长程因果防线 + 全局叙事编排 + 章节级结构搜索 + 多层质量评价 + 动态作者先验 + 人类验证接口」的架构，**不得声称已达大神级**；最终是否达大神级必须由系统外隐藏来源人类长期阅读实验验证。
+
+### 0.3 G7 状态（已退役）
+
+- G7 自动审美资格失败记录**保留不可变**（position consistency 0.5 < 0.9，阈值不降）。
+- G7 从项目总目标门禁降级为**历史研究性子能力**；`auto_calibrate` 保留为实验工具。
+- **不再把任何通用大模型裁判包装为最终审美真相**；自动评价按五层分工
+  （确定性硬门禁 → 专门轴 → 匿名成对盲评 → PASS 漏检审计 → 系统外人类盲评）。
+- 观点文件 50 / 51 为**研究观点**（非当前实施状态），供后续裁决。
+
+### 0.4 本轮实施范围（P0–P7，见 `52_mastery_upgrade_plan.md`）
+
+1. P0 统一项目事实状态（本文档）
+2. P1 长程因果防线（已完成事件被抹除 / 代价失效 / 成长重置 / 制度后果不传播 / 选择无未来差异）
+3. P2 Narrative Orchestrator（编排状态 + 生产调用方）
+4. P3 章节级结构异质搜索 + 短期 rollout + Pareto
+5. P4 Taste Stack 换轨（专门轴 + 统一质量报告 + G7 退役标注）
+6. P5 AuthorModel V3（反例 / 后果回填 / 作者-作品分离 / 跨作品评测合同）
+7. P6 世界因果与人物策略研究轨（World Causal Compiler + Character Policy Engine）
+8. P7 人类盲评工具包 + 长程授权判断
+
+每包验收：定向测试通过 + 集成回归通过 + 文档同步。最终输出 `long_run_authorized` 或 `long_run_not_authorized`——未满足全部前置条件时**不得授权**。
+
+---
+
 ## 1. Current State
 
 The repository is currently **end_to_end_validated** and **Tier 0 production ready — three-flow daily-production hardened**.
 
 Tier 0 (local staged CLI v0, operator-in-the-loop) was validated on 2026-07-28:
 
-- full pytest baseline: 2837 tests passing
+- full pytest baseline: 2903 tests passing
 - audit canary (`tier0-canary`) passed `novel gate`: `ok=true`, `review_route=pass`, `next_workflow=ContinueUnit`, `blocking_pending_count=0`
 - canary evidence: `docs/00_project/releases/tier0-canary-evidence.json`
 - saved canary gate result: `docs/00_project/releases/tier0-canary-gate.json`
@@ -238,7 +281,7 @@ The artifact set is complete and the first running slices are end-to-end validat
 
 Current baseline:
 
-- `pytest -q`: 2837 tests passing
+- `pytest -q`: 2903 tests passing
 - long-form multi-arc stress test: PASS
 - end-to-end Audit / Extend / Compose validation: PASS
 
@@ -338,7 +381,7 @@ Current next decision:
   - Track 3 CharacterModel evidence-leakback checks
   - generative_indicia detection checks
   - Review hard rules extension checks
-  - total validation baseline: 2837 tests passing
+  - total validation baseline: 2903 tests passing
 - **Slice L1: Long-form chapter-level infra** - Complete
   - `src/boundary_control/chunking.py` splits text by chapters
   - `src/boundary_control/report_formatter.py` formats audit reports

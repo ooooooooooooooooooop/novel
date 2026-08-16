@@ -12,6 +12,13 @@ from .authorkernel import (
     PrincipleCategory,
     value_direction,
 )
+from .authormodel_v3 import (
+    AuthorModelV3,
+    AuthorPrincipleV3,
+    CounterexampleSample,
+    CrossWorkValidationResult,
+    SupportingSample,
+)
 from .authormodule import AuthorModule
 from .autonomous import (
     AutonomousDecision,
@@ -20,6 +27,16 @@ from .autonomous import (
     AutonomousUsage,
     ProviderCallAudit,
     ProviderProfile,
+)
+from .causal_compiler import (
+    CausalDerivation,
+    CausalRule,
+    CostPropagationAuditReport,
+    RuleDeletionAuditReport,
+)
+from .character_policy import (
+    CharacterActionProposal,
+    CharacterPolicyState,
 )
 from .characterupdate import CharacterUpdate
 from .charactermodel import CharacterModel
@@ -33,6 +50,12 @@ from .choicerecord import (
 from .evaluator_precommit import EvaluatorPrecommit
 from .factledger import FactEntry, FactLedger, ValidityInterval
 from .foreshadowgraph import ForeshadowEntry, ForeshadowGraph
+from .human_eval import (
+    BlindedChapterPacket,
+    HumanEvaluationSubmission,
+    LongHorizonAuthorizationVerdict,
+    LongHorizonPreconditionStatus,
+)
 from .judge_claim import JudgeClaim, ProseAnchor
 from .longhorizon import (
     LongHorizonCheckpoint,
@@ -40,6 +63,16 @@ from .longhorizon import (
     RollingLongHorizonSummary,
 )
 from .narrativestate import NarrativeState
+from .orchestration import (
+    ChapterFunctionAllocation,
+    EmotionalPacing,
+    InformationDensityBudget,
+    OrchestrationState,
+    PromisePayoffDebt,
+    ReaderExpectationHorizon,
+    RelationalTrajectory,
+    ThreadRotation,
+)
 from .plotunit import PlotUnit
 from .prose_candidate import ProseCandidate
 from .qualitythresholds import (
@@ -54,6 +87,26 @@ from .readerreport import ReaderDimension, ReaderExperienceReport
 from .readerresponse import ReaderResponseRecord
 from .reviewissue import ReviewIssue, ReviewReminder
 from .scene_experience import SceneExperience
+from .structural_search import (
+    CandidatePrecommit,
+    NearDuplicatePair,
+    ParetoDimensionScores,
+    RolloutEvaluation,
+    RolloutStep,
+    StructuralDiversityReport,
+    StructuralProposal,
+    StructuralSearchResult,
+)
+from .taste_stack import (
+    G7RetirementNotice,
+    Layer1HardGatesSummary,
+    Layer2SpecializedAxesSummary,
+    Layer3BlindEvalSummary,
+    Layer4PassAuditSummary,
+    Layer5HumanBlindEvalSummary,
+    StyleDriftSummary,
+    UnifiedQualityReport,
+)
 from .styleprofile import (
     MetaphorHit,
     StyleProfile,
@@ -66,33 +119,57 @@ from .worldmodel import WorldModel
 
 __all__ = [
     "AuthorKernel",
+    "AuthorModelV3",
     "AuthorModule",
-    "AutonomousDecision",
-    "AutonomousPolicy",
-    "AutonomousRun",
-    "AutonomousUsage",
     "AuthorPrinciple",
+    "AuthorPrincipleV3",
+    "AutonomousDecision",
+    "BlindedChapterPacket",
+    "CandidatePrecommit",
     "CandidateRecord",
+    "CausalDerivation",
+    "CausalRule",
+    "ChapterFunctionAllocation",
+    "CharacterActionProposal",
     "CharacterModel",
+    "CharacterPolicyState",
     "CharacterUpdate",
     "ChoiceLedgerEntry",
     "ChoiceRecord",
+    "CostPropagationAuditReport",
+    "CounterexampleSample",
+    "CrossWorkValidationResult",
+    "EmotionalPacing",
     "EraContext",
     "EvaluatorPrecommit",
     "FactEntry",
     "FactLedger",
     "ForeshadowEntry",
     "ForeshadowGraph",
+    "G7RetirementNotice",
     "HindsightStatus",
     "HoldoutReport",
+    "HumanEvaluationSubmission",
+    "InformationDensityBudget",
     "JudgeClaim",
     "JudgePreferencePrediction",
     "KernelStatus",
+    "Layer1HardGatesSummary",
+    "Layer2SpecializedAxesSummary",
+    "Layer3BlindEvalSummary",
+    "Layer4PassAuditSummary",
+    "Layer5HumanBlindEvalSummary",
+    "LongHorizonAuthorizationVerdict",
     "LongHorizonCheckpoint",
+    "LongHorizonPreconditionStatus",
     "MetaphorHit",
     "NarrativeState",
+    "NearDuplicatePair",
+    "OrchestrationState",
+    "ParetoDimensionScores",
     "PlotUnit",
     "PreferencePair",
+    "PromisePayoffDebt",
     "ProseAnchor",
     "ProseCandidate",
     "ProseSummary",
@@ -102,21 +179,33 @@ __all__ = [
     "QualityThresholds",
     "ReaderDimension",
     "ReaderExpectation",
+    "ReaderExpectationHorizon",
     "ReaderExpectationLedger",
     "ReaderExperienceReport",
     "ReaderResponseRecord",
     "RejectedRecord",
+    "RelationalTrajectory",
     "ReviewIssue",
     "ReviewReminder",
+    "RolloutEvaluation",
+    "RolloutStep",
     "RollingLongHorizonSummary",
+    "RuleDeletionAuditReport",
     "SceneExperience",
+    "StructuralDiversityReport",
+    "StructuralProposal",
+    "StructuralSearchResult",
+    "StyleDriftSummary",
     "StyleProfile",
     "StyleQuantitativeStats",
     "StyleRisk",
+    "SupportingSample",
+    "ThreadRotation",
     "TimeAnchor",
     "TimeBook",
     "TimeInitial",
     "TimelineSpec",
+    "UnifiedQualityReport",
     "VALUE_VOCAB",
     "VALUE_VOCAB_CONTRA_KEYWORDS",
     "VALUE_VOCAB_DESCRIPTIONS",

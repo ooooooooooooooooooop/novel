@@ -392,12 +392,18 @@ def evaluate_commit_reader_gate(
     time_book=None,
     reader_contract: Optional[ReaderContract] = None,
     chapter_ref: str = "",
+    causal_objects: Optional[list] = None,
 ) -> tuple[ReaderGateVerdict, Optional[object], list[ReviewIssue]]:
-    """提交点门禁链：ProseEvidence 提取 → 跨章 Reconcile → 门禁策略.
+    """提交点门禁链：ProseEvidence 提取 → 跨章 Reconcile → 长程因果防线 → 门禁策略.
 
     返回 (verdict, package, reconcile_issues)。flow v3 在 Review PASS 后、
     事务提交前调用；block/manual → 拒绝提交（不写 chapters/、不推进 Frame）。
     零成本：报告缺失/不对应当前章 → 对应轴 unarmed；首章无前章 → 窗口轴 unarmed。
+
+    causal_objects：可选对象列表（含 FactLedger/CharacterModel/WorldModel/
+    PlotUnit/NarrativeState）。非空时运行长程因果防线（P1）——已完成事件被抹除、
+    代价失效、成长重置、制度后果不传播、选择无未来差异——其 blocking issue
+    并入门禁阻断；缺省 None 时因果防线不运行，行为与旧版完全一致（零成本契约）。
     """
     # 1. ProseEvidence 提取（无法断言就不核对：空 entities 跳过实体/道具类）
     labels = _labels_from_characters(characters)
@@ -423,6 +429,14 @@ def evaluate_commit_reader_gate(
         trusted=trusted,
         chapter_ref=chapter_ref,
     )
+
+    # 2b. 长程因果防线（P1）：已提交状态 vs 新草案的对象层检测（可选）
+    if causal_objects:
+        from src.domain_layer.causal_defense import run_causal_defense
+
+        causal_issues = run_causal_defense(causal_objects)
+        if causal_issues:
+            reconcile_issues = list(reconcile_issues) + causal_issues
 
     # 3. 门禁策略（加载操作者武装的读者报告）
     reader_report, serial_report = load_reader_reports(

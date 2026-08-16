@@ -1470,6 +1470,8 @@ class AutonomousRunner:
             )
 
         # 提交点读者门禁链（确定性，无 provider 调用）。
+        # P1 长程因果防线（causal_defense）：已提交状态 + 选中计划 → 事件抹除/代价/
+        # 成长/制度后果/选择无差异的对象层检测，blocking 即拒绝提交。
         gate_verdict, gate_package, gate_reconcile_issues = evaluate_commit_reader_gate(
             output_dir=self.run_dir,
             chapters_dir=self.chapters_dir,
@@ -1479,6 +1481,7 @@ class AutonomousRunner:
             time_book=self._time_book,
             reader_contract=self._reader_contract,
             chapter_ref=chapter_ref,
+            causal_objects=objects + [plotunit, new_state],
         )
         gate_package_hash = (
             sha256_text(gate_package.model_dump_json())

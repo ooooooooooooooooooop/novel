@@ -53,7 +53,15 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 # Track A 确定性防火墙不变量（test_consistency_firewall_adversarial.py,+5：viability 幂等 /
 #   required_premise 提及承诺内容 / reveal 意译负控制 / reveal 逐字正控 / 时间检出顺序无关）
 # → 2832 + 5 = 2837。
-EXPECTED_TEST_BASELINE = "2837"
+# P1 长程因果防线（test_causal_defense.py,+20）+ 提交点接入（test_reader_gate.py,+3）
+# → 2837 + 23 = 2860。
+# P2 长程叙事编排器（test_narrative_orchestrator.py,+10）→ 2860 + 10 = 2870。
+# P3 结构搜索与Rollout（test_structural_search.py,+10）→ 2870 + 10 = 2880。
+# P4 Taste Stack 统一质量报告（test_taste_stack.py,+8）→ 2880 + 8 = 2888。
+# P5 AuthorModel V3（test_authormodel_v3.py,+4）→ 2888 + 4 = 2892。
+# P6 因果编译器与人物策略（test_causal_compiler.py,+4, test_character_policy.py,+2）→ 2892 + 6 = 2898。
+# P7 人类盲评与长程授权（test_human_eval.py,+5）→ 2898 + 5 = 2903。
+EXPECTED_TEST_BASELINE = "2903"
 
 
 def run_script(*args: str) -> subprocess.CompletedProcess[str]:

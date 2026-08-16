@@ -986,6 +986,23 @@ def _run_pass_audit(args: argparse.Namespace) -> int:
     return _run_child(command)
 
 
+def _run_quality(args: argparse.Namespace) -> int:
+    """Taste Stack 统一质量报告（P4）：聚合五层评价与定性诊断，禁止单一标量分."""
+    from src.workflow_action.taste_stack import build_unified_quality_report
+    novel_dir = _novel_dir(args.novel)
+    mode = _read_mode(novel_dir) if (novel_dir / "output").exists() else "extend"
+    output_dir = _output_dir(novel_dir, mode)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    report = build_unified_quality_report(args.novel, output_dir=output_dir)
+    if getattr(args, "format", "markdown") == "json":
+        payload = report.model_dump(mode="json")
+        _validate_quality_json_payload(payload)
+        print(json.dumps(payload, ensure_ascii=False, indent=2))
+    else:
+        print(report.render_markdown())
+    return 0
+
+
 def _run_time(args: argparse.Namespace) -> int:
     """时间域模块：TimeBook 管理 + 时间审计（纯代码，无 LLM 阶段）.
 
@@ -2208,6 +2225,19 @@ def build_parser(*, emit_json_errors: bool = False) -> argparse.ArgumentParser:
     pass_audit.add_argument("--sample", type=int, default=0, help="随机抽 N 章")
     pass_audit.add_argument("--force", action="store_true", help="覆盖已有响应重新物化")
     pass_audit.set_defaults(func=_run_pass_audit)
+
+    quality_cmd = subparsers.add_parser(
+        "quality",
+        help="Taste Stack 统一质量报告：聚合确定性硬门禁/专门轴/Blind Eval/PASS Audit/人类盲评/G7退役状态",
+    )
+    quality_cmd.add_argument("novel", help="小说名")
+    quality_cmd.add_argument(
+        "--format",
+        choices=["markdown", "json"],
+        default="markdown",
+        help="报告输出格式（默认 markdown）",
+    )
+    quality_cmd.set_defaults(func=_run_quality)
 
     hindsight_cmd = subparsers.add_parser("hindsight", help="Hindsight Reconciliation：从真实后续章节回填 ChoiceRecord 后果与回看")
     hindsight_cmd.add_argument("novel", help="小说名")

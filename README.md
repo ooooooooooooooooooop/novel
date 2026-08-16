@@ -4,7 +4,7 @@ An automatic novel narrative system that parses narrative structure, maintains n
 
 一个自动小说叙事系统：解析叙事结构、维护叙事状态、规划故事推进、审查生成结果。
 
-> **Tier 0 production-ready** — local staged CLI, operator-in-the-loop · **2837 tests passing** · checkpoint tag `v0.1.2-tier0`
+> **Tier 0 production-ready** — local staged CLI, operator-in-the-loop · **2903 tests passing**（实机 `2902 passed, 1 skipped`，收集 2903）· checkpoint tag `v0.1.2-tier0`
 
 ---
 
@@ -31,7 +31,7 @@ The repository is **Tier 0 production-ready — three-flow daily-production hard
 Tier 0 生产就绪判定（2026-07-28 宣布）：
 
 - production tier: `local staged CLI v0`（本地分阶段 CLI v0）
-- full pytest baseline: 2837 tests passing（k3 provider 承重墙后完整回归基线，原 2803）
+- full pytest baseline: 2903 tests passing（k3 provider 承重墙后完整回归基线，原 2803）
 - release record: `docs/00_project/releases/tier0-release.json`
 - immutable checkpoint: git tag `v0.1.2-tier0`
 - extend / compose canaries 均通过 `novel gate` 同四标准；聚合证据在 `docs/00_project/releases/tier0-three-flow-canary-aggregation.json`
@@ -42,6 +42,12 @@ Tier 0 边界仍然生效：
 - DirectAPI 供应商调用未实现；闭环全自动仍未放开
 - Tier 0 不是公开产品形态；release record 不替代 release tag / 不可变 checkpoint
 - response 文件必须由操作者或 Codex 落地，脚本不自动调用模型
+
+## 能力级别（2026-08-16）
+
+- **Tier 0 / Q1**：验证通过、生产就绪（audit / extend / compose 三流 + Reader Gate + 事务提交 + 崩溃恢复）。
+- **A1**：自动调用与单章自动生产链已存在，但 **G7 自动审美资格失败、G8 无人 Canary 未授权**——未达生产资格。
+- **大神级系统**：施工中。G7 已退役为研究性子能力；自动评价按五层分工（确定性硬门禁 → 专门轴 → 匿名成对盲评 → PASS 漏检审计 → 系统外人类盲评）。详见 `docs/00_project/03_current_status.md` §0 与 `docs/00_project/52_mastery_upgrade_plan.md`。
 
 ## 近期落地（2026-08-06）
 
@@ -223,4 +229,4 @@ New to the repository? Read in this order:
 pytest tests/ -q
 ```
 
-Baseline: **2837 tests passing**（Windows 下测试请带 `PYTHONIOENCODING=utf-8`）。
+Baseline: **2903 tests passing**（Windows 下测试请带 `PYTHONIOENCODING=utf-8`）。

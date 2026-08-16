@@ -68,6 +68,7 @@ from src.workflow_action.rewrite import RewriteUnit
 from src.domain_layer.style_rules import build_temperament_guidance
 from src.workflow_action.style import load_style_context
 from src.workflow_action.retrieval import load_retrieval_context
+from src.workflow_action.narrative_orchestrator import load_orchestration_context
 from src.workflow_action.timebook import build_time_context, load_time_book, save_time_book
 from src.workflow_action.continuation_viability import (
     ContinuationViabilityUnit,
@@ -328,6 +329,13 @@ def main() -> int:
         help="反例占比达到即 contested（默认 0.5；短程实验可调高避免过早 contested）",
     )
     parser.add_argument(
+        "--structural-search",
+        default="off",
+        choices=["on", "off"],
+        help="章节级结构搜索开关（默认 off 零成本；on=P3: 结构异质性门禁+3-5章rollout+多维Pareto前沿+候选预承诺，"
+        "产物落 output/structural_search_record.json）",
+    )
+    parser.add_argument(
         "--no-prose",
         action="store_true",
         help="跳过章节正文落盘（只产出 PlotUnit 结构；默认自动成文落盘 chapters/）",
@@ -573,6 +581,7 @@ def main() -> int:
             author_mode_on=args.author_mode == "on",
             shadow_on=args.shadow == "on",
             drift_review_on=args.drift_review == "on",
+            structural_search_on=args.structural_search == "on",
             review=review,
             chapter_number=next_chapter,
             consolidation_min=args.consolidation_min,
@@ -615,6 +624,14 @@ def main() -> int:
                 decision_context=narrative_state.current_situation or "Compose 续写决策",
                 kernel_path=args.kernel,
             )
+            orchestration_context = load_orchestration_context(
+                output_dir,
+                objects,
+                enabled=True,
+                chapter_number=1,
+                frame_context=frame_context,
+                structure_template=structure_template_name,
+            )
             proposals_prompt_path.write_text(
                 build_proposal_prompt(
                     cont,
@@ -643,6 +660,7 @@ def main() -> int:
                         reader_contract.to_prompt_context() if reader_contract else ""
                     ),
                     viability_note=viability_note,
+                    orchestration_context=orchestration_context,
                 ),
                 encoding="utf-8",
             )
@@ -1088,6 +1106,8 @@ def main() -> int:
             chapter_file = prose_action.chapter_path(chapters_dir, chapter_number)
 
             # ---- Q1 Phase 4: 提交点读者门禁链（正文证据提取 → 跨章核对 → 门禁）----
+            # P1 长程因果防线（causal_defense）作为对象层硬门禁一并运行：
+            # 已提交状态 + 本单元草案 → 事件抹除/代价失效/成长重置/制度后果/选择无差异。
             gate_verdict, gate_package, gate_reconcile_issues = (
                 evaluate_commit_reader_gate(
                     output_dir=output_dir,
@@ -1098,6 +1118,7 @@ def main() -> int:
                     time_book=load_time_book(output_dir),
                     reader_contract=reader_contract,
                     chapter_ref=f"chapter_{chapter_number}",
+                    causal_objects=objects + [plotunit, new_state],
                 )
             )
             gate_package_hash = (

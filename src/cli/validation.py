@@ -2198,6 +2198,15 @@ def _validate_inspect_run_json_payload(payload: object) -> None:
             raise ValueError("CLI inspect-run JSON run_history entries must be objects")
 
 
+def _validate_quality_json_payload(payload: object) -> None:
+    """quality --format json 载荷契约：UnifiedQualityReport 结构."""
+    if not isinstance(payload, dict):
+        raise ValueError("CLI quality JSON payload must be an object")
+    for field in ("report_id", "novel_name", "pipeline_version", "layer1_hard_gates", "narrative_evaluation_summary"):
+        if field not in payload:
+            raise ValueError(f"CLI quality JSON payload missing {field}")
+
+
 def _validate_novel_name(name: str) -> None:
     candidate = Path(name)
     if candidate.is_absolute() or ".." in candidate.parts or len(candidate.parts) != 1:
@@ -2589,6 +2598,7 @@ __all__ = (
     "_validate_list_json_row_payload",
     "_validate_list_json_payload",
     "_validate_inspect_run_json_payload",
+    "_validate_quality_json_payload",
     "_validate_novel_name",
     "_latest_mtime",
     "_read_route_value",

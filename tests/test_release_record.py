@@ -45,7 +45,14 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 # G7 计分合同封死（test_auto_calibrate.py,+4）升至 2825。
 # Track A 时间一致性对抗性注入（test_temporal_adversarial.py,+7）升至 2832。
 # Track A 确定性防火墙不变量（test_consistency_firewall_adversarial.py,+5）升至 2837。
-EXPECTED_BASELINE = 2837
+# P1 长程因果防线（test_causal_defense.py,+20）+ 提交点接入（test_reader_gate.py,+3）升至 2860。
+# P2 长程叙事编排器（test_narrative_orchestrator.py,+10）升至 2870。
+# P3 结构搜索与Rollout（test_structural_search.py,+10）升至 2880。
+# P4 Taste Stack 统一质量报告（test_taste_stack.py,+8）升至 2888。
+# P5 AuthorModel V3（test_authormodel_v3.py,+4）升至 2892。
+# P6 因果编译器与人物策略（test_causal_compiler.py,+4, test_character_policy.py,+2）升至 2898。
+# P7 人类盲评与长程授权（test_human_eval.py,+5）升至 2903。
+EXPECTED_BASELINE = 2903
 EXAMPLE_PATH = "docs/00_project/tier0_release_record.example.json"
 CANARY_EVIDENCE_EXAMPLE_PATH = "docs/00_project/tier0_canary_evidence.example.json"
 COMMITTED_RELEASE_RECORD_PATH = "docs/00_project/releases/tier0-release.json"
