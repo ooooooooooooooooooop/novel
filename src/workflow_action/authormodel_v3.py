@@ -213,3 +213,46 @@ def validate_cross_work_separation(
         leaked_terms=leaked_terms,
         is_valid_author_prior=is_valid,
     )
+
+
+# ---------------------------------------------------------------------------
+# 物理持久化 (R5 整改)
+# ---------------------------------------------------------------------------
+
+def load_author_model_v3(path_or_dir: Path) -> Optional[AuthorModelV3]:
+    """从指定路径或目录读取 author_model_v3.json."""
+    p = path_or_dir if path_or_dir.is_file() else path_or_dir / "author_model_v3.json"
+    if not p.exists():
+        return None
+    try:
+        return AuthorModelV3.model_validate_json(p.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+
+
+def save_author_model_v3(path_or_dir: Path, model: AuthorModelV3) -> Path:
+    """持久化保存 author_model_v3.json."""
+    p = path_or_dir if path_or_dir.is_file() else path_or_dir / "author_model_v3.json"
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(model.model_dump_json(indent=2), encoding="utf-8")
+    return p
+
+
+def load_qualification_report(path_or_dir: Path) -> Optional[CrossWorkValidationResult]:
+    """读取跨作品留一验证资格报告 qualification_report.json."""
+    p = path_or_dir if path_or_dir.is_file() else path_or_dir / "qualification_report.json"
+    if not p.exists():
+        return None
+    try:
+        return CrossWorkValidationResult.model_validate_json(p.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+
+
+def save_qualification_report(path_or_dir: Path, report: CrossWorkValidationResult) -> Path:
+    """持久化保存 qualification_report.json."""
+    p = path_or_dir if path_or_dir.is_file() else path_or_dir / "qualification_report.json"
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(report.model_dump_json(indent=2), encoding="utf-8")
+    return p
+

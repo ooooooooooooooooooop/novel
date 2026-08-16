@@ -123,13 +123,14 @@ class TestDeterministicRules:
         assert v.route == "block"
         assert any(i.issue_type == "timeline_error" for i in v.issues)
 
-    def test_reconcile_warning_does_not_block(self):
+    def test_reconcile_warning_routes_to_rewrite(self):
         v = ReaderQualityGatePolicy().evaluate(
             draft_text="正文。",
             reconcile_issues=[_review_issue("weak_progression", "warning")],
             prev_chapters=["前章。"],
         )
-        assert v.route == "pass"
+        assert v.route == "rewrite"
+        assert any(i.severity == "warning" for i in v.issues)
 
     def test_repeated_loop_second_blocks(self):
         prev = "上一章他终于明白一切真相。"

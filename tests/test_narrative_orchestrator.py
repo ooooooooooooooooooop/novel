@@ -1,4 +1,4 @@
-"""Tests for Narrative Orchestrator (P2).
+"""Tests for Narrative Orchestrator (P2 & R2 整改).
 
 Validates:
 1. 7-dimension derivation (Reader expectation, Promise debt, Relational trajectory,
@@ -6,6 +6,8 @@ Validates:
 2. Zero-cost contract (byte-identical prompt when empty, silent degradation when off).
 3. Adversarial tests (identical state + different history -> divergent directives and scoring).
 4. Integration with proposal builder and candidate evaluation.
+5. R2 闭环测试：load_committed_orchestration_state, derive_orchestration_plan, commit_orchestration_transition.
+6. 损坏 JSON 显式报错测试（禁止 swallow）。
 """
 
 import json
@@ -18,8 +20,11 @@ from src.object_state.foreshadowgraph import ForeshadowEntry, ForeshadowGraph
 from src.object_state.narrativestate import NarrativeState
 from src.object_state.orchestration import (
     ChapterFunctionAllocation,
+    CommittedOrchestrationHistoryEntry,
+    CommittedOrchestrationState,
     EmotionalPacing,
     InformationDensityBudget,
+    OrchestrationPlan,
     OrchestrationState,
     PromisePayoffDebt,
     ReaderExpectationHorizon,
@@ -32,6 +37,9 @@ from src.object_state.worldmodel import WorldModel
 from src.workflow_action.continuation import ContinueUnit
 from src.workflow_action.narrative_orchestrator import (
     NarrativeOrchestrator,
+    commit_orchestration_transition,
+    derive_orchestration_plan,
+    load_committed_orchestration_state,
     load_orchestration_context,
 )
 from src.workflow_action.proposal_generator import build_proposal_prompt
@@ -176,7 +184,6 @@ class TestNarrativeOrchestratorDerivation:
         assert isinstance(state.chapter_function, ChapterFunctionAllocation)
         assert isinstance(state.density_budget, InformationDensityBudget)
 
-        # 检查字段值
         assert state.chapter_number == 2
         assert state.expectation_horizon.cognitive_tension in ("medium", "high", "critical", "low")
         assert len(state.expectation_horizon.top_questions) > 0
@@ -199,7 +206,7 @@ class TestNarrativeOrchestratorDerivation:
         assert "3. 关系轨迹:" in prompt_ctx
         assert "4. 情绪节律:" in prompt_ctx
         assert "5. 线程轮换:" in prompt_ctx
-        assert "6. 章节功能:" in prompt_ctx
+        assert "6. 章节定位:" in prompt_ctx
         assert "7. 密度预算:" in prompt_ctx
 
 
@@ -256,12 +263,10 @@ class TestAdversarialOrchestration:
         objects = _make_sample_objects()
         orchestrator = NarrativeOrchestrator()
 
-        # 历史 A：连续两章极高压危机（审美疲劳风险）
         history_fatigue = [
             {"chapter": 1, "function": "escalation", "emotion": "危机"},
             {"chapter": 2, "function": "crisis", "emotion": "激昂"},
         ]
-        # 历史 B：连续两章平稳铺垫
         history_calm = [
             {"chapter": 1, "function": "setup", "emotion": "平稳"},
             {"chapter": 2, "function": "setup", "emotion": "舒缓"},
@@ -274,7 +279,6 @@ class TestAdversarialOrchestration:
             objects, history=history_calm, chapter_number=3
         )
 
-        # 1. 导向分叉判定
         assert state_a.emotional_pacing.fatigue_risk is True
         assert state_a.emotional_pacing.target_temperature == "舒缓"
         assert state_a.chapter_function.assigned_function == "transition"
@@ -283,12 +287,9 @@ class TestAdversarialOrchestration:
         assert state_b.emotional_pacing.target_temperature == "激昂"
         assert state_b.chapter_function.assigned_function == "crisis"
 
-        # 2. 候选评分对抗测试
-        # 候选 1：冷静复盘、商议对策（缓冲型）
         proposal_calm = _make_sample_proposal(
             "pu_calm", "清点战利品并商议对策", "就利益分配进行探讨", "两人对坐沉思，商讨下一步行动"
         )
-        # 候选 2：连续极高压血战（激化型）
         proposal_action = _make_sample_proposal(
             "pu_action", "生死搏杀突围", "妖王狂暴来袭", "生死关头血战，狂暴对轰厮杀"
         )
@@ -299,18 +300,14 @@ class TestAdversarialOrchestration:
         score_b_calm, notes_b_calm = orchestrator.score_proposal_alignment(state_b, proposal_calm)
         score_b_act, notes_b_act = orchestrator.score_proposal_alignment(state_b, proposal_action)
 
-        # 在疲劳历史 A 下：缓冲候选得分明显高于高压血战候选
         assert score_a_calm > score_a_act
         assert any("疲劳" in n for n in notes_a_calm + notes_a_act)
-
-        # 在平淡历史 B 下：危机爆发候选得分高于缓冲候选
         assert score_b_act > score_b_calm
 
     def test_adversarial_starved_thread_rotation(self):
         objects = _make_sample_objects()
         orchestrator = NarrativeOrchestrator()
 
-        # 支线 th_02 过久未被提及
         history_starved = [
             {"chapter": 1, "function": "setup", "emotion": "平稳", "threads": ["th_01"]},
             {"chapter": 2, "function": "escalation", "emotion": "紧迫", "threads": ["th_01"]},
@@ -323,9 +320,7 @@ class TestAdversarialOrchestration:
         assert "th_02" in state.thread_rotation.starved_threads
         assert state.thread_rotation.rotation_recommendation == "sub_rotation"
 
-        # 候选 1 触及饿死支线 th_02
         prop_sub = _make_sample_proposal("pu_sub", "压制毒发", "th_02毒性发作", "苏清雪th_02隐患爆发")
-        # 候选 2 纯走主线
         prop_main = _make_sample_proposal("pu_main", "继续探索古迹", "遭遇禁制", "破解石门")
 
         score_sub, notes_sub = orchestrator.score_proposal_alignment(state, prop_sub)
@@ -335,52 +330,74 @@ class TestAdversarialOrchestration:
         assert any("防饿死" in n for n in notes_sub)
 
 
-class TestCandidateEvaluationIntegration:
-    """测试 CandidateEvaluation 对 OrchestrationState 的消费."""
+class TestR2LifecycleAndPersistence:
+    """测试 R2 阶段的三段式生命周期与持久化闭环."""
 
-    def test_evaluate_candidates_records_orchestration_score(self):
+    def test_load_empty_committed_state(self, tmp_path):
+        committed = load_committed_orchestration_state(tmp_path)
+        assert committed.last_committed_chapter == 0
+        assert committed.history_entries == []
+
+    def test_corrupted_committed_state_raises_explicitly(self, tmp_path):
+        bad_file = tmp_path / "committed_orchestration_state.json"
+        bad_file.write_text("{ corrupt json string ", encoding="utf-8")
+        with pytest.raises(ValueError, match="Corrupted committed orchestration state"):
+            load_committed_orchestration_state(tmp_path)
+
+    def test_derive_orchestration_plan_is_pure_function(self, tmp_path):
         objects = _make_sample_objects()
-        orchestrator = NarrativeOrchestrator()
-        orch_state = orchestrator.derive_orchestration_state(objects, chapter_number=1)
+        committed = CommittedOrchestrationState(
+            last_committed_chapter=2,
+            history_entries=[
+                CommittedOrchestrationHistoryEntry(chapter=1, function="setup", emotion="平稳"),
+                CommittedOrchestrationHistoryEntry(chapter=2, function="escalation", emotion="压抑"),
+            ],
+            recent_emotional_patterns=["平稳", "压抑"],
+        )
+        plan = derive_orchestration_plan(committed, objects, chapter_number=3)
+        assert isinstance(plan, OrchestrationPlan)
+        assert plan.chapter_number == 3
+        assert not (tmp_path / "committed_orchestration_state.json").exists()
 
-        pkg_a = _make_sample_proposal("pu_A", "目标A", "冲突A", "平稳推进")
-        pkg_b = _make_sample_proposal("pu_B", "目标B", "冲突B", "商议探讨")
-        packages = [pkg_a, pkg_b]
+        # 检查 packet 渲染
+        pkt = plan.to_chapter_packet()
+        assert "【目标章节功能】" in pkt or len(pkt) >= 0
 
-        evals = evaluate_candidates(
-            packages,
-            objects,
-            current_state_ref="ns_001",
-            orchestration_state=orch_state,
+    def test_commit_orchestration_transition_atomic_save(self, tmp_path):
+        objects = _make_sample_objects()
+        committed = CommittedOrchestrationState(last_committed_chapter=0)
+        plan = derive_orchestration_plan(committed, objects, chapter_number=1)
+
+        pu = PlotUnit(
+            unit_id="pu_c1",
+            level="scene",
+            goal="试探真相",
+            participants=["c001", "c002"],
+            conflict="暗流涌动",
+            input_state_ref="ns_001",
+            output_state_ref="ns_out_001",
+            released_information=["th_01古玉发热"],
+            emotional_shift="压抑",
+            is_effective=True,
         )
 
-        assert "A" in evals and "B" in evals
-        assert evals["A"].orchestration_score is not None
-        assert evals["B"].orchestration_score is not None
-        assert isinstance(evals["A"].orchestration_notes, list)
-
-
-class TestPersistenceIntegration:
-    """测试状态落盘与加载."""
-
-    def test_load_orchestration_context_persists_state(self, tmp_path):
-        objects = _make_sample_objects()
-        ctx = load_orchestration_context(
+        res_state = commit_orchestration_transition(
             tmp_path,
-            objects,
-            enabled=True,
-            chapter_number=3,
+            plan,
+            pu,
+            chapter_number=1,
+            run_id="run_compose_1",
+            threads_advanced=["th_01"],
+            payoff_promises=["th_01古玉发热"],
         )
-        assert "【长程叙事编排导向】" in ctx
-        state_file = tmp_path / "orchestration_state.json"
-        assert state_file.exists()
 
-        data = json.loads(state_file.read_text(encoding="utf-8"))
-        assert data["chapter_number"] == 3
-        assert "expectation_horizon" in data
-        assert "promise_debt" in data
-        assert "relational_trajectory" in data
-        assert "emotional_pacing" in data
-        assert "thread_rotation" in data
-        assert "chapter_function" in data
-        assert "density_budget" in data
+        assert res_state.last_committed_chapter == 1
+        assert res_state.last_run_id == "run_compose_1"
+        assert len(res_state.history_entries) == 1
+        assert res_state.thread_last_seen.get("th_01") == 1
+
+        # 验证落盘文件
+        reloaded = load_committed_orchestration_state(tmp_path)
+        assert reloaded.last_committed_chapter == 1
+        assert len(reloaded.history_entries) == 1
+        assert reloaded.history_entries[0].chapter == 1

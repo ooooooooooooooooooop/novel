@@ -223,3 +223,48 @@ class TestCrossWorkSeparation:
         assert res.lexical_leakage_detected is True
         assert "天玄宗" in res.leaked_terms
         assert res.is_valid_author_prior is False
+
+    def test_author_model_v3_persistence_and_shadow_isolation(self, tmp_path):
+        from src.workflow_action.authormodel_v3 import (
+            load_author_model_v3,
+            load_qualification_report,
+            save_author_model_v3,
+            save_qualification_report,
+        )
+
+        p = AuthorPrincipleV3(
+            principle_id="ap_test",
+            statement="始终坚持付出代价才能获得力量",
+            value_vocab_key="character_causality_over_plot_convenience",
+            confidence=0.85,
+            status="stable",
+        )
+        model = AuthorModelV3(
+            author_id="author_persisted",
+            principles=[p],
+            known_works=["作品A", "作品B"],
+        )
+
+        saved = save_author_model_v3(tmp_path, model)
+        assert saved.exists()
+        loaded = load_author_model_v3(tmp_path)
+        assert loaded is not None
+        assert loaded.author_id == "author_persisted"
+        assert len(loaded.principles) == 1
+
+        # 资格报告持久化
+        qual = CrossWorkValidationResult(
+            author_id="author_persisted",
+            holdout_work="作品B",
+            training_works=["作品A"],
+            choice_prediction_accuracy=0.75,
+            baseline_accuracy=0.5,
+            lexical_leakage_detected=False,
+            is_valid_author_prior=True,
+        )
+        q_saved = save_qualification_report(tmp_path, qual)
+        assert q_saved.exists()
+        q_loaded = load_qualification_report(tmp_path)
+        assert q_loaded is not None
+        assert q_loaded.is_valid_author_prior is True
+

@@ -52,7 +52,8 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 # P5 AuthorModel V3（test_authormodel_v3.py,+4）升至 2892。
 # P6 因果编译器与人物策略（test_causal_compiler.py,+4, test_character_policy.py,+2）升至 2898。
 # P7 人类盲评与长程授权（test_human_eval.py,+5）升至 2903。
-EXPECTED_BASELINE = 2903
+# R1-R9 大神级系统整改（taste_stack,+4; narrative_orchestrator,+2; structural_search,+3; causal_defense,+3; authormodel_v3,+2; human_eval,+3; test_remediation_integration.py,+1）升至 2921。
+EXPECTED_BASELINE = 2921
 EXAMPLE_PATH = "docs/00_project/tier0_release_record.example.json"
 CANARY_EVIDENCE_EXAMPLE_PATH = "docs/00_project/tier0_canary_evidence.example.json"
 COMMITTED_RELEASE_RECORD_PATH = "docs/00_project/releases/tier0-release.json"

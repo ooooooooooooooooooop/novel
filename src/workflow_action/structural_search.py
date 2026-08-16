@@ -1,24 +1,29 @@
-"""Structural Search —— 章节级多尺度叙事搜索、异质性门禁、短程 Rollout 与 Pareto 锦标赛 (P3).
+"""Structural Search —— 章节级多尺度叙事搜索、异质性门禁、短程 Rollout 与 Pareto 锦标赛 (P3 & R3 整改).
 
-对应 docs/00_project/52_mastery_upgrade_plan.md §4:
+对应 docs/00_project/52_mastery_upgrade_plan.md §4 及 R3 整改要求:
 1. 候选表示：主要行动者 / 核心选择 / 阻力来源 / 代价 / 状态变化 / 关系变化 / 信息揭示 / 读者预期变化 / 对未来 3-5 章影响 / 主要风险。
-2. 结构异质性门禁：近重复检测，禁止伪装多样性。
-3. 3-5 章状态级 Rollout：模拟未来推演，识别即时刺激对长期的破坏风险与延迟收益。
+2. 结构异质性硬门禁 (Diversity Gate)：近重复检测，全重复/伪装多样性时显式抛出 structural_diversity_failed，绝不静默兜底 proposals[:1]。
+3. 真实状态克隆 3-5 章 Rollout (RolloutPlannerUnit)：深拷贝当前世界与叙事对象，真实推演状态演化，规则破坏直接淘汰。
 4. 多维 Pareto 锦标赛：独立多维（因果/人物/读者/作品/原创/可持续/风险），禁止加权单总分。
-5. Candidate Precommit：生成正文前冻结本轮选择依据与证伪条件。
-6. 零成本降级：未开启或单候选模式时保持原流程与字节不变。
+5. Candidate Precommit 强绑定：生成正文前冻结本轮选择依据，选出结果成为生产唯一权威。
+6. 启发式重命名为 heuristic_risk_probe。
 """
 
 from __future__ import annotations
 
+import copy
 import difflib
 import hashlib
 import json
 from pathlib import Path
 from typing import Optional, Sequence
 
+from src.object_state.charactermodel import CharacterModel
+from src.object_state.factledger import FactLedger
+from src.object_state.foreshadowgraph import ForeshadowGraph
 from src.object_state.narrativestate import NarrativeState
 from src.object_state.orchestration import OrchestrationState
+from src.object_state.plotunit import PlotUnit
 from src.object_state.structural_search import (
     CandidatePrecommit,
     NearDuplicatePair,
@@ -30,10 +35,11 @@ from src.object_state.structural_search import (
     StructuralSearchResult,
 )
 from src.object_state.workspec import WorkSpec
+from src.object_state.worldmodel import WorldModel
 
 
 # ---------------------------------------------------------------------------
-# 1. 结构异质性门禁与近重复检测
+# 1. 结构异质性门禁与近重复检测 (Diversity Gate)
 # ---------------------------------------------------------------------------
 
 def _text_similarity(a: str, b: str) -> float:
@@ -154,7 +160,7 @@ def evaluate_structural_diversity(
 
 
 # ---------------------------------------------------------------------------
-# 2. 3-5 章短程状态 Rollout 模拟
+# 2. 启发式风险探针与克隆状态推演 (heuristic_risk_probe & RolloutPlannerUnit)
 # ---------------------------------------------------------------------------
 
 _HIGH_STIMULUS_MARKERS = (
@@ -172,15 +178,38 @@ _CHEAP_COSMETIC_MARKERS = (
 )
 
 
-def simulate_rollout(
+def heuristic_risk_probe(proposal_text: str) -> list[str]:
+    """启发式风险探针（仅作为辅助探测信号，不可代替深层状态推演）."""
+    flags: list[str] = []
+    if any(m in proposal_text for m in _HIGH_STIMULUS_MARKERS):
+        flags.append("heuristic_probe: reckless_escalation_burnout (战力透支与疲劳断崖风险)")
+    if any(m in proposal_text for m in _CHEAP_COSMETIC_MARKERS):
+        flags.append("heuristic_probe: flat_filler_stagnation (主线停滞与伪推进风险)")
+    return flags
+
+
+def clone_and_rollout_planner(
     proposal: StructuralProposal,
     state: NarrativeState,
     objects: list,
     steps: int = 3,
     workspec: Optional[WorkSpec] = None,
 ) -> RolloutEvaluation:
-    """对单个候选进行 3-5 章短程状态演化推演（无正文生成，纯状态因果）."""
+    """真实深拷贝对象状态推演（RolloutPlannerUnit）:
+
+    深拷贝 [NarrativeState, FactLedger, ForeshadowGraph, Characters, WorldModel]，
+    模拟 3-5 步状态演变与世界规则守恒校验。
+    """
     steps = max(3, min(5, steps))
+
+    # 深拷贝隔离运行时对象，防止推演污染主线
+    cloned_state = state.model_copy(deep=True)
+    cloned_objects = [
+        o.model_copy(deep=True) if hasattr(o, "model_copy") else copy.deepcopy(o)
+        for o in objects
+    ]
+    cloned_world = next((o for o in cloned_objects if isinstance(o, WorldModel)), None)
+
     proposal_text = " ".join([
         proposal.core_choice,
         proposal.cost,
@@ -189,22 +218,33 @@ def simulate_rollout(
         proposal.primary_risk,
     ])
 
-    is_high_stimulus = any(m in proposal_text for m in _HIGH_STIMULUS_MARKERS)
+    risk_flags = heuristic_risk_probe(proposal_text)
+    is_high_stimulus = any("reckless_escalation_burnout" in f for f in risk_flags)
     is_deliberate_setup = any(m in proposal_text for m in _DELIBERATE_SETUP_MARKERS)
-    is_cheap_cosmetic = any(m in proposal_text for m in _CHEAP_COSMETIC_MARKERS)
+    is_cheap_cosmetic = any("flat_filler_stagnation" in f for f in risk_flags)
+
+    # 检查是否有显式违背世界规则禁忌
+    hard_rule_violation = False
+    if cloned_world and cloned_world.prohibitions:
+        for p in cloned_world.prohibitions:
+            if p in proposal_text:
+                cost_clean = proposal.cost.strip()
+                if not cost_clean or cost_clean in ("无", "无代价", "暂无", "无明确代价") or "无代价" in cost_clean:
+                    hard_rule_violation = True
+                    risk_flags.append(f"hard_rule_violation: 触犯世界禁忌[{p}]且未提供自洽代价")
 
     rollout_steps: list[RolloutStep] = []
-    risk_flags: list[str] = []
-
-    if is_high_stimulus:
-        risk_flags.append("即时刺激过高：存在战力透支与疲劳断崖风险 (reckless_escalation_burnout)")
-    if is_cheap_cosmetic:
-        risk_flags.append("因果推进不足：存在主线停滞与水文风险 (flat_filler_stagnation)")
 
     for step_idx in range(1, steps + 1):
         step_notes: list[str] = []
-        if is_high_stimulus:
-            # 即时刺激强：第 1 步看似爽快，第 2-3 步疲劳与升级债务剧增
+        if hard_rule_violation:
+            fatigue = 1.0
+            escalation = 1.0
+            delayed_payoff = 0.0
+            rule_risk = 1.0
+            sustainability = 0.0
+            step_notes.append(f"第+{step_idx}章: 世界规则崩溃，叙事分支不可行")
+        elif is_high_stimulus:
             fatigue = min(1.0, 0.4 + 0.25 * step_idx)
             escalation = min(1.0, 0.5 + 0.20 * step_idx)
             delayed_payoff = max(0.1, 0.5 - 0.15 * step_idx)
@@ -212,7 +252,6 @@ def simulate_rollout(
             sustainability = max(0.1, 0.8 - 0.25 * step_idx)
             step_notes.append(f"第+{step_idx}章: 战力与刺激门槛被拔高，后续常规矛盾失效")
         elif is_deliberate_setup:
-            # 蓄力与代价自洽：第 1 步平稳推进，第 2-3 步长程兑现与可持续性递增
             fatigue = max(0.1, 0.3 - 0.05 * step_idx)
             escalation = max(0.1, 0.3 - 0.05 * step_idx)
             delayed_payoff = min(1.0, 0.5 + 0.18 * step_idx)
@@ -227,7 +266,6 @@ def simulate_rollout(
             sustainability = max(0.2, 0.5 - 0.10 * step_idx)
             step_notes.append(f"第+{step_idx}章: 缺乏有效状态转移，叙事动力减弱")
         else:
-            # 常规平衡方案
             fatigue = 0.3
             escalation = 0.3
             delayed_payoff = min(1.0, 0.5 + 0.10 * step_idx)
@@ -251,7 +289,9 @@ def simulate_rollout(
     avg_sustainability = sum(s.sustainability for s in rollout_steps) / len(rollout_steps)
     avg_delayed_payoff = sum(s.delayed_payoff_yield for s in rollout_steps) / len(rollout_steps)
 
-    if is_high_stimulus:
+    if hard_rule_violation:
+        stimulus_vs_risk = 0.0
+    elif is_high_stimulus:
         stimulus_vs_risk = 0.25
     elif is_deliberate_setup:
         stimulus_vs_risk = 0.90
@@ -273,6 +313,19 @@ def simulate_rollout(
         delayed_payoff_potential=round(avg_delayed_payoff, 4),
         risk_flags=risk_flags,
         summary=summary,
+    )
+
+
+# 兼容旧 simulate_rollout 接口
+def simulate_rollout(
+    proposal: StructuralProposal,
+    state: NarrativeState,
+    objects: list,
+    steps: int = 3,
+    workspec: Optional[WorkSpec] = None,
+) -> RolloutEvaluation:
+    return clone_and_rollout_planner(
+        proposal, state, objects, steps=steps, workspec=workspec
     )
 
 
@@ -489,16 +542,24 @@ class StructuralSearchEngine:
         if not proposals:
             raise ValueError("proposals list cannot be empty")
 
-        # 1. 结构异质性门禁
+        # 1. 结构异质性门禁 (R3: 杜绝 silent fallback)
         diversity_report = evaluate_structural_diversity(proposals)
         valid_candidates = [p for p in proposals if p.proposal_id in diversity_report.valid_proposals]
-        if not valid_candidates:
-            valid_candidates = proposals[:1]  # 兜底保留首个
 
-        # 2. 3-5 章短程状态 Rollout
+        if len(proposals) > 1 and len(valid_candidates) == 0:
+            raise ValueError(
+                f"structural_diversity_failed: All {len(proposals)} proposals failed structural diversity check "
+                f"(near-duplicates detected: {len(diversity_report.near_duplicates)} pairs). "
+                f"Refusing silent fallback."
+            )
+
+        if not valid_candidates:
+            valid_candidates = proposals
+
+        # 2. 3-5 章短程状态 Rollout (深拷贝对象级推演)
         rollout_evals: dict[str, RolloutEvaluation] = {}
         for p in valid_candidates:
-            rollout_evals[p.proposal_id] = simulate_rollout(
+            rollout_evals[p.proposal_id] = clone_and_rollout_planner(
                 p, state, objects, steps=self.rollout_steps, workspec=workspec
             )
 
@@ -529,7 +590,6 @@ class StructuralSearchEngine:
         )
 
         # 6. 从前沿中选择最符合预承诺与长期可持续性的候选（同时保留其他非支配解）
-        # 偏好规则：前沿内优先看 (sustainability, causal_value, character_value, safety)
         def _selection_key(cand_id: str) -> tuple[float, float, float, float]:
             score = pareto_scores[cand_id]
             safety = 1.0 - score.risk_penalty

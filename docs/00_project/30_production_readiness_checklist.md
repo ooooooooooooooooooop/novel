@@ -38,7 +38,7 @@ Tier 0 is ready only when all of these are true:
 - the runtime is still `local staged CLI v0`
 - one operator controls response materialization
 - the release candidate has a clean full pytest run
-- the release candidate records `2903 tests passing`
+- the release candidate records `2921 tests passing`
 - `novel gate --require-approval` is an opt-in human-approval gate; the default `novel gate` contract is unchanged
 - a release tag or equivalent immutable checkpoint exists
 - known limitations are documented in this file and the current status page

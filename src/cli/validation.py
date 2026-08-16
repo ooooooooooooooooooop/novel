@@ -107,6 +107,9 @@ VALID_CONFIG_FIELDS = {
     "consolidation_min",
     "consolidation_min_support",
     "consolidation_contested_ratio",
+    "structural_search",
+    "rollout_steps",
+    "author_model_v3",
     "rebuild",
     "check",
 }
@@ -2205,6 +2208,18 @@ def _validate_quality_json_payload(payload: object) -> None:
     for field in ("report_id", "novel_name", "pipeline_version", "layer1_hard_gates", "narrative_evaluation_summary"):
         if field not in payload:
             raise ValueError(f"CLI quality JSON payload missing {field}")
+
+
+def _validate_human_eval_json_payload(payload: object) -> None:
+    """human-eval --json 载荷契约."""
+    if not isinstance(payload, dict):
+        raise ValueError("CLI human-eval JSON payload must be an object")
+
+
+def _validate_long_run_status_json_payload(payload: object) -> None:
+    """long-run-status --json 载荷契约."""
+    if not isinstance(payload, dict):
+        raise ValueError("CLI long-run-status JSON payload must be an object")
 
 
 def _validate_novel_name(name: str) -> None:

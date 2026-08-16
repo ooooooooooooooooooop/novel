@@ -352,3 +352,130 @@ def test_run_causal_defense_clean_objects_produce_no_issues():
         _state("s_in"), _state("s_out"),
     ]
     assert run_causal_defense(objects) == []
+
+
+# ---------------------------------------------------------------------------
+# R4 整改专项测试：时间线约束、别名注册表、世界规则明确链接与门禁路由
+# ---------------------------------------------------------------------------
+
+def test_narrative_chronology_future_fact_does_not_constrain_earlier_candidate():
+    """发生在未来章节的事实不应约束发生在此前章节的候选."""
+    from src.object_state.factledger import ValidityInterval
+
+    # 事实在第 5 章才成立（古堡在第5章被焚毁）
+    future_fact = FactEntry(
+        fact_id="f_future",
+        statement="古堡已被焚毁",
+        fact_type="event",
+        involved_entities=["古堡"],
+        confirmed=True,
+        validity_interval=ValidityInterval(valid_from="第五章"),
+    )
+    # 当前候选发生在第 2 章
+    pu_chapter2 = PlotUnit(
+        unit_id="pu_ch2_01",
+        level="scene",
+        goal="探访",
+        conflict="探寻历史真相",
+        participants=["c001"],
+        input_state_ref="state_ch2_in",
+        output_state_ref="state_ch2_out",
+        released_information=["古堡完好如初，庄严肃穆"],
+    )
+    state_ch2 = NarrativeState(
+        state_id="state_ch2_in",
+        current_time="第二章",
+        current_location="古堡",
+        current_situation="初次探访",
+    )
+    objects = [_ledger(future_fact), pu_chapter2, state_ch2]
+    # 第2章古堡完好属于历史常态，不应触发第5章事实的抹除报警
+    assert detect_erased_committed_event(objects) == []
+
+
+def test_narrative_chronology_past_fact_constrains_candidate():
+    """在当前或过去章节已成立的事实必须严格约束当前候选."""
+    from src.object_state.factledger import ValidityInterval
+
+    # 事实在第 1 章已成立
+    past_fact = FactEntry(
+        fact_id="f_past",
+        statement="古堡已被焚毁",
+        fact_type="event",
+        involved_entities=["古堡"],
+        confirmed=True,
+        validity_interval=ValidityInterval(valid_from="第一章"),
+    )
+    # 当前候选发生在第 3 章
+    pu_chapter3 = PlotUnit(
+        unit_id="pu_ch3_01",
+        level="scene",
+        goal="重回旧地",
+        conflict="探寻废墟",
+        participants=["c001"],
+        input_state_ref="state_ch3_in",
+        output_state_ref="state_ch3_out",
+        released_information=["古堡竟完好如初，仿佛从未发生火灾"],
+    )
+    state_ch3 = NarrativeState(
+        state_id="state_ch3_in",
+        current_time="第三章",
+        current_location="古堡",
+        current_situation="调查",
+    )
+    objects = [_ledger(past_fact), pu_chapter3, state_ch3]
+    issues = detect_erased_committed_event(objects)
+    assert len(issues) == 1
+    assert issues[0].is_blocking()
+
+
+def test_entity_alias_registry_and_no_loose_prefix_match():
+    """废除模糊2字前缀切片，通过别名注册表准确匹配实体，杜绝不相关词汇误伤."""
+    cm = CharacterModel(
+        character_id="c_lin",
+        name="林清寒",
+        identity="剑宗首席",
+        outer_goal="悟道",
+        inner_need="认可",
+        fear="失败",
+        flaw="傲慢",
+        strength="剑法",
+        stance="中立",
+        change_trajectory=["从傲慢到学会信任"],
+    )
+    # 场景文本中仅有"林间清泉"，不包含"林清寒"实体别名
+    pu_mistake = PlotUnit(
+        unit_id="pu_forest",
+        level="scene",
+        goal="赶路",
+        conflict="险阻",
+        participants=["c_other"],
+        input_state_ref="s_in",
+        output_state_ref="s_out",
+        released_information=["他在林间清澈的溪水边喝水，又变回原来的冷漠"],
+    )
+    objects = [cm, pu_mistake]
+    # 不应因为"林清"2字重叠而误认为林清寒在场并触发成长重置
+    assert detect_growth_reset(objects) == []
+
+
+def test_world_rule_explicit_linkage_in_cost_invalidation():
+    """代价失效时，若世界规则明确约束，则在 issue 中明确链接规则并升级为 blocking."""
+    world = WorldModel(
+        consequence_logic=["生死逆转必付同等天道代价，且不可逆转"],
+        prohibitions=["无代价直接逆转生死"],
+    )
+    fact = _fact("f_life_cost", "主角失去十年寿元强行施法", fact_type="event", entities=["主角"])
+    pu = _pu(
+        "pu_rev",
+        goal="施法",
+        conflict="突破瓶颈",
+        released=["主角失去的十年寿元竟已完全恢复如初"],
+    )
+    objects = [world, _ledger(fact), pu]
+    issues = detect_invalidated_cost(objects)
+    assert len(issues) == 1
+    assert issues[0].severity == "blocking"
+    assert issues[0].issue_type == "world_violation"
+    assert "生死逆转必付同等天道代价" in issues[0].violated_rule
+

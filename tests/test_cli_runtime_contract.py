@@ -61,7 +61,9 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 # P5 AuthorModel V3（test_authormodel_v3.py,+4）→ 2888 + 4 = 2892。
 # P6 因果编译器与人物策略（test_causal_compiler.py,+4, test_character_policy.py,+2）→ 2892 + 6 = 2898。
 # P7 人类盲评与长程授权（test_human_eval.py,+5）→ 2898 + 5 = 2903。
-EXPECTED_TEST_BASELINE = "2903"
+# R1-R9 大神级系统整改（taste_stack,+4; narrative_orchestrator,+2; structural_search,+3; causal_defense,+3; authormodel_v3,+2; human_eval,+3; test_remediation_integration.py,+1）
+# → 2903 + 18 = 2921。
+EXPECTED_TEST_BASELINE = "2921"
 
 
 def run_script(*args: str) -> subprocess.CompletedProcess[str]:

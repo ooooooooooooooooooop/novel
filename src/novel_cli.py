@@ -993,7 +993,16 @@ def _run_quality(args: argparse.Namespace) -> int:
     mode = _read_mode(novel_dir) if (novel_dir / "output").exists() else "extend"
     output_dir = _output_dir(novel_dir, mode)
     output_dir.mkdir(parents=True, exist_ok=True)
-    report = build_unified_quality_report(args.novel, output_dir=output_dir)
+    strict = bool(getattr(args, "strict_evidence", False))
+    try:
+        report = build_unified_quality_report(
+            args.novel, output_dir=output_dir, strict_evidence=strict
+        )
+    except ValueError as exc:
+        if strict:
+            print(f"Error: {exc}")
+            return 1
+        raise
     if getattr(args, "format", "markdown") == "json":
         payload = report.model_dump(mode="json")
         _validate_quality_json_payload(payload)
@@ -1001,6 +1010,125 @@ def _run_quality(args: argparse.Namespace) -> int:
     else:
         print(report.render_markdown())
     return 0
+
+
+def _run_human_eval(args: argparse.Namespace) -> int:
+    """独立人类双盲评估工具包 (P7 / R6)."""
+    from src.object_state.human_eval import BlindedChapterPacket, HumanEvaluationSubmission
+    from src.workflow_action.human_eval import (
+        build_blinded_human_eval_packet,
+        evaluate_human_submissions,
+        evaluate_long_horizon_authorization,
+        inspect_long_horizon_preconditions,
+    )
+
+    novel_dir = _novel_dir(args.novel) if getattr(args, "novel", None) else None
+    action = getattr(args, "action", "authorize")
+
+    if action == "packet":
+        if not args.novel:
+            print("Error: --novel is required for packet action")
+            return 1
+        pub_dir = Path(args.public_output_dir) if args.public_output_dir else (novel_dir / "human_eval" / "public")
+        sec_dir = Path(args.secret_output_dir) if args.secret_output_dir else (novel_dir / "human_eval" / "secret")
+        chapters_dir = novel_dir / "chapters"
+        version_data = {"system_v3": []}
+        if chapters_dir.exists():
+            for ch_file in sorted(chapters_dir.glob("chapter_*.json")):
+                try:
+                    data = json.loads(ch_file.read_text(encoding="utf-8"))
+                    version_data["system_v3"].append(data)
+                except Exception:
+                    continue
+        packet, secret = build_blinded_human_eval_packet(
+            args.novel,
+            version_data,
+            chapter_range=getattr(args, "chapter_range", "1-10"),
+            public_output_dir=pub_dir,
+            secret_output_dir=sec_dir,
+            random_seed=getattr(args, "random_seed", 42),
+        )
+        print(f"Blinded packet created: {packet.packet_id}")
+        print(f"Public output: {pub_dir}")
+        print(f"Secret output: {sec_dir}")
+        return 0
+
+    elif action == "evaluate":
+        if not args.submissions or not Path(args.submissions).exists():
+            print(f"Error: submissions file not found: {args.submissions}")
+            return 1
+        sub_raw = json.loads(Path(args.submissions).read_text(encoding="utf-8"))
+        submissions = [HumanEvaluationSubmission.model_validate(s) for s in sub_raw]
+        sec_file = (
+            Path(args.secret_output_dir) / "secret_manifest.json"
+            if args.secret_output_dir
+            else (novel_dir / "human_eval" / "secret" / "secret_manifest.json")
+        )
+        if not sec_file.exists():
+            print(f"Error: secret manifest not found at {sec_file}")
+            return 1
+        sec_data = json.loads(sec_file.read_text(encoding="utf-8"))
+        mapping = sec_data.get("mapping", {})
+        pub_file = (
+            Path(args.public_output_dir) / "blinded_packet.json"
+            if args.public_output_dir
+            else (novel_dir / "human_eval" / "public" / "blinded_packet.json")
+        )
+        packet = BlindedChapterPacket.model_validate_json(pub_file.read_text(encoding="utf-8"))
+        res = evaluate_human_submissions(packet, submissions, mapping)
+        if getattr(args, "json", False):
+            payload = res
+            _validate_human_eval_json_payload(payload)
+            print(json.dumps(payload, ensure_ascii=False, indent=2))
+        else:
+            print("Human Evaluation Results:")
+            print(f"Total Readers: {res['total_readers']}")
+            print(f"Preference: {res['preference_distribution']}")
+            print(f"Continuation Rate: {res['continuation_rate_by_version']}")
+        return 0
+
+    elif action in ("preconditions", "authorize"):
+        verdict = evaluate_long_horizon_authorization(workspace_dir=novel_dir)
+        if getattr(args, "json", False):
+            payload = verdict.model_dump(mode="json")
+            _validate_human_eval_json_payload(payload)
+            print(json.dumps(payload, ensure_ascii=False, indent=2))
+        else:
+            print("=" * 60)
+            print(f"90-Chapter Long Horizon Authorization Verdict: {verdict.verdict}")
+            print("=" * 60)
+            print(f"Notes: {verdict.notes}")
+            if verdict.unmet_preconditions:
+                print("\nUnmet Preconditions:")
+                for p in verdict.unmet_preconditions:
+                    print(f"  - [FAIL] {p}")
+            print(f"\nBoundary Statement: {verdict.boundary_statement}")
+        return 0 if verdict.verdict == "long_run_authorized" else 1
+
+    return 0
+
+
+def _run_long_run_status(args: argparse.Namespace) -> int:
+    """90 章无人全自动长程生产 10 项硬性前置条件与授权状态巡检."""
+    from src.workflow_action.human_eval import evaluate_long_horizon_authorization
+
+    novel_dir = _novel_dir(args.novel) if getattr(args, "novel", None) else None
+    verdict = evaluate_long_horizon_authorization(workspace_dir=novel_dir)
+    if getattr(args, "json", False):
+        payload = verdict.model_dump(mode="json")
+        _validate_long_run_status_json_payload(payload)
+        print(json.dumps(payload, ensure_ascii=False, indent=2))
+    else:
+        print("=" * 60)
+        print(f"Long Horizon Production Authorization: {verdict.verdict}")
+        print("=" * 60)
+        print(f"Notes: {verdict.notes}")
+        if verdict.unmet_preconditions:
+            print("\nUnmet Preconditions:")
+            for p in verdict.unmet_preconditions:
+                print(f"  - [X] {p}")
+        print(f"\n{verdict.boundary_statement}")
+    return 0 if verdict.verdict == "long_run_authorized" else 1
 
 
 def _run_time(args: argparse.Namespace) -> int:
@@ -1943,6 +2071,25 @@ def _add_author_arguments(parser: argparse.ArgumentParser) -> None:
         metavar="R",
         help="反例占比达到即 contested（默认 0.5；短程实验可调高避免过早 contested）",
     )
+    parser.add_argument(
+        "--structural-search",
+        choices=["on", "off"],
+        default="off",
+        help="结构搜索开关（默认 off；on=启用多尺度结构搜索候选生成与决策）",
+    )
+    parser.add_argument(
+        "--rollout-steps",
+        type=int,
+        default=3,
+        metavar="N",
+        help="结构搜索推演步数（默认 3）",
+    )
+    parser.add_argument(
+        "--author-model-v3",
+        choices=["on", "off"],
+        default="off",
+        help="AuthorModel V3 动态先验开关（默认 off；on=影子评分与 Hindsight 动态演化）",
+    )
 
 
 def build_parser(*, emit_json_errors: bool = False) -> argparse.ArgumentParser:
@@ -2237,7 +2384,39 @@ def build_parser(*, emit_json_errors: bool = False) -> argparse.ArgumentParser:
         default="markdown",
         help="报告输出格式（默认 markdown）",
     )
+    quality_cmd.add_argument(
+        "--strict-evidence",
+        action="store_true",
+        help="严格证据校验模式：遇到损坏证据退出非零",
+    )
     quality_cmd.set_defaults(func=_run_quality)
+
+    human_eval_cmd = subparsers.add_parser(
+        "human-eval",
+        help="独立人类双盲评估工具包：材料包组装 / 提交聚合 / 揭盲与授权",
+    )
+    human_eval_cmd.add_argument("novel", nargs="?", default="", help="小说名")
+    human_eval_cmd.add_argument(
+        "--action",
+        choices=["packet", "evaluate", "preconditions", "authorize"],
+        default="authorize",
+        help="执行动作：packet=组装双盲材料包；evaluate=聚合提交并揭盲；preconditions=检查10项前置条件；authorize=长程无人生产授权裁决",
+    )
+    human_eval_cmd.add_argument("--chapter-range", default="1-10", help="评测章节范围（默认 1-10）")
+    human_eval_cmd.add_argument("--public-output-dir", help="公开材料包目录（--public-output-dir）")
+    human_eval_cmd.add_argument("--secret-output-dir", help="保密材料包目录（--secret-output-dir）")
+    human_eval_cmd.add_argument("--submissions", help="读者提交结果 JSON 路径")
+    human_eval_cmd.add_argument("--random-seed", type=int, default=42, help="双盲打乱显式随机种子")
+    human_eval_cmd.add_argument("--json", action="store_true", help="以 JSON 格式输出结果")
+    human_eval_cmd.set_defaults(func=_run_human_eval)
+
+    long_run_cmd = subparsers.add_parser(
+        "long-run-status",
+        help="90 章无人全自动长程生产 10 项硬性前置条件与授权状态巡检",
+    )
+    long_run_cmd.add_argument("novel", nargs="?", default=None, help="小说名（可选）")
+    long_run_cmd.add_argument("--json", action="store_true", help="以 JSON 格式输出结果")
+    long_run_cmd.set_defaults(func=_run_long_run_status)
 
     hindsight_cmd = subparsers.add_parser("hindsight", help="Hindsight Reconciliation：从真实后续章节回填 ChoiceRecord 后果与回看")
     hindsight_cmd.add_argument("novel", help="小说名")

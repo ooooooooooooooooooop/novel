@@ -9,6 +9,7 @@ generate_character_action_proposal:
 
 from __future__ import annotations
 
+import hashlib
 from typing import Optional
 
 from src.object_state.character_policy import (
@@ -22,8 +23,13 @@ def generate_character_action_proposal(
     situation: str,
     proposal_id: Optional[str] = None,
 ) -> CharacterActionProposal:
-    """基于人物局部策略状态生成当前局势下的行动提案."""
-    p_id = proposal_id or f"cap_{policy.character_id}_{hash(situation) % 10000:04d}"
+    """基于人物局部策略状态生成当前局势下的行动提案 (P6 研究轨，基于 SHA-256 确定性生成 ID)."""
+    if proposal_id:
+        p_id = proposal_id
+    else:
+        raw_key = f"{policy.character_id}_{situation}"
+        prop_hash = hashlib.sha256(raw_key.encode("utf-8")).hexdigest()[:8]
+        p_id = f"cap_{policy.character_id}_{prop_hash}"
 
     # 1. 提取首要目标与首要恐惧
     top_goal = policy.primary_goals[0] if policy.primary_goals else "保全自身立足点"

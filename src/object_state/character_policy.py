@@ -71,3 +71,6 @@ class CharacterActionProposal(BaseModel):
     risk_assessment: str = Field(
         default="", description="人物自身意识到的风险与盲区"
     )
+    research_only: bool = Field(
+        default=True, description="标记该模块为 P6 实验研究轨，不进入生产前置条件"
+    )

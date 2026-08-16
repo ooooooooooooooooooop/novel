@@ -5,7 +5,7 @@
 2. 专门轴评价 (Layer 2): 可扩展轴接口（通用轴 + 作品特有轴），看候选前冻结标准，允许 unreviewable。
 3. Blind Eval (Layer 3): 隐藏版本来源、A/B 与 B/A 换位、允许弃权、Wilson 95% CI。回答「修改后是否相对变好」。
 4. PASS Audit (Layer 4): route=pass 独立抽样、不暴露原 Review、区分 any/actionable/blocking miss。回答「Review 漏了多少」。
-5. 人类隐藏来源验证 (Layer 5): 隐藏来源混排，无真人数据时显示 not_run，不伪造数据。
+5. 人类隐藏来源验证 (Layer 5): 隐藏来源混排，无真人数据时显示 not_run，禁止伪造通过。
 6. G7 退役状态: 明确标记已退役为研究性子能力，不再作为总发布门。
 7. 统一质量报告: 禁止输出单一「最终大神分数」。
 """
@@ -19,32 +19,26 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 class Layer1HardGatesSummary(BaseModel):
-    """第 1 层：确定性硬门禁状态（只证明无已知硬错误）."""
+    """第 1 层：确定性硬门禁状态（只证明无已知硬错误，无真实证据为 not_run）."""
 
     model_config = ConfigDict(extra="forbid")
 
-    status: Literal["passed", "blocked", "not_run"] = "not_run"
-    checked_gates: list[str] = Field(
-        default_factory=lambda: [
-            "fact_consistency",
-            "temporal_consistency",
-            "state_integrity",
-            "causal_defense_5_detectors",
-            "reader_contract_compliance",
-            "commit_integrity",
-        ]
-    )
+    status: Literal["passed", "blocked", "not_run", "invalid_evidence"] = "not_run"
+    checked_gates: list[str] = Field(default_factory=list)
     blocking_issues_count: int = 0
     blocking_issues_details: list[dict] = Field(default_factory=list)
     evidence_count: int = 0
+    evidence_paths: list[str] = Field(default_factory=list)
+    evidence_hashes: dict[str, str] = Field(default_factory=dict)
+    errors: list[str] = Field(default_factory=list)
 
 
 class Layer2SpecializedAxesSummary(BaseModel):
-    """第 2 层：专门轴评价状态."""
+    """第 2 层：专门轴评价状态（无真实证据为 not_run）."""
 
     model_config = ConfigDict(extra="forbid")
 
-    status: Literal["completed", "pending", "not_run"] = "not_run"
+    status: Literal["completed", "pending", "not_run", "unreviewable", "invalid_evidence"] = "not_run"
     evaluated_axes: dict[str, dict] = Field(
         default_factory=dict,
         description="各轴评价结果（人物选择/场景现场感/情绪落地/关系变化/承诺兑现/读者动力/套路风险等）",
@@ -53,15 +47,17 @@ class Layer2SpecializedAxesSummary(BaseModel):
         default_factory=list, description="标记为证据不足无法评审的轴"
     )
     frozen_criteria_hash: Optional[str] = None
+    evidence_paths: list[str] = Field(default_factory=list)
+    errors: list[str] = Field(default_factory=list)
     notes: list[str] = Field(default_factory=list)
 
 
 class Layer3BlindEvalSummary(BaseModel):
-    """第 3 层：Blind A/B 相对改善评估（回答修改后是否相对变好）."""
+    """第 3 层：Blind A/B 相对改善评估（回答修改后是否相对变好，真实计算 Wilson CI）."""
 
     model_config = ConfigDict(extra="forbid")
 
-    status: Literal["completed", "not_run"] = "not_run"
+    status: Literal["completed", "not_run", "invalid_evidence", "unreviewable"] = "not_run"
     total_pairs_evaluated: int = 0
     better_count: int = 0
     worse_count: int = 0
@@ -70,6 +66,8 @@ class Layer3BlindEvalSummary(BaseModel):
     net_improvement_rate: float = 0.0
     wilson_ci_95: tuple[float, float] = (0.0, 0.0)
     stratified_by_issue_type: dict[str, dict] = Field(default_factory=dict)
+    evidence_paths: list[str] = Field(default_factory=list)
+    errors: list[str] = Field(default_factory=list)
 
 
 class Layer4PassAuditSummary(BaseModel):
@@ -77,14 +75,16 @@ class Layer4PassAuditSummary(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    status: Literal["completed", "not_run"] = "not_run"
+    status: Literal["completed", "not_run", "invalid_evidence"] = "not_run"
     total_pass_chapters_audited: int = 0
     clean_chapters_count: int = 0
-    clean_rate: float = 1.0
+    clean_rate: float = 0.0
     actionable_miss_rate: float = 0.0
     blocking_miss_rate: float = 0.0
     findings_by_type: dict[str, int] = Field(default_factory=dict)
     severity_disagreements: list[dict] = Field(default_factory=list)
+    evidence_paths: list[str] = Field(default_factory=list)
+    errors: list[str] = Field(default_factory=list)
 
 
 class Layer5HumanBlindEvalSummary(BaseModel):
@@ -92,7 +92,7 @@ class Layer5HumanBlindEvalSummary(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    status: Literal["not_run", "in_progress", "completed"] = "not_run"
+    status: Literal["not_run", "in_progress", "completed", "invalid_evidence"] = "not_run"
     participant_groups: list[str] = Field(
         default_factory=list, description="读者分组（如专业读者组、网文读者组）"
     )
@@ -106,6 +106,8 @@ class Layer5HumanBlindEvalSummary(BaseModel):
     abandonment_points: list[dict] = Field(
         default_factory=list, description="弃读章节与位置分布"
     )
+    evidence_paths: list[str] = Field(default_factory=list)
+    errors: list[str] = Field(default_factory=list)
     notes: str = Field(default="暂无真人连续阅读实验数据（诚实标记 not_run，禁止伪造结果）")
 
 
@@ -114,10 +116,12 @@ class StyleDriftSummary(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    status: Literal["completed", "not_run"] = "not_run"
+    status: Literal["completed", "not_run", "invalid_evidence"] = "not_run"
     drift_detected: bool = False
     homogenization_index: float = 0.0
     metrics: dict[str, float] = Field(default_factory=dict)
+    evidence_paths: list[str] = Field(default_factory=list)
+    errors: list[str] = Field(default_factory=list)
 
 
 class G7RetirementNotice(BaseModel):
@@ -187,8 +191,9 @@ class UnifiedQualityReport(BaseModel):
             "",
             "## 1. 第 1 层：确定性硬门禁",
             f"- 状态: **{self.layer1_hard_gates.status.upper()}**",
-            f"- 检查门禁: {', '.join(self.layer1_hard_gates.checked_gates)}",
+            f"- 检查门禁: {', '.join(self.layer1_hard_gates.checked_gates) if self.layer1_hard_gates.checked_gates else '无'}",
             f"- 阻断问题数: {self.layer1_hard_gates.blocking_issues_count}",
+            f"- 证据文件: {', '.join(self.layer1_hard_gates.evidence_paths) if self.layer1_hard_gates.evidence_paths else '未读取到'}",
             "",
             "## 2. 第 2 层：专门轴评价",
             f"- 状态: **{self.layer2_specialized_axes.status.upper()}**",

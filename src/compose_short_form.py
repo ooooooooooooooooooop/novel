@@ -68,7 +68,12 @@ from src.workflow_action.rewrite import RewriteUnit
 from src.domain_layer.style_rules import build_temperament_guidance
 from src.workflow_action.style import load_style_context
 from src.workflow_action.retrieval import load_retrieval_context
-from src.workflow_action.narrative_orchestrator import load_orchestration_context
+from src.workflow_action.narrative_orchestrator import (
+    load_orchestration_context,
+    commit_orchestration_transition,
+    derive_orchestration_plan,
+    load_committed_orchestration_state,
+)
 from src.workflow_action.timebook import build_time_context, load_time_book, save_time_book
 from src.workflow_action.continuation_viability import (
     ContinuationViabilityUnit,
@@ -624,11 +629,14 @@ def main() -> int:
                 decision_context=narrative_state.current_situation or "Compose 续写决策",
                 kernel_path=args.kernel,
             )
+            next_chapter = prose_action.next_chapter_number(
+                output_dir.parent.parent / "chapters"
+            ) if (output_dir.parent.parent / "chapters").exists() else 1
             orchestration_context = load_orchestration_context(
                 output_dir,
                 objects,
                 enabled=True,
-                chapter_number=1,
+                chapter_number=next_chapter,
                 frame_context=frame_context,
                 structure_template=structure_template_name,
             )
@@ -1263,6 +1271,20 @@ def main() -> int:
         print(f"Saved: {compose_state_path}")
 
     if chapter_committed:
+        try:
+            ch_num = int(chapter_file.stem[len("chapter_"):]) if chapter_file else 1
+            committed_state = load_committed_orchestration_state(output_dir)
+            plan = derive_orchestration_plan(committed_state, objects, chapter_number=ch_num)
+            commit_orchestration_transition(
+                output_dir,
+                plan,
+                plotunit=plotunit,
+                chapter_number=ch_num,
+                run_id=derive_run_id("compose", ch_num),
+            )
+        except Exception as exc:
+            print(f"Warning: orchestration commit transition failed: {exc}")
+
         reset_consumed_responses(output_dir)
         print(
             f"[CYCLE] 本章 staged 响应已消费，下一章将从全新 prompt 开始"

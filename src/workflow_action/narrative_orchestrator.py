@@ -1,22 +1,20 @@
-"""NarrativeOrchestrator — 长程叙事编排决策引擎（P2 核心单元）.
+"""NarrativeOrchestrator — 长程叙事编排决策引擎与跨章持久闭环 (P2 核心单元 & R2 整改).
 
-把长程叙事编排从零散的字段/先验，收拢为一个显式的编排状态与决策器。
-实现 7 个维度的状态推导与指导：
-1. 读者预期（reader expectation / expectation horizon / cognitive tension）
-2. 承诺/回报债务（promise-payoff debt / open thread pressure / payoff urgency）
-3. 关系轨迹（relational trajectory / interpersonal leverage / estrangement vs bonding）
-4. 情绪模式（emotional pacing pattern / valley-peak rhythm / fatigue prevention）
-5. 线程轮换（thread rotation / secondary line starvation / main-sub balance）
-6. 章节功能（chapter function allocation / hook placement / transition vs payoff chapter）
-7. 信息与场景密度（information budgeting / scene density / exposure pacing）
+分离读取、派生、提交三大阶段：
+1. load_committed_orchestration_state: 从工作区读取上一个已提交章节的编排状态，校验 schema，损坏显式报错。
+2. derive_orchestration_plan: 纯函数推导本章编排计划（priority, suppress, silence, payoff targets, fatigue），无证据为 neutral。
+3. commit_orchestration_transition: 仅在章节事务真正提交成功后原子落盘，推进 expectation_started_at, promise_payoff_history, thread_last_seen 等。
 
-零成本契约：
-- 未开启编排或无状态对象时返回空串，不增加任何多余开销。
-- 相同输入状态产生确定性编排导向。
+接入真实选择链：Candidate Pool -> Narrative Selector -> Chapter Packet。
+零成本契约：未开启编排或无有效导向时返回空串，不增加任何多余 prompt 字节。
 """
 
+from __future__ import annotations
+
 import json
+import os
 from pathlib import Path
+import tempfile
 from typing import Optional
 
 from src.object_state.charactermodel import CharacterModel
@@ -25,14 +23,18 @@ from src.object_state.foreshadowgraph import ForeshadowGraph
 from src.object_state.narrativestate import NarrativeState
 from src.object_state.orchestration import (
     ChapterFunctionAllocation,
+    CommittedOrchestrationHistoryEntry,
+    CommittedOrchestrationState,
     EmotionalPacing,
     InformationDensityBudget,
+    OrchestrationPlan,
     OrchestrationState,
     PromisePayoffDebt,
     ReaderExpectationHorizon,
     RelationalTrajectory,
     ThreadRotation,
 )
+from src.object_state.plotunit import PlotUnit
 from src.object_state.readerexpectation import derive_reader_expectations
 from src.object_state.workspec import WorkSpec
 from src.object_state.worldmodel import WorldModel
@@ -57,6 +59,223 @@ _EXTREME_ACTION_MARKERS = (
     "爆裂", "死决", "拼死", "轰鸣不绝",
 )
 
+
+# =============================================================================
+# 阶段 1: 读取已提交状态 (Load)
+# =============================================================================
+
+def load_committed_orchestration_state(
+    output_dir: Optional[Path],
+) -> CommittedOrchestrationState:
+    """从工作区读取最后已提交章节的编排状态.
+
+    若文件不存在，返回初始空白 CommittedOrchestrationState。
+    若文件存在但损坏或格式非法，显式抛出 ValueError（禁止静默 swallow）。
+    """
+    if output_dir is None:
+        return CommittedOrchestrationState()
+
+    state_path = output_dir / "committed_orchestration_state.json"
+    if not state_path.exists():
+        # 兼容查找 orchestration_history.json
+        hist_path = output_dir / "orchestration_history.json"
+        if not hist_path.exists():
+            return CommittedOrchestrationState()
+        try:
+            raw_hist = hist_path.read_text(encoding="utf-8")
+            hist_data = json.loads(raw_hist)
+            if isinstance(hist_data, list):
+                entries = [CommittedOrchestrationHistoryEntry.model_validate(e) for e in hist_data]
+                last_ch = entries[-1].chapter if entries else 0
+                return CommittedOrchestrationState(
+                    last_committed_chapter=last_ch,
+                    history_entries=entries,
+                )
+        except Exception as exc:
+            raise ValueError(f"Corrupted orchestration history in {hist_path}: {exc}") from exc
+
+    try:
+        raw = state_path.read_text(encoding="utf-8")
+        data = json.loads(raw)
+        return CommittedOrchestrationState.model_validate(data)
+    except Exception as exc:
+        raise ValueError(f"Corrupted committed orchestration state in {state_path}: {exc}") from exc
+
+
+# =============================================================================
+# 阶段 2: 纯函数派生本章计划 (Derive)
+# =============================================================================
+
+def derive_orchestration_plan(
+    committed_state: CommittedOrchestrationState,
+    objects: list,
+    *,
+    chapter_number: int = 1,
+    frame_context: Optional[dict] = None,
+    structure_template: Optional[str] = None,
+) -> OrchestrationPlan:
+    """纯函数：依据已提交历史与当前世界事实推导本章编排计划（无任何磁盘写入副作用）."""
+    orchestrator = NarrativeOrchestrator()
+    history_dicts = [e.model_dump() for e in committed_state.history_entries]
+    full_state = orchestrator.derive_orchestration_state(
+        objects,
+        history=history_dicts,
+        chapter_number=chapter_number,
+        frame_context=frame_context,
+        structure_template=structure_template,
+    )
+
+    priority_tasks: list[str] = []
+    suppressed_tasks: list[str] = []
+    silence_items: list[str] = []
+    payoff_targets: list[str] = []
+    notes: list[str] = []
+
+    # 1. 疲劳风险控制
+    fatigue_risk = full_state.emotional_pacing.fatigue_risk
+    if fatigue_risk:
+        priority_tasks.append("安排缓冲复盘或情感交互，防止连续高压审美疲劳")
+        suppressed_tasks.append("暂缓极高压冲突激化与连续大招对轰")
+
+    # 2. 承诺债务推进
+    if full_state.promise_debt.urgent_thread_ids:
+        urgent_str = "、".join(full_state.promise_debt.urgent_thread_ids[:2])
+        priority_tasks.append(f"重点推进或兑现滞留伏笔承诺 [{urgent_str}]")
+        payoff_targets.extend(full_state.promise_debt.urgent_thread_ids[:2])
+
+    if full_state.promise_debt.debt_level == "critical":
+        suppressed_tasks.append("承诺债务过高，禁止新开无前置铺垫的大型主线支线")
+
+    # 3. 支线防饿死
+    if full_state.thread_rotation.starved_threads:
+        starved_str = "、".join(full_state.thread_rotation.starved_threads[:2])
+        priority_tasks.append(f"照应沉寂支线 [{starved_str}]")
+
+    # 4. 读者预期张力
+    if full_state.expectation_horizon.cognitive_tension == "critical":
+        if full_state.expectation_horizon.stalled_questions:
+            silence_q = full_state.expectation_horizon.stalled_questions[0]
+            priority_tasks.append(f"回应关键悬念问题: {silence_q}")
+
+    assigned_fn = full_state.chapter_function.assigned_function
+    density = full_state.density_budget.reveal_budget
+
+    return OrchestrationPlan(
+        chapter_number=chapter_number,
+        assigned_function=assigned_fn,
+        priority_tasks=priority_tasks,
+        suppressed_tasks=suppressed_tasks,
+        silence_items=silence_items,
+        payoff_targets=payoff_targets,
+        fatigue_risk=fatigue_risk,
+        density_directive=density,
+        notes=notes,
+    )
+
+
+# =============================================================================
+# 阶段 3: 事务提交后原子落盘 (Commit)
+# =============================================================================
+
+def commit_orchestration_transition(
+    output_dir: Path,
+    plan: OrchestrationPlan,
+    plotunit: Optional[PlotUnit] = None,
+    *,
+    chapter_number: int,
+    run_id: str,
+    emotional_shift: str = "normal",
+    threads_advanced: Optional[list[str]] = None,
+    payoff_promises: Optional[list[str]] = None,
+    relational_shifts: Optional[list[str]] = None,
+) -> CommittedOrchestrationState:
+    """仅在章节提交事务成功后执行：原子更新已提交编排状态并落盘."""
+    current_state = load_committed_orchestration_state(output_dir)
+
+    # 提取本章实际发生的推进
+    advanced = list(threads_advanced or [])
+    payoffs = list(payoff_promises or [])
+    relations = list(relational_shifts or [])
+    emotion = emotional_shift
+
+    if plotunit is not None:
+        if not emotion or emotion == "normal":
+            emotion = getattr(plotunit, "emotional_shift", "") or "normal"
+        if not payoffs:
+            payoffs = getattr(plotunit, "released_information", []) or []
+        if not advanced:
+            advanced = getattr(plotunit, "participants", []) or []
+
+    entry = CommittedOrchestrationHistoryEntry(
+        chapter=chapter_number,
+        function=plan.assigned_function,
+        emotion=emotion,
+        advanced_threads=advanced,
+        payoff_promises=payoffs,
+        relational_shifts=relations,
+    )
+
+    new_history = list(current_state.history_entries)
+    # 若存在同章节记录则替换，否则追加
+    new_history = [e for e in new_history if e.chapter != chapter_number]
+    new_history.append(entry)
+    new_history.sort(key=lambda x: x.chapter)
+
+    # 更新索引字典
+    thread_seen = dict(current_state.thread_last_seen)
+    thread_adv = dict(current_state.thread_last_advanced)
+    exp_started = dict(current_state.expectation_started_at)
+    exp_adv = dict(current_state.expectation_last_advanced_at)
+
+    for t in advanced:
+        thread_seen[t] = chapter_number
+        thread_adv[t] = chapter_number
+
+    recent_funcs = [e.function for e in new_history[-10:]]
+    recent_emotions = [e.emotion for e in new_history[-10:]]
+
+    updated_state = CommittedOrchestrationState(
+        last_committed_chapter=chapter_number,
+        last_run_id=run_id,
+        history_entries=new_history,
+        thread_last_seen=thread_seen,
+        thread_last_advanced=thread_adv,
+        expectation_started_at=exp_started,
+        expectation_last_advanced_at=exp_adv,
+        recent_chapter_functions=recent_funcs,
+        recent_emotional_patterns=recent_emotions,
+    )
+
+    # 原子写入 committed_orchestration_state.json
+    output_dir.mkdir(parents=True, exist_ok=True)
+    target_file = output_dir / "committed_orchestration_state.json"
+    history_file = output_dir / "orchestration_history.json"
+
+    data_bytes = json.dumps(
+        updated_state.model_dump(), ensure_ascii=False, indent=2
+    ).encode("utf-8")
+
+    hist_bytes = json.dumps(
+        [e.model_dump() for e in new_history], ensure_ascii=False, indent=2
+    ).encode("utf-8")
+
+    # 写临时文件后 rename 实现原子落盘
+    tmp_fd, tmp_path = tempfile.mkstemp(dir=output_dir, prefix="orch_state_", suffix=".tmp")
+    with os.fdopen(tmp_fd, "wb") as f:
+        f.write(data_bytes)
+    os.replace(tmp_path, target_file)
+
+    tmp_hfd, tmp_hpath = tempfile.mkstemp(dir=output_dir, prefix="orch_hist_", suffix=".tmp")
+    with os.fdopen(tmp_hfd, "wb") as f:
+        f.write(hist_bytes)
+    os.replace(tmp_hpath, history_file)
+
+    return updated_state
+
+
+# =============================================================================
+# 核心编排推导引擎类
+# =============================================================================
 
 class NarrativeOrchestrator:
     """长程叙事编排决策引擎."""
@@ -573,10 +792,20 @@ def load_orchestration_context(
 ) -> str:
     """编排上下文 loader — 静默降级：未开启或无对象返回 ""（零成本契约）.
 
-    若 output_dir 存在且可写，持久化 orchestration_state.json。
+    从已持久化的 committed_orchestration_state.json 自动恢复历史。
+    若 output_dir 存在且可写，持久化 active orchestration_state.json。
     """
     if not enabled or not objects:
         return ""
+
+    # 优先从已持久化状态加载历史
+    if history is None and output_dir is not None:
+        try:
+            committed = load_committed_orchestration_state(output_dir)
+            if committed.history_entries:
+                history = [e.model_dump() for e in committed.history_entries]
+        except Exception:
+            pass
 
     orchestrator = NarrativeOrchestrator()
     state = orchestrator.derive_orchestration_state(

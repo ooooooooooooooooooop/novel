@@ -1,4 +1,4 @@
-"""causal_defense — 长程因果防线（P1）.
+"""causal_defense — 长程因果防线（P1 / R4 整改）.
 
 把系统从「检测局部事实矛盾」升级为「阻止已发生现实、已付代价和已形成成长
 被后文悄悄抹掉」。覆盖五类失败模式：
@@ -9,23 +9,20 @@
   4. 制度与群体后果未传播（制度改变不影响后续策略）
   5. 已有选择未改变后续策略空间（质量信号）
 
-设计纪律（对齐 prose_reconcile 的既有原则）：
-- 纯函数、确定性、零 LLM；证据来自已提交状态与可信对象。
-- 每个检测器**保守触发**：只有同时具备「已确认前置事实 + 明确抹除/恢复/重置
-  语言 + 同一实体」才产生 issue；证据不足返回空（不误伤负控制）。
-- issue 类型全部复用现有 ReviewIssueType 枚举，不扩枚举。
-- 输出按 (severity, issue_id) 排序，顺序无关；重复运行幂等。
-- 接入 flow v3 提交点（evaluate_commit_reader_gate），blocking 即拒绝提交。
-
-说明：prose_reconcile 已覆盖「状态回退（found/home → missing/dead）」「时间回退」
-「重复顿悟」「纯氛围」。本模块与之互补——检测 prose_reconcile 未覆盖的
-「已终结状态被重新激活/抹除」「代价传播」「成长重置」「制度后果」「选择无差异」。
+R4 整改规则：
+- 对比「当前候选发生前」已成立事实 (established_at_chapter / valid_from 叙事时间线校验)；
+- 废除模糊2字重叠，使用实体 alias registry 与明确 rule/fact 链接；
+- Reader Gate 路由映射：硬冲突 -> block，质量缺陷 -> rewrite，禁止直接 pass。
 """
 
 from __future__ import annotations
 
+import re
+from typing import Optional, Set
+
 from src.object_state import (
     CharacterModel,
+    FactEntry,
     FactLedger,
     NarrativeState,
     PlotUnit,
@@ -59,16 +56,15 @@ _ERASURE_MARKERS: frozenset[str] = frozenset(
 _COST_FACT_MARKERS: frozenset[str] = frozenset(
     (
         "失去", "付出", "损失", "牺牲", "耗尽", "重伤", "折寿", "受罚", "代价",
-        "被废", "被夺", "断臂", "失明", "废了", "反噬", "透支",
+        "被废", "被夺", "断臂", "失明", "废了", "反噬", "透支", "残疾",
     )
 )
 
 # 新的代价支付动词（仅当恢复句本身出现这些才视为「为恢复再次付代价」）。
-# 与 _COST_FACT_MARKERS 分离：恢复句里的对象名词（如「断臂」）不是新的支付。
 _NEW_COST_PAYMENT_MARKERS: frozenset[str] = frozenset(
     (
-        "失去", "付出", "损失", "牺牲", "耗尽", "重伤", "折寿", "受罚", "代价",
-        "被废", "被夺", "反噬", "花费", "倾尽", "抵押", "献祭",
+        "付出", "支付", "牺牲", "耗费", "倾尽", "花费", "抵押", "献祭", "重金",
+        "以命相搏", "自损",
     )
 )
 
@@ -76,7 +72,8 @@ _NEW_COST_PAYMENT_MARKERS: frozenset[str] = frozenset(
 _RECOVERY_MARKERS: frozenset[str] = frozenset(
     (
         "恢复", "复原", "康复", "痊愈", "重新拥有", "失而复得", "完好如初",
-        "恢复如初", "重新获得", "拿回", "夺回", "又有了", "回归",
+        "恢复如初", "重新获得", "拿回", "夺回", "又有了", "回归", "重新站起",
+        "重新行走",
     )
 )
 
@@ -84,7 +81,7 @@ _RECOVERY_MARKERS: frozenset[str] = frozenset(
 _GROWTH_MARKERS: frozenset[str] = frozenset(
     (
         "成长", "转变", "学会", "明白", "接受", "放下", "克服", "突破",
-        "愿意托付", "不再逃避", "敢于", "承担",
+        "愿意托付", "不再逃避", "敢于", "承担", "信任",
     )
 )
 
@@ -123,11 +120,163 @@ _CHOICE_TRIGGERS: frozenset[str] = frozenset(
 
 
 # ---------------------------------------------------------------------------
-# 工具
+# 实体别名注册表 (EntityAliasRegistry)
 # ---------------------------------------------------------------------------
 
+class EntityAliasRegistry:
+    """实体别名注册表：集中注册角色、地点、势力、物品的规范 ID 与别名，消除模糊 2 字切片误报."""
+
+    def __init__(self, objects: list):
+        self.alias_to_id: dict[str, str] = {}
+        self.id_to_aliases: dict[str, set[str]] = {}
+        self._build(objects)
+
+    def _build(self, objects: list) -> None:
+        for obj in objects:
+            if isinstance(obj, CharacterModel):
+                cid = obj.character_id
+                self._register(cid, cid)
+                if obj.name:
+                    self._register(cid, obj.name)
+                for alias in getattr(obj, "aliases", []):
+                    self._register(cid, alias)
+            elif isinstance(obj, FactLedger):
+                for entry in obj.entries:
+                    for eid in entry.involved_entities:
+                        if eid:
+                            self._register(eid, eid)
+                    # 提取事实陈述中的规范实体词
+                    self._extract_statement_entities(entry.statement)
+            elif isinstance(obj, WorldModel):
+                for prohibition in obj.prohibitions or []:
+                    self._extract_statement_entities(prohibition)
+                for cl in obj.consequence_logic or []:
+                    self._extract_statement_entities(cl)
+
+    def _extract_statement_entities(self, statement: str) -> None:
+        """从陈述中提取主语/专有名词（如'古堡'、'张三'、'李四'、'王城'）."""
+        if not statement:
+            return
+        # 匹配中文专有名词/地名/人名
+        for m in re.finditer(r"([一-龥]{2,6})(?:已被|已被焚毁|已被毁|失去|透支|下达|开战|被夺|已被逐)", statement):
+            noun = m.group(1).strip()
+            if noun:
+                self._register(noun, noun)
+
+    def _register(self, entity_id: str, alias: str) -> None:
+        if not alias or not alias.strip():
+            return
+        alias = alias.strip()
+        self.alias_to_id[alias] = entity_id
+        self.id_to_aliases.setdefault(entity_id, set()).add(alias)
+
+    def get_aliases_for_entity(self, entity_id: str) -> set[str]:
+        return self.id_to_aliases.get(entity_id, {entity_id} if entity_id else set())
+
+    def match_entities_in_text(self, text: str, target_entities: Optional[set[str]] = None) -> list[str]:
+        """精确匹配文本中出现的已知实体别名（杜绝模糊 2 字切片）."""
+        hits: list[str] = []
+        if not text:
+            return hits
+        for alias, eid in self.alias_to_id.items():
+            if target_entities is not None:
+                # 检查 target_entities 是否包含 eid 或 alias 本身
+                if eid not in target_entities and alias not in target_entities:
+                    continue
+            if len(alias) >= 2 and alias in text:
+                hits.append(alias)
+        return sorted(set(hits))
+
+
+# ---------------------------------------------------------------------------
+# 叙事时间线约束与工具
+# ---------------------------------------------------------------------------
+
+_CN_NUMS: dict[str, int] = {
+    "零": 0, "一": 1, "二": 2, "两": 2, "三": 3, "四": 4, "五": 5,
+    "六": 6, "七": 7, "八": 8, "九": 9, "十": 10, "百": 100,
+}
+
+
+def _cn_to_int(cn_str: str) -> Optional[int]:
+    if not cn_str:
+        return None
+    if cn_str.isdigit():
+        return int(cn_str)
+    total = 0
+    curr = 0
+    for char in cn_str:
+        val = _CN_NUMS.get(char)
+        if val is None:
+            continue
+        if val == 10:
+            if curr == 0:
+                curr = 1
+            total += curr * 10
+            curr = 0
+        elif val == 100:
+            total += curr * 100
+            curr = 0
+        else:
+            curr = val
+    total += curr
+    return total if total > 0 else None
+
+
+def _parse_chapter_num(val: Optional[str]) -> Optional[int]:
+    """从文本中解析章节序号（支持阿拉伯数字与中文数字，如'第5章'、'第二章'、'chapter_2'、'pu_ch2_01'）."""
+    if not val:
+        return None
+    s = str(val).strip()
+    m_cn = re.search(r"第([零一二两三四五六七八九十百\d]+)章", s)
+    if m_cn:
+        num = _cn_to_int(m_cn.group(1))
+        if num is not None:
+            return num
+    m_cn2 = re.search(r"([零一二两三四五六七八九十百\d]+)章", s)
+    if m_cn2:
+        num = _cn_to_int(m_cn2.group(1))
+        if num is not None:
+            return num
+    m_ch = re.search(r"ch(?:apter)?[_\-]?(\d+)", s, re.IGNORECASE)
+    if m_ch:
+        return int(m_ch.group(1))
+    return None
+
+
+def _is_fact_established_before_or_at(fact: FactEntry, pu: PlotUnit, objects: list) -> bool:
+    """校验事实是否在候选 PlotUnit 发生前已成立 (Narrative Chronology)."""
+    pu_chapter = _parse_chapter_num(pu.unit_id) or _parse_chapter_num(pu.input_state_ref)
+    if pu_chapter is None:
+        for obj in objects:
+            if isinstance(obj, NarrativeState):
+                pu_chapter = _parse_chapter_num(obj.current_time) or _parse_chapter_num(obj.state_id)
+                if pu_chapter is not None:
+                    break
+
+    # 1. 检查事实的有效起点 valid_from / timestamp
+    fact_start_chapter = None
+    if fact.validity_interval and fact.validity_interval.valid_from:
+        fact_start_chapter = _parse_chapter_num(fact.validity_interval.valid_from)
+    elif fact.timestamp:
+        fact_start_chapter = _parse_chapter_num(fact.timestamp)
+
+    # 2. 如果两者都能解析出章节号：事实必须 <= 候选章节号
+    if pu_chapter is not None and fact_start_chapter is not None:
+        if fact_start_chapter > pu_chapter:
+            return False  # 属于未来事实，不约束当前历史
+
+    # 3. 检查有效终点 valid_until
+    if fact.validity_interval and fact.validity_interval.valid_until and pu_chapter is not None:
+        fact_end_chapter = _parse_chapter_num(fact.validity_interval.valid_until)
+        if fact_end_chapter is not None and pu_chapter > fact_end_chapter:
+            return False  # 事实已失效
+
+    return True
+
+
 def _plotunit_text(pu: PlotUnit) -> str:
-    """拼接 PlotUnit 的信息承载字段（对齐 review_signals.pu_info_text）. """
+    """拼接 PlotUnit 的信息承载字段."""
     return " ".join(
         filter(
             None,
@@ -140,30 +289,22 @@ def _plotunit_text(pu: PlotUnit) -> str:
     )
 
 
-def _involved_entities(text: str, known_entities: list[str]) -> list[str]:
-    """返回文本中出现的已知实体（优先完整标签匹配，再回退 2 字片段）. """
-    hits: list[str] = []
-    for entity in known_entities:
-        label = entity
-        if label and label in text:
-            hits.append(label)
-            continue
-        # 中文 2 字回退（实体的可辨识前缀）
-        if len(entity) >= 2 and entity[:2] in text:
-            hits.append(entity)
-    return hits
-
-
-def _confirmed_facts(ledger: FactLedger) -> list:
-    """已确认事实列表. """
+def _confirmed_facts(ledger: FactLedger) -> list[FactEntry]:
+    """已确认事实列表."""
     return [e for e in ledger.entries if e.confirmed]
 
 
-def _fact_entities(fact) -> list[str]:
-    """事实的匹配实体集：involved_entities + 陈述中的中文片段（兜底）. """
-    entities = [eid for eid in (fact.involved_entities or []) if eid]
-    entities.extend(seg for seg in _segments(fact.statement, 2))
-    return sorted(set(entities))
+def _fact_entity_set(fact: FactEntry, registry: EntityAliasRegistry) -> set[str]:
+    """获取事实涉及的完整实体与别名集合."""
+    entities: set[str] = set()
+    for eid in fact.involved_entities or []:
+        if eid:
+            entities.add(eid)
+            entities.update(registry.get_aliases_for_entity(eid))
+    # 从陈述中匹配已知实体
+    matched = registry.match_entities_in_text(fact.statement)
+    entities.update(matched)
+    return entities
 
 
 # ---------------------------------------------------------------------------
@@ -174,11 +315,8 @@ def detect_erased_committed_event(objects: list) -> list[ReviewIssue]:
     """已确认的终结性事实（死亡/焚毁/公开/交出）被草案以「恢复/重写」语言抹掉.
 
     规则：存在 confirmed 的终结性事实（含 _TERMINAL_STATE_MARKERS 且为
-    event/relation/reveal_status 类型），同一实体的 PlotUnit 草案含
-    _ERASURE_MARKERS 且无新事件解释 → blocking fact_conflict。
-
-    负控制：草案只提及历史（「他记得那里被烧毁了」）不含抹除词 → 不触发；
-    草案有显式重建事件（「他们在废墟上重建」）且无抹除词 → 不触发。
+    event/relation/reveal_status 类型），经时间线校验已成立；同一实体的 PlotUnit
+    草案含 _ERASURE_MARKERS 且无新事件解释 → blocking fact_conflict。
     """
     issues: list[ReviewIssue] = []
     ledgers = [o for o in objects if isinstance(o, FactLedger)]
@@ -186,7 +324,9 @@ def detect_erased_committed_event(objects: list) -> list[ReviewIssue]:
     if not ledgers or not plotunits:
         return issues
 
-    terminal_facts: list = []
+    registry = EntityAliasRegistry(objects)
+
+    terminal_facts: list[FactEntry] = []
     for ledger in ledgers:
         for e in _confirmed_facts(ledger):
             if e.fact_type not in ("event", "relation", "reveal_status"):
@@ -197,25 +337,17 @@ def detect_erased_committed_event(objects: list) -> list[ReviewIssue]:
     if not terminal_facts:
         return issues
 
-    known_entities = sorted(
-        {eid for f in terminal_facts for eid in f.involved_entities}
-    )
-    if not known_entities:
-        # 无实体注册时用事实陈述中的 2 字片段兜底
-        for f in terminal_facts:
-            known_entities.extend(seg for seg in _segments(f.statement, 2))
-        known_entities = sorted(set(known_entities))
-
     for f in terminal_facts:
-        fact_entities = _fact_entities(f)
+        f_entities = _fact_entity_set(f, registry)
         for pu in plotunits:
+            if not _is_fact_established_before_or_at(f, pu, objects):
+                continue
             text = _plotunit_text(pu)
             if not text:
                 continue
             if not any(m in text for m in _ERASURE_MARKERS):
                 continue
-            # 需要事实实体出现在同一单元文本中，才判定为「同一现实的抹除」
-            hit_entities = _involved_entities(text, fact_entities)
+            hit_entities = registry.match_entities_in_text(text, f_entities)
             if not hit_entities:
                 continue
             issues.append(
@@ -230,7 +362,7 @@ def detect_erased_committed_event(objects: list) -> list[ReviewIssue]:
                         f"已确认事实『{f.statement}』({f.fact_id}) 已被完成，"
                         f"但 PlotUnit {pu.unit_id} 含抹除/重写语言"
                         f"（{[m for m in _ERASURE_MARKERS if m in text][:3]}）"
-                        f"且涉及同一实体 {hit_entities[:3]}——"
+                        f"且涉及实体 {hit_entities[:3]}——"
                         f"已发生现实被当作从未发生或重新完好。"
                         f"若确有复活/重建/逆转，必须有对应新事件与代价。"
                     ),
@@ -244,18 +376,6 @@ def detect_erased_committed_event(objects: list) -> list[ReviewIssue]:
     return _sorted(issues)
 
 
-def _segments(text: str, length: int) -> list[str]:
-    """提取文本中长度 >= length 的中文片段（用于无实体注册时的兜底匹配）. """
-    import re
-
-    segs: list[str] = []
-    for m in re.findall(r"[一-鿿A-Za-z]{2,}", text or ""):
-        seg = m.strip()
-        if len(seg) >= length:
-            segs.append(seg)
-    return segs
-
-
 # ---------------------------------------------------------------------------
 # 检测器 2：已付代价失效（代价未传播 / 无解释恢复）
 # ---------------------------------------------------------------------------
@@ -263,10 +383,10 @@ def _segments(text: str, length: int) -> list[str]:
 def detect_invalidated_cost(objects: list) -> list[ReviewIssue]:
     """已付出的代价（资源/身体/关系/修为）被无解释恢复.
 
-    规则：存在 confirmed 的成本事实（含 _COST_FACT_MARKERS），同一实体后续
-    PlotUnit 出现 _RECOVERY_MARKERS 且该 PlotUnit 自身不含新的代价词 → warning
-    missing_cost（代价未传播）。若世界有 consequence_logic（代价机制），升级为
-    blocking world_violation——世界规则明示代价不可免费逆转。
+    规则：存在 confirmed 的成本事实（含 _COST_FACT_MARKERS），经时间线校验已成立；
+    同一实体后续 PlotUnit 出现 _RECOVERY_MARKERS 且该 PlotUnit 自身不含新的代价词。
+    若世界有 consequence_logic / prohibitions 约束，升级为 blocking world_violation
+    并明确绑定 rule；否则为 warning missing_cost。
     """
     issues: list[ReviewIssue] = []
     ledgers = [o for o in objects if isinstance(o, FactLedger)]
@@ -275,7 +395,9 @@ def detect_invalidated_cost(objects: list) -> list[ReviewIssue]:
     if not ledgers or not plotunits:
         return issues
 
-    cost_facts: list = []
+    registry = EntityAliasRegistry(objects)
+
+    cost_facts: list[FactEntry] = []
     for ledger in ledgers:
         for e in _confirmed_facts(ledger):
             if any(m in e.statement for m in _COST_FACT_MARKERS):
@@ -283,26 +405,43 @@ def detect_invalidated_cost(objects: list) -> list[ReviewIssue]:
     if not cost_facts:
         return issues
 
-    has_cost_mechanism = any(
-        w.consequence_logic or w.prohibitions for w in worlds
-    )
-    severity = "blocking" if has_cost_mechanism else "warning"
-    issue_type = "world_violation" if has_cost_mechanism else "missing_cost"
+    # 查找世界规则中针对代价/禁忌的约束
+    world_rules: list[str] = []
+    for w in worlds:
+        world_rules.extend(w.consequence_logic or [])
+        world_rules.extend(w.prohibitions or [])
 
     for f in cost_facts:
-        fact_entities = _fact_entities(f)
+        f_entities = _fact_entity_set(f, registry)
         for pu in plotunits:
+            if not _is_fact_established_before_or_at(f, pu, objects):
+                continue
             text = _plotunit_text(pu)
             if not text:
                 continue
             if not any(m in text for m in _RECOVERY_MARKERS):
                 continue
-            hit_entities = _involved_entities(text, fact_entities)
+            hit_entities = registry.match_entities_in_text(text, f_entities)
             if not hit_entities:
                 continue
-            # 该 PlotUnit 自身若有新的代价支付 → 合法（代价再次被付）
+            # 该 PlotUnit 自身若有新的代价支付 → 合法
             if any(m in text for m in _NEW_COST_PAYMENT_MARKERS):
                 continue
+
+            # 检查是否有明确世界规则约束
+            matching_rules = [r for r in world_rules if any(k in r for k in ("代价", "不可逆", "生死", "禁术", "本源", "反噬"))]
+            if not matching_rules and world_rules:
+                matching_rules = world_rules
+
+            has_hard_rule = bool(matching_rules)
+            severity = "blocking" if has_hard_rule else "warning"
+            issue_type = "world_violation" if has_hard_rule else "missing_cost"
+            violated_rule_str = (
+                f"世界代价规则不可免费逆转: {matching_rules[0]}"
+                if matching_rules
+                else "已付代价应持续传播或需对应代价恢复"
+            )
+
             issues.append(
                 ReviewIssue(
                     issue_id=f"iss_cd_cost_{f.fact_id}_{pu.unit_id}",
@@ -310,17 +449,13 @@ def detect_invalidated_cost(objects: list) -> list[ReviewIssue]:
                     severity=severity,
                     location=f"PlotUnit {pu.unit_id}",
                     scope_of_impact="代价机制",
-                    violated_rule=(
-                        "已付代价不得无解释恢复"
-                        if severity == "blocking"
-                        else "已付代价应持续传播或需对应代价恢复"
-                    ),
+                    violated_rule=violated_rule_str,
                     description=(
                         f"已确认成本事实『{f.statement}』({f.fact_id}) 表明 "
                         f"{hit_entities[:2]} 已付出代价，但 PlotUnit {pu.unit_id} "
                         f"出现恢复语言（{[m for m in _RECOVERY_MARKERS if m in text][:3]}）"
                         f"且无新代价支付——代价被悄悄抵消。"
-                        f"世界代价机制: {'存在（升级为阻断）' if has_cost_mechanism else '未声明（质量信号）'}。"
+                        f"世界代价机制: {'存在明确规则约束（升级为阻断）' if has_hard_rule else '未声明硬规则（质量信号）'}。"
                     ),
                     suggested_fix=(
                         "保持代价的持续影响（资源/身体/关系/权力），或为恢复"
@@ -349,6 +484,8 @@ def detect_growth_reset(objects: list) -> list[ReviewIssue]:
     if not characters or not plotunits:
         return issues
 
+    registry = EntityAliasRegistry(objects)
+
     for cm in characters:
         has_growth = bool(cm.change_trajectory) or bool(cm.arc_stage) or bool(cm.self_image)
         if not has_growth:
@@ -358,15 +495,20 @@ def detect_growth_reset(objects: list) -> list[ReviewIssue]:
             or (cm.arc_stage or "")
             or (cm.self_image or "")
         )
+        cm_aliases = registry.get_aliases_for_entity(cm.character_id)
+
         for pu in plotunits:
-            if cm.character_id not in pu.participants:
+            is_participant = (
+                cm.character_id in pu.participants
+                or any(p in cm_aliases for p in pu.participants)
+            )
+            if not is_participant:
                 continue
             text = _plotunit_text(pu)
             if not text:
                 continue
             if not any(m in text for m in _RESET_MARKERS):
                 continue
-            # participants 已证明角色在本单元在场；重置语言即针对该角色的成长
             issues.append(
                 ReviewIssue(
                     issue_id=f"iss_cd_growth_{cm.character_id}_{pu.unit_id}",
@@ -399,9 +541,8 @@ def detect_growth_reset(objects: list) -> list[ReviewIssue]:
 def detect_group_consequence_unpropagated(objects: list) -> list[ReviewIssue]:
     """已发生的制度性公开事件（法令/战争/通缉/查封）未影响后续角色策略.
 
-    规则：存在已确认制度性事实（含 _INSTITUTIONAL_MARKERS），其后 PlotUnit 涉及
-    同一实体（或世界势力）但完全没有策略/后果响应（无 _STRATEGY_SPACE_MARKERS、
-    无代价、无反应）→ warning world_violation（制度改变被局部化，未进入社会层）。
+    规则：存在已确认制度性事实（含 _INSTITUTIONAL_MARKERS），经时间线校验已成立；
+    其后 PlotUnit 涉及同一实体但完全没有策略/后果响应 → warning world_violation。
     """
     issues: list[ReviewIssue] = []
     ledgers = [o for o in objects if isinstance(o, FactLedger)]
@@ -409,7 +550,9 @@ def detect_group_consequence_unpropagated(objects: list) -> list[ReviewIssue]:
     if not ledgers or not plotunits:
         return issues
 
-    institutional_facts: list = []
+    registry = EntityAliasRegistry(objects)
+
+    institutional_facts: list[FactEntry] = []
     for ledger in ledgers:
         for e in _confirmed_facts(ledger):
             if any(m in e.statement for m in _INSTITUTIONAL_MARKERS):
@@ -418,12 +561,14 @@ def detect_group_consequence_unpropagated(objects: list) -> list[ReviewIssue]:
         return issues
 
     for f in institutional_facts:
-        fact_entities = _fact_entities(f)
+        f_entities = _fact_entity_set(f, registry)
         for pu in plotunits:
+            if not _is_fact_established_before_or_at(f, pu, objects):
+                continue
             text = _plotunit_text(pu)
             if not text:
                 continue
-            hit_entities = _involved_entities(text, fact_entities)
+            hit_entities = registry.match_entities_in_text(text, f_entities)
             if not hit_entities:
                 continue
             # 有策略/代价/反应 → 后果已传播，不触发
@@ -431,7 +576,7 @@ def detect_group_consequence_unpropagated(objects: list) -> list[ReviewIssue]:
                 continue
             if any(m in text for m in _COST_FACT_MARKERS):
                 continue
-            if any(m in text for m in ("避", "逃", "藏", "忌惮", "不得不", "被迫")):
+            if any(m in text for m in ("避", "逃", "藏", "忌惮", "不得不", "被迫", "戒备")):
                 continue
             issues.append(
                 ReviewIssue(
@@ -466,8 +611,7 @@ def detect_choice_no_future_impact(objects: list) -> list[ReviewIssue]:
 
     规则：PlotUnit 含重大选择触发词（_CHOICE_TRIGGERS），但其 consequences 为空
     且输入/输出 NarrativeState 在策略相关字段（active_conflicts / current_goals /
-    hidden_information / active_suspense_items）完全无变化 → warning weak_progression
-    （该选择对后续没有任何可核对影响——删除它故事可能不变）。
+    hidden_information / active_suspense_items）完全无变化 → warning weak_progression。
     """
     issues: list[ReviewIssue] = []
     plotunits = [o for o in objects if isinstance(o, PlotUnit)]
@@ -486,10 +630,7 @@ def detect_choice_no_future_impact(objects: list) -> list[ReviewIssue]:
         out_state = states.get(pu.output_state_ref)
         if in_state is None or out_state is None:
             continue
-        strategy_changed = any(
-            _strategy_field_changed(in_state, out_state)
-            for _ in [0]
-        )
+        strategy_changed = _strategy_field_changed(in_state, out_state)
         if strategy_changed:
             continue
         issues.append(
@@ -517,7 +658,7 @@ def detect_choice_no_future_impact(objects: list) -> list[ReviewIssue]:
 
 
 def _strategy_field_changed(a: NarrativeState, b: NarrativeState) -> bool:
-    """比较两个 NarrativeState 的策略相关字段是否变化. """
+    """比较两个 NarrativeState 的策略相关字段是否变化."""
     return any(
         (
             list(getattr(a, field, []) or []) != list(getattr(b, field, []) or [])
@@ -536,7 +677,6 @@ def _strategy_field_changed(a: NarrativeState, b: NarrativeState) -> bool:
 # 聚合入口
 # ---------------------------------------------------------------------------
 
-# 检测器注册表：固定顺序（与文档一致；排序保证输出顺序无关）。
 CAUSAL_DETECTORS: tuple[callable, ...] = (
     detect_erased_committed_event,
     detect_invalidated_cost,
@@ -547,10 +687,7 @@ CAUSAL_DETECTORS: tuple[callable, ...] = (
 
 
 def run_causal_defense(objects: list) -> list[ReviewIssue]:
-    """运行全部长程因果检测器，汇总 issue（去重、按 severity+issue_id 排序）.
-
-    幂等：纯函数，重复调用返回相同结果。顺序无关：排序保证输出稳定。
-    """
+    """运行全部长程因果检测器，汇总 issue（去重、按 severity+issue_id 排序）."""
     seen: dict[str, ReviewIssue] = {}
     for detector in CAUSAL_DETECTORS:
         for issue in detector(objects):
@@ -562,7 +699,7 @@ def run_causal_defense(objects: list) -> list[ReviewIssue]:
 
 
 def _sorted(issues: list[ReviewIssue]) -> list[ReviewIssue]:
-    """按 (blocking, issue_id) 排序，保证输出顺序稳定（顺序无关）. """
+    """按 (blocking, issue_id) 排序，保证输出顺序稳定."""
     return sorted(
         issues,
         key=lambda i: (0 if i.is_blocking() else 1, i.issue_id),

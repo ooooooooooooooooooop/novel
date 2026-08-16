@@ -37,6 +37,9 @@ class CausalRule(BaseModel):
     affected_groups: list[str] = Field(
         default_factory=list, description="直接受影响的群体/阶层"
     )
+    research_only: bool = Field(
+        default=True, description="标记该模块为 P6 实验研究轨，不进入生产前置条件"
+    )
 
 
 class CausalDerivation(BaseModel):
@@ -53,6 +56,9 @@ class CausalDerivation(BaseModel):
     )
     strategic_consequence: str = Field(
         description="战略后果（对主要角色的最优选择空间的实质改变）"
+    )
+    research_only: bool = Field(
+        default=True, description="标记该模块为 P6 实验研究轨，不进入生产前置条件"
     )
 
 
@@ -73,6 +79,9 @@ class RuleDeletionAuditReport(BaseModel):
         description="因该规则发生实质改变的制度与权力结构数量"
     )
     evidence: str = Field(description="判定证据与推导理由")
+    research_only: bool = Field(
+        default=True, description="标记该模块为 P6 实验研究轨，不进入生产前置条件"
+    )
 
 
 class CostPropagationAuditReport(BaseModel):
@@ -99,4 +108,7 @@ class CostPropagationAuditReport(BaseModel):
     )
     is_cost_intact: bool = Field(
         default=True, description="综合判定代价是否全链条闭环传播"
+    )
+    research_only: bool = Field(
+        default=True, description="标记该模块为 P6 实验研究轨，不进入生产前置条件"
     )

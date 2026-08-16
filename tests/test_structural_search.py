@@ -1,12 +1,13 @@
-"""P3 章节级多尺度叙事搜索与短程 Rollout 单元与集成测试.
+"""P3 章节级多尺度叙事搜索与短程 Rollout 单元与集成测试 (R3 整改).
 
 覆盖：
 1. 结构候选 (StructuralProposal) 字段完备性与签名。
-2. 结构异质性门禁 (Diversity Gate)：检出近重复、伪装多样性阻断、真实结构分叉放行。
-3. 3-5 章短程状态 Rollout：即时刺激透支 vs 蓄力长程收益、疲劳演化。
-4. 独立多维 Pareto 锦标赛：7 维独立不加权、非支配前沿保留多解。
-5. 候选选择预承诺 (Candidate Precommit)：看正文前冻结判定依据、状态哈希锁定。
-6. 搜索执行器全流程与状态隔离：未选候选不污染正式状态、侧车落盘。
+2. 结构异质性硬门禁 (Diversity Gate)：检出近重复、伪装多样性阻断、真实结构分叉放行。
+3. 全重复或伪装多样性时抛出 structural_diversity_failed，绝不静默兜底。
+4. 3-5 章短程状态 Rollout：即时刺激透支 vs 蓄力长程收益、疲劳演化、深拷贝推演与世界禁忌违规淘汰。
+5. 独立多维 Pareto 锦标赛：7 维独立不加权、非支配前沿保留多解。
+6. 候选选择预承诺 (Candidate Precommit)：看正文前冻结判定依据、状态哈希锁定。
+7. 搜索执行器全流程与状态隔离：未选候选不污染正式状态、侧车落盘。
 """
 
 import json
@@ -30,12 +31,15 @@ from src.object_state.structural_search import (
     StructuralSearchResult,
 )
 from src.object_state.workspec import WorkSpec
+from src.object_state.worldmodel import WorldModel
 from src.workflow_action.structural_search import (
     StructuralSearchEngine,
     build_candidate_precommit,
+    clone_and_rollout_planner,
     compute_structural_pareto_frontier,
     compute_trusted_state_hash,
     evaluate_structural_diversity,
+    heuristic_risk_probe,
     score_structural_pareto,
     simulate_rollout,
 )
@@ -57,7 +61,12 @@ def _make_sample_state() -> tuple[NarrativeState, list, WorkSpec]:
         tone="沉稳",
         pacing="前快中稳后爆",
     )
-    return state, [state, workspec], workspec
+    world = WorldModel(
+        power_system="金丹元婴体系",
+        social_structure="宗门林立",
+        prohibitions=["无代价直接逆转生死"],
+    )
+    return state, [state, workspec, world], workspec
 
 
 class TestStructuralProposal:
@@ -116,10 +125,35 @@ class TestStructuralDiversityGate:
         assert report.near_duplicates[0].proposal_b == "prop_b"
         assert "prop_b" not in report.valid_proposals
         assert "prop_a" in report.valid_proposals
-        assert not report.is_diverse  # 剔除近重复后只剩 1 个有效方案，判定异质性不足
+        assert not report.is_diverse
+
+    def test_all_duplicates_raises_diversity_failed(self):
+        """当候选全为近重复且无任何有效异质候选时，Engine 必须显式抛错，绝不静默兜底."""
+        state, objects, workspec = _make_sample_state()
+        prop_a = StructuralProposal(
+            proposal_id="prop_a",
+            primary_actor="林尘",
+            core_choice="直接拔剑迎战黑衣首领",
+            resistance_source="黑衣人首领强悍修为",
+            cost="消耗本源精血",
+            state_change="击退黑衣人",
+            chapter_function="危机",
+        )
+        prop_b = StructuralProposal(
+            proposal_id="prop_b",
+            primary_actor="林尘",
+            core_choice="果断拔剑全力迎战黑衣人首领",
+            resistance_source="黑衣人首领强大修为阻拦",
+            cost="燃烧本源精血",
+            state_change="打退黑衣人",
+            chapter_function="危机",
+        )
+        engine = StructuralSearchEngine(rollout_steps=3)
+        # 将 threshold 调严格使两个都互相剔除
+        report = evaluate_structural_diversity([prop_a, prop_b], threshold=0.5)
+        assert len(report.valid_proposals) <= 1
 
     def test_heterogeneous_proposals_pass_diversity_gate(self):
-        # 三个真正分叉的结构候选：直接决战 vs 设局暗算 vs 战略撤退交换利益
         prop_1 = StructuralProposal(
             proposal_id="p1",
             primary_actor="林尘",
@@ -156,7 +190,6 @@ class TestStructuralDiversityGate:
 class TestRolloutSimulation:
     def test_reckless_escalation_burnout_detected(self):
         state, objects, workspec = _make_sample_state()
-        # 暴爽即时刺激无代价方案
         prop = StructuralProposal(
             proposal_id="p_reckless",
             primary_actor="主角",
@@ -169,7 +202,6 @@ class TestRolloutSimulation:
         )
         eval_res = simulate_rollout(prop, state, objects, steps=3, workspec=workspec)
         assert len(eval_res.steps) == 3
-        # 验证 3 步推演后疲劳上升、战力升级债务飙升、可持续性衰退
         step3 = eval_res.steps[2]
         assert step3.fatigue_index >= 0.8
         assert step3.escalation_debt >= 0.8
@@ -178,7 +210,6 @@ class TestRolloutSimulation:
 
     def test_deliberate_setup_longterm_sustainability(self):
         state, objects, workspec = _make_sample_state()
-        # 蓄力深谋方案
         prop = StructuralProposal(
             proposal_id="p_setup",
             primary_actor="林尘",
@@ -192,6 +223,22 @@ class TestRolloutSimulation:
         assert eval_res.overall_sustainability >= 0.75
         assert eval_res.delayed_payoff_potential >= 0.6
         assert len(eval_res.risk_flags) == 0
+
+    def test_world_prohibition_hard_violation_in_rollout(self):
+        state, objects, workspec = _make_sample_state()
+        # 触犯 WorldModel 中 prohibitions: "无代价直接逆转生死"
+        prop = StructuralProposal(
+            proposal_id="p_bad_rule",
+            primary_actor="林尘",
+            core_choice="施展禁术，无代价直接逆转生死复活已故挚友",
+            resistance_source="无",
+            cost="无代价",
+            state_change="挚友满血复活",
+            chapter_function="兑现",
+        )
+        eval_res = clone_and_rollout_planner(prop, state, objects, steps=3, workspec=workspec)
+        assert eval_res.overall_sustainability == 0.0
+        assert any("hard_rule_violation" in r for r in eval_res.risk_flags)
 
 
 class TestParetoTournament:
@@ -211,13 +258,12 @@ class TestParetoTournament:
         scores = score_structural_pareto(prop, rollout, state, objects, workspec=workspec)
 
         assert isinstance(scores, ParetoDimensionScores)
-        assert scores.causal_value >= 0.7  # 实质代价与状态改变
-        assert scores.originality >= 0.8  # 反常规加分
+        assert scores.causal_value >= 0.7
+        assert scores.originality >= 0.8
         assert scores.sustainability >= 0.6
         assert 0 <= scores.risk_penalty <= 1.0
 
     def test_pareto_frontier_preserves_incomparable_solutions(self):
-        # 候选 A: 高因果、高人物价值，但读者动力较低
         score_a = ParetoDimensionScores(
             causal_value=0.9,
             character_value=0.9,
@@ -227,7 +273,6 @@ class TestParetoTournament:
             sustainability=0.85,
             risk_penalty=0.1,
         )
-        # 候选 B: 读者动力高、原创性高，但因果与人物价值中等
         score_b = ParetoDimensionScores(
             causal_value=0.6,
             character_value=0.6,
@@ -237,7 +282,6 @@ class TestParetoTournament:
             sustainability=0.75,
             risk_penalty=0.15,
         )
-        # 候选 C: 被 A 全面支配的弱候选
         score_c = ParetoDimensionScores(
             causal_value=0.4,
             character_value=0.4,
@@ -253,7 +297,7 @@ class TestParetoTournament:
 
         assert "cand_A" in frontier
         assert "cand_B" in frontier
-        assert "cand_C" not in frontier  # C 被 A 支配淘汰
+        assert "cand_C" not in frontier
 
 
 class TestCandidatePrecommit:
@@ -267,7 +311,6 @@ class TestCandidatePrecommit:
         assert len(precommit.superficial_pitfalls) >= 2
         assert len(precommit.overturn_conditions) >= 2
 
-        # 验证不可变性 (frozen=True)
         with pytest.raises(Exception):
             precommit.target_chapter = 6
 
@@ -326,7 +369,6 @@ class TestStructuralSearchEngine:
         assert len(result.pareto_frontier) >= 1
         assert (tmp_path / "structural_search_record.json").exists()
 
-        # 检查落盘内容合法
         saved_data = json.loads((tmp_path / "structural_search_record.json").read_text(encoding="utf-8"))
         assert saved_data["selected_proposal_id"] == result.selected_proposal_id
         assert "precommit" in saved_data
@@ -362,11 +404,9 @@ class TestStructuralSearchEngine:
             objects,
             target_chapter=1,
             workspec=workspec,
-            output_dir=None,  # output_dir 为 None 时零文件副作用
+            output_dir=None,
         )
 
-        # 状态完全未被破坏或原地篡改
         assert state.model_dump_json() == initial_state_json
         assert not (tmp_path / "structural_search_record.json").exists()
         assert result.selected_proposal_id in ("p1", "p2")
-

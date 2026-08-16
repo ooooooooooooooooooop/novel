@@ -8,6 +8,7 @@
 
 from __future__ import annotations
 
+import hashlib
 from typing import Optional
 
 from src.object_state.causal_compiler import (
@@ -23,7 +24,7 @@ def compile_world_causality(
     trigger_event: str,
     active_characters: list[dict],
 ) -> CausalDerivation:
-    """对单条规则与触发事件执行因果展开推导."""
+    """对单条规则与触发事件执行因果展开推导 (P6 研究轨，基于 SHA-256 确定性生成 ID)."""
     first_order = f"触发规则【{rule.rule_name}】：{rule.statement}。直接导致资源或能力状态变动。"
 
     if rule.institutional_enforcement:
@@ -36,13 +37,17 @@ def compile_world_causality(
         name = char.get("name", "主要角色")
         strategy_lines.append(f"{name} 必须在承受【{rule.usage_cost or '环境限制'}】的前提下重新调整行动路线。")
 
+    raw_key = f"{rule.rule_id}_{trigger_event}"
+    deriv_hash = hashlib.sha256(raw_key.encode("utf-8")).hexdigest()[:8]
+
     return CausalDerivation(
-        derivation_id=f"deriv_{rule.rule_id}",
+        derivation_id=f"deriv_{rule.rule_id}_{deriv_hash}",
         rule_id=rule.rule_id,
         trigger_event=trigger_event,
         first_order_effect=first_order,
         second_order_effect=second_order,
         strategic_consequence="; ".join(strategy_lines),
+        research_only=True,
     )
 
 

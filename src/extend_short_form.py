@@ -63,7 +63,12 @@ from src.workflow_action.proposal_generator import (
     build_proposal_prompt,
     parse_proposals_response,
 )
-from src.workflow_action.narrative_orchestrator import load_orchestration_context
+from src.workflow_action.narrative_orchestrator import (
+    load_orchestration_context,
+    commit_orchestration_transition,
+    derive_orchestration_plan,
+    load_committed_orchestration_state,
+)
 from src.workflow_action.timebook import build_time_context, load_time_book
 from src.workflow_action.continuation_viability import (
     ContinuationViabilityUnit,
@@ -1377,6 +1382,20 @@ def main() -> int:
 
     # F5 原文长段去重：记录 draft 与原文逐字重叠片段（只标注，不改 route）
     if chapter_committed:
+        try:
+            ch_num = int(chapter_file.stem[len("chapter_"):]) if chapter_file else 1
+            committed_state = load_committed_orchestration_state(output_dir)
+            plan = derive_orchestration_plan(committed_state, objects, chapter_number=ch_num)
+            commit_orchestration_transition(
+                output_dir,
+                plan,
+                plotunit=plotunit,
+                chapter_number=ch_num,
+                run_id=derive_run_id("extend", ch_num),
+            )
+        except Exception as exc:
+            print(f"Warning: orchestration commit transition failed: {exc}")
+
         overlap_spans = prose_action.find_overlapping_spans(draft_text or "", text)
         if overlap_spans:
             review_data["prose_overlap"] = overlap_spans

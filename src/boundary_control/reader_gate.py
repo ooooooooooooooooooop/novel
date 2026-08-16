@@ -235,12 +235,18 @@ class ReaderQualityGatePolicy:
         issues: list[ReviewIssue] = []
         reasons: list[str] = []
 
-        # a) 跨章硬一致性（时间回退/周期/实体回退/道具身份/元文本/纯氛围/开头复述/三章顿悟）
+        # a) 跨章硬一致性与因果防线（硬一致性阻断 + 质量缺陷预警）
         blocking_reconcile = [i for i in reconcile_issues if i.is_blocking()]
+        warning_reconcile = [i for i in reconcile_issues if not i.is_blocking()]
         if blocking_reconcile:
             issues.extend(blocking_reconcile)
             reasons.append(
                 f"跨章硬一致性阻断 {len(blocking_reconcile)} 项"
+            )
+        if warning_reconcile:
+            issues.extend(warning_reconcile)
+            reasons.append(
+                f"跨章/因果质量缺陷预警 {len(warning_reconcile)} 项 → 需修订"
             )
 
         # b) 重复闭环第二次即阻断（确定性，比 f07 更严）
@@ -268,14 +274,15 @@ class ReaderQualityGatePolicy:
         issues.extend(ser_aesthetic)
         reasons.extend(ser_reasons)
 
-        # 路由解析：block > manual > rewrite > pass
+        # 路由解析：block > manual > rewrite > pass (硬冲突 -> block，质量缺陷 -> rewrite，禁止直接 pass)
         blocking = [i for i in issues if i.is_blocking()]
+        warnings = [i for i in issues if i.severity == "warning"]
         if blocking:
             route = "block"
         elif ser_aesthetic:
             route = "manual"  # 主观审美分歧 → 明确人工决定点
-        elif key_weak:
-            route = "rewrite"  # 正文层可修
+        elif key_weak or warnings:
+            route = "rewrite"  # 正文层可修 / 质量缺陷
         else:
             route = "pass"
 

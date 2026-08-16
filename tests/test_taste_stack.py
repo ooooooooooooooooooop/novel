@@ -1,10 +1,15 @@
-"""P4 Taste Stack 评价体系与统一质量报告测试.
+"""P4 Taste Stack 评价体系与统一质量报告测试 (R1 整改).
 
 覆盖：
-1. 5 层评价体系数据模型约束（Layer 1 硬门禁、Layer 2 专门轴、Layer 3 Blind Eval、Layer 4 PASS Audit、Layer 5 人类盲评）。
+1. 5 层评价体系数据模型约束。
 2. G7 退役声明与历史记录不变性（G7RetirementNotice）。
 3. 统一质量报告渲染（Markdown / JSON），严格杜绝单一加权标量总分。
-4. 聚合器 (build_unified_quality_report) 行为：工作区台账解析、落盘、与零真人数据时诚实输出 not_run。
+4. 空工作区：五层全部 not_run，无任何 passed/completed/satisfied。
+5. 只有 Revision Ledger 时：Blind Eval 仍为 not_run。
+6. 真实 Blind Eval：better/worse/no_difference 计数与 Wilson CI 真实计算。
+7. 损坏 JSON：invalid_evidence，strict 模式显式报错。
+8. Reader Gate block -> blocked；Reader Gate pass -> passed。
+9. 真人数据缺失 -> not_run。
 """
 
 import json
@@ -22,7 +27,31 @@ from src.object_state.taste_stack import (
     StyleDriftSummary,
     UnifiedQualityReport,
 )
-from src.workflow_action.taste_stack import build_unified_quality_report
+from src.workflow_action.taste_stack import (
+    build_unified_quality_report,
+    compute_wilson_ci,
+)
+
+
+class TestWilsonScoreInterval:
+    def test_zero_total_returns_zeros(self):
+        assert compute_wilson_ci(0, 0) == (0.0, 0.0)
+        assert compute_wilson_ci(5, 0) == (0.0, 0.0)
+
+    def test_real_calculation(self):
+        lower, upper = compute_wilson_ci(16, 20)
+        assert 0.55 < lower < 0.65
+        assert 0.88 < upper < 0.95
+        assert lower < upper
+
+    def test_boundary_zero_and_full(self):
+        lower0, upper0 = compute_wilson_ci(0, 10)
+        assert lower0 == 0.0
+        assert upper0 > 0.0
+
+        lower1, upper1 = compute_wilson_ci(10, 10)
+        assert lower1 < 1.0
+        assert upper1 == 1.0
 
 
 class TestTasteStackModels:
@@ -90,49 +119,96 @@ class TestTasteStackModels:
         assert notice.historical_record_intact is True
 
 
-class TestUnifiedQualityReport:
-    def test_report_structure_and_no_single_score(self):
-        report = UnifiedQualityReport(
-            report_id="qr_test_01",
-            novel_name="测试小说",
-            layer1_hard_gates=Layer1HardGatesSummary(status="passed"),
-            layer2_specialized_axes=Layer2SpecializedAxesSummary(status="completed"),
-            layer3_blind_eval=Layer3BlindEvalSummary(status="not_run"),
-            layer4_pass_audit=Layer4PassAuditSummary(status="not_run"),
-            layer5_human_blind_eval=Layer5HumanBlindEvalSummary(status="not_run"),
-            style_drift=StyleDriftSummary(status="not_run"),
-            g7_status=G7RetirementNotice(),
-            narrative_evaluation_summary="定性诊断：硬门禁全过，未出现战力透支，真人验证待接入。",
-        )
+class TestUnifiedQualityReportEvidenceAggregation:
+    def test_empty_workspace_all_not_run_no_default_pass(self, tmp_path):
+        """空工作区：五层全部 not_run，禁止默认 passed/completed/satisfied."""
+        report = build_unified_quality_report("空小说", output_dir=tmp_path)
+        assert report.layer1_hard_gates.status == "not_run"
+        assert report.layer2_specialized_axes.status == "not_run"
+        assert report.layer3_blind_eval.status == "not_run"
+        assert report.layer4_pass_audit.status == "not_run"
+        assert report.layer5_human_blind_eval.status == "not_run"
+        assert report.style_drift.status == "not_run"
+        assert "not_run" in report.narrative_evaluation_summary
 
-        md = report.render_markdown()
-        assert "# 统一叙事质量报告: 测试小说" in md
-        assert "第 1 层：确定性硬门禁" in md
-        assert "G7 状态与退役说明" in md
-        assert "decommissioned_research_only" in md
-        assert "杜绝虚假确定性，严禁输出单一加权「大神分」" in md
-
-        data = report.model_dump(mode="json")
-        assert "score" not in data
-        assert "overall_score" not in data
-        assert "mastery_score" not in data
-
-    def test_build_unified_quality_report_with_ledger(self, tmp_path):
-        # 准备模拟 A/B 台账
+    def test_only_revision_ledger_without_judge_is_not_run(self, tmp_path):
+        """只有 Revision Ledger 而没有盲评 Judge 结果时，Blind Eval 仍为 not_run."""
         ab_ledger = [
-            {"pair_id": "p1", "winner": "candidate_a"},
-            {"pair_id": "p2", "winner": "candidate_a"},
+            {"pair_id": "p1", "which_is_original": "version_a"},
+            {"pair_id": "p2", "which_is_original": "version_b"},
         ]
         (tmp_path / "prose_revision_ledger.json").write_text(
             json.dumps(ab_ledger), encoding="utf-8"
         )
+        report = build_unified_quality_report("测试作", output_dir=tmp_path)
+        assert report.layer3_blind_eval.status == "not_run"
+        assert report.layer3_blind_eval.total_pairs_evaluated == 0
 
-        report = build_unified_quality_report("万物伏藏", output_dir=tmp_path)
-
-        assert report.novel_name == "万物伏藏"
-        assert report.layer1_hard_gates.status == "passed"
+    def test_real_blind_eval_calculates_wilson_ci(self, tmp_path):
+        """真实 Blind Eval 报告：实时从计数计算净改善率与 Wilson CI."""
+        eval_report = {
+            "total_pairs_evaluated": 10,
+            "better_count": 8,
+            "worse_count": 1,
+            "no_difference_count": 1,
+            "uncertain_count": 0,
+        }
+        (tmp_path / "ab_blind_eval_report.json").write_text(
+            json.dumps(eval_report), encoding="utf-8"
+        )
+        report = build_unified_quality_report("测试作", output_dir=tmp_path)
         assert report.layer3_blind_eval.status == "completed"
-        assert report.layer3_blind_eval.total_pairs_evaluated == 2
-        assert report.layer5_human_blind_eval.status == "not_run"
-        assert (tmp_path / "unified_quality_report.json").exists()
-        assert (tmp_path / "unified_quality_report.md").exists()
+        assert report.layer3_blind_eval.better_count == 8
+        assert report.layer3_blind_eval.worse_count == 1
+        assert report.layer3_blind_eval.net_improvement_rate == 0.7  # (8-1)/10
+        assert report.layer3_blind_eval.wilson_ci_95[0] > 0.4
+        assert report.layer3_blind_eval.wilson_ci_95[1] <= 1.0
+
+    def test_reader_gate_pass_and_block_integration(self, tmp_path):
+        """Reader Gate 结果真实映射到 Layer 1."""
+        # 1. Block 情况
+        gate_block = {
+            "route": "block",
+            "reasons": ["因果防线：死亡后无因活跃"],
+            "issues": [{"severity": "blocking", "description": "角色死而复生"}],
+            "axes_armed": {"causal_defense": True},
+        }
+        (tmp_path / "reader_gate_report.json").write_text(
+            json.dumps(gate_block), encoding="utf-8"
+        )
+        report = build_unified_quality_report("测试作", output_dir=tmp_path)
+        assert report.layer1_hard_gates.status == "blocked"
+        assert report.layer1_hard_gates.blocking_issues_count == 1
+
+        # 2. Pass 情况
+        gate_pass = {
+            "route": "pass",
+            "reasons": [],
+            "issues": [],
+            "axes_armed": {"fact_consistency": True, "temporal_consistency": True},
+        }
+        (tmp_path / "reader_gate_report.json").write_text(
+            json.dumps(gate_pass), encoding="utf-8"
+        )
+        report_pass = build_unified_quality_report("测试作", output_dir=tmp_path)
+        assert report_pass.layer1_hard_gates.status == "passed"
+        assert report_pass.layer1_hard_gates.blocking_issues_count == 0
+
+    def test_corrupted_json_invalid_evidence_and_strict_mode(self, tmp_path):
+        """损坏证据文件应标记 invalid_evidence，strict_evidence 模式抛出错误."""
+        (tmp_path / "reader_gate_report.json").write_text("{ corrupt json ", encoding="utf-8")
+        report = build_unified_quality_report("测试作", output_dir=tmp_path)
+        assert report.layer1_hard_gates.status == "invalid_evidence"
+        assert len(report.layer1_hard_gates.errors) > 0
+
+        with pytest.raises(ValueError, match="Strict evidence validation failed"):
+            build_unified_quality_report("测试作", output_dir=tmp_path, strict_evidence=True)
+
+    def test_no_mastery_score_in_payload_or_markdown(self, tmp_path):
+        """严禁任何单一标量大神总分."""
+        report = build_unified_quality_report("测试作", output_dir=tmp_path)
+        md = report.render_markdown()
+        assert "严禁输出单一加权「大神分」" in md
+        data = report.model_dump(mode="json")
+        for forbidden in ("mastery_score", "overall_score", "score", "total_score"):
+            assert forbidden not in data

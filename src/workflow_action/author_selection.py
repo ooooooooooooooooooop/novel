@@ -423,9 +423,16 @@ def run_author_selection(
 
     production_kernel = kernel if author_mode_on else None
     outcome = select_candidate(packages, evals, kernel=production_kernel)
+
+    if structural_search_on and structural_search_result is not None:
+        selected = structural_search_result.selected_proposal_id
+        outcome.selected_label = selected
+        print(f"\n[P3 结构搜索权威判定] 候选 {selected} 经 Pareto 前沿与多步 Rollout 胜出并绑定为生产唯一候选")
+    else:
+        selected = outcome.selected_label
+
     print(render_selection_report(outcome))
 
-    selected = outcome.selected_label
     selected_package = _package_by_label(packages, selected)
     plotunit = selected_package["plotunit"]
     ts = timestamp or _utc_now()

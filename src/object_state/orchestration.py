@@ -1,6 +1,5 @@
-"""OrchestrationState — 长程叙事编排状态（P2 核心模型）.
+"""OrchestrationState — 长程叙事编排状态与跨章持久模型（P2 核心模型）.
 
-把长程叙事编排从零散字段/先验，收拢为一个显式的编排状态模型。
 覆盖 7 个维度的状态与决策：
 1. 读者预期（reader expectation / expectation horizon / cognitive tension）
 2. 承诺/回报债务（promise-payoff debt / open thread pressure / payoff urgency）
@@ -165,8 +164,8 @@ class ChapterFunctionAllocation(BaseModel):
 
     chapter_index: int = Field(default=1, ge=1, description="当前章节序号")
     assigned_function: Literal[
-        "setup", "escalation", "crisis", "payoff", "transition", "aftermath"
-    ] = Field(default="setup", description="本章宏观功能分工")
+        "setup", "escalation", "crisis", "payoff", "transition", "aftermath", "neutral"
+    ] = Field(default="neutral", description="本章宏观功能分工")
     hook_strategy: Literal[
         "cliffhanger", "revelation", "emotional_resonance", "open_question", "none"
     ] = Field(default="open_question", description="建议章末钩子策略")
@@ -210,6 +209,68 @@ class InformationDensityBudget(BaseModel):
         if not value.strip():
             raise ValueError(f"{info.field_name} must be non-empty")
         return value
+
+
+class OrchestrationPlan(BaseModel):
+    """从已提交历史派生的本章编排计划（纯派生产物，不含机械 prompt 清单）."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    chapter_number: int = Field(default=1, ge=1)
+    assigned_function: str = Field(default="neutral")
+    priority_tasks: list[str] = Field(default_factory=list, description="本章优先推进任务")
+    suppressed_tasks: list[str] = Field(default_factory=list, description="暂缓推进任务")
+    silence_items: list[str] = Field(default_factory=list, description="必须保持沉默/不可揭示项")
+    payoff_targets: list[str] = Field(default_factory=list, description="可兑现承诺目标")
+    fatigue_risk: bool = Field(default=False)
+    density_directive: str = Field(default="balanced")
+    notes: list[str] = Field(default_factory=list)
+
+    def to_chapter_packet(self) -> str:
+        """生成极简结构化 Chapter Packet，无有效内容时不增加 prompt 字节."""
+        lines = []
+        if self.priority_tasks:
+            lines.append(f"【本章优先任务】: {'；'.join(self.priority_tasks)}")
+        if self.suppressed_tasks:
+            lines.append(f"【暂缓任务】: {'；'.join(self.suppressed_tasks)}")
+        if self.silence_items:
+            lines.append(f"【保持沉默】: {'；'.join(self.silence_items)}")
+        if self.payoff_targets:
+            lines.append(f"【可兑现承诺】: {'；'.join(self.payoff_targets)}")
+        if self.fatigue_risk:
+            lines.append("【节奏风险】: 近期连续高压，本章必须安排缓冲复盘或情感交流")
+        if self.assigned_function != "neutral":
+            lines.append(f"【目标章节功能】: {self.assigned_function}")
+        return "\n".join(lines)
+
+
+class CommittedOrchestrationHistoryEntry(BaseModel):
+    """已提交章节的编排履历."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    chapter: int = Field(ge=1)
+    function: str = Field(default="neutral")
+    emotion: str = Field(default="normal")
+    advanced_threads: list[str] = Field(default_factory=list)
+    payoff_promises: list[str] = Field(default_factory=list)
+    relational_shifts: list[str] = Field(default_factory=list)
+
+
+class CommittedOrchestrationState(BaseModel):
+    """已持久化的跨章编排状态机（只在章节成功提交后更新）."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    last_committed_chapter: int = Field(default=0, ge=0)
+    last_run_id: str = Field(default="")
+    history_entries: list[CommittedOrchestrationHistoryEntry] = Field(default_factory=list)
+    thread_last_seen: dict[str, int] = Field(default_factory=dict)
+    thread_last_advanced: dict[str, int] = Field(default_factory=dict)
+    expectation_started_at: dict[str, int] = Field(default_factory=dict)
+    expectation_last_advanced_at: dict[str, int] = Field(default_factory=dict)
+    recent_chapter_functions: list[str] = Field(default_factory=list)
+    recent_emotional_patterns: list[str] = Field(default_factory=list)
 
 
 class OrchestrationState(BaseModel):
@@ -267,77 +328,32 @@ class OrchestrationState(BaseModel):
         urg_tag = {"low": "平缓", "medium": "中等", "high": "高", "immediate": "即时兑现"}[debt.payoff_urgency]
         lines.append(f"2. 承诺债务: [债务等级: {debt_tag} | 兑现紧迫性: {urg_tag}] 活跃/已回收: {debt.open_threads_count}/{debt.resolved_threads_count}")
         if debt.urgent_thread_ids:
-            lines.append(f"   - 急需推进/回收线索: {', '.join(debt.urgent_thread_ids)}")
+            lines.append(f"   - 急需推进/回收: {'；'.join(debt.urgent_thread_ids[:3])}")
 
         # 3. 关系轨迹
         rel = self.relational_trajectory
-        trend_map = {
-            "bonding": "升温/联结",
-            "estrangement": "疏离/裂痕",
-            "confrontation": "对立/对抗",
-            "reconciliation": "破冰/和解",
-            "stable": "动态平衡",
-        }
-        lines.append(f"3. 关系轨迹: [走向: {trend_map.get(rel.estrangement_vs_bonding, '稳定')}] {rel.dominant_dynamic}")
+        lines.append(f"3. 关系轨迹: [{rel.estrangement_vs_bonding}] {rel.dominant_dynamic}")
         if rel.active_leverages:
-            lines.append(f"   - 关键人际杠杆: {'; '.join(rel.active_leverages[:2])}")
+            lines.append(f"   - 生效人际杠杆: {'；'.join(rel.active_leverages[:2])}")
 
-        # 4. 情绪模式
+        # 4. 情绪节律与疲劳防御
         emo = self.emotional_pacing
-        rhythm_map = {
-            "buildup": "蓄势阶段",
-            "peak": "高潮峰值",
-            "release": "张力释放",
-            "valley": "情绪低谷",
-            "recovery": "缓冲沉淀",
-        }
-        lines.append(f"4. 情绪节律: [当前模式: {rhythm_map.get(emo.current_rhythm, '蓄势')}] {emo.pacing_directive}")
+        lines.append(f"4. 情绪节律: [{emo.current_rhythm}] {emo.pacing_directive}")
         if emo.fatigue_risk:
-            lines.append("   - 审美疲劳预警: 连续高压，本单元须避免持续无休止喧嚣，给予读者喘息与思考空间")
-        if emo.target_temperature:
-            lines.append(f"   - 目标情绪温度: {emo.target_temperature}")
+            lines.append(f"   - 疲劳防御预警: 连续处于高张力状态，建议安排过渡/沉淀节拍")
 
-        # 5. 线程轮换
+        # 5. 线程轮换与防饿死
         rot = self.thread_rotation
-        rot_map = {
-            "main_push": "主线强推",
-            "sub_rotation": "轮换至支线",
-            "thread_convergence": "多线交汇",
-            "balanced": "主支线均衡",
-        }
-        lines.append(f"5. 线程轮换: [策略: {rot_map.get(rot.rotation_recommendation, '均衡')}] {rot.rotation_directive}")
+        lines.append(f"5. 线程轮换: [{rot.rotation_recommendation}] {rot.rotation_directive}")
         if rot.starved_threads:
-            lines.append(f"   - 支线防饿死召回: {', '.join(rot.starved_threads)}")
+            lines.append(f"   - 防饿死召回线程: {'；'.join(rot.starved_threads[:2])}")
 
-        # 6. 章节功能
-        func = self.chapter_function
-        func_map = {
-            "setup": "铺垫导入",
-            "escalation": "冲突升级",
-            "crisis": "危机爆发",
-            "payoff": "回报兑现",
-            "transition": "过渡转折",
-            "aftermath": "尾声余波",
-        }
-        hook_map = {
-            "cliffhanger": "强悬念断点",
-            "revelation": "关键真相揭露",
-            "emotional_resonance": "情感共鸣回味",
-            "open_question": "开放式悬念",
-            "none": "平稳收束",
-        }
-        lines.append(f"6. 章节功能: [定位: {func_map.get(func.assigned_function, '铺垫')}] {func.pacing_role} | 建议钩子: {hook_map.get(func.hook_strategy, '悬念')}")
+        # 6. 章节功能分配
+        fn = self.chapter_function
+        lines.append(f"6. 章节定位: [功能: {fn.assigned_function} | 钩子: {fn.hook_strategy}] {fn.pacing_role}")
 
         # 7. 信息与场景密度
         den = self.density_budget
-        rev_map = {"conservative": "克制释放", "moderate": "稳步释放", "burst": "集中爆发"}
-        sc_map = {
-            "action_dense": "高密度动作/事件推进",
-            "dialogue_dense": "高密度对白/交锋交涉",
-            "atmospheric": "重氛围烘托与内心呈现",
-            "balanced": "叙事与场景均衡",
-        }
-        lines.append(f"7. 密度预算: [信息释放: {rev_map.get(den.reveal_budget, '稳步')}] 场景导向: {sc_map.get(den.scene_density_target, '均衡')}")
-        lines.append(f"   - 约束: {den.exposure_pacing_limit}")
+        lines.append(f"7. 密度预算: [信息披露: {den.reveal_budget} | 场景导向: {den.scene_density_target}] {den.exposure_pacing_limit}")
 
         return "\n".join(lines)
