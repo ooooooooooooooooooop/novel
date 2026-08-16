@@ -2167,7 +2167,10 @@ def build_parser(*, emit_json_errors: bool = False) -> argparse.ArgumentParser:
         "--max-holdout-pairs", type=int, default=0, help="holdout 上限（0=全部）"
     )
     auto_calibrate_cmd.add_argument(
-        "--position-sample", type=int, default=None, help="位置一致性抽样对（缺省 20）"
+        "--position-sample",
+        type=int,
+        default=None,
+        help="位置一致性抽样对（缺省 0=全部；>0 时按 tag 确定性分层采样，禁止前缀）",
     )
     auto_calibrate_cmd.set_defaults(func=_run_auto_calibrate)
 

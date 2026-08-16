@@ -216,10 +216,12 @@ def run_preference_judge(
     """对每对运行评审（chosen=甲 / rejected=乙），返回带人类标签的预测.
 
     judge_fn(pair, role) → "A" / "B" / "no_difference"（评审不可见哪份是偏好）。
-    正确口径：A=选 chosen（正确），B=选 rejected（错误），no_difference=弃权（错误）。
+    正确口径：A=选 chosen（正确），B=选 rejected（错误），no_difference=弃权（错误），
+    协议耗尽（ReviewQualityExhaustedError）= 错且计入分母（冻结口径，绝不静默排除）。
 
     ``on_pair_unreviewable(pair, exc)``：judge_fn 抛 ReviewQualityExhaustedError
-    （单候选评审协议合规在有界重请求后仍失败）时调用；回调后可继续下一对，该对不记预测。
+    （单候选评审协议合规失败）时调用；回调后该对仍以 ``predicted="unreviewable"``
+    记一条 correct=False 的预测（reason 记录原因），与其他预测一起参与 compute_accuracy。
     其余异常（含网络/配置错误）一律上抛，不做静默跳过。
     """
     predictions: list[JudgePreferencePrediction] = []
@@ -230,6 +232,17 @@ def run_preference_judge(
             if on_pair_unreviewable is None:
                 raise
             on_pair_unreviewable(pair, exc)
+            predictions.append(
+                JudgePreferencePrediction(
+                    prompt_id=pair.prompt_id,
+                    tag=pair.tag,
+                    role=role,
+                    predicted="unreviewable",
+                    human_label="chosen",  # 真值仍是 chosen；无预测
+                    correct=False,
+                    reason=str(exc),
+                )
+            )
             continue
         if predicted == "A":
             correct, human_label = True, "chosen"
@@ -261,29 +274,28 @@ def _wilson_low(correct: int, n: int, z: float = 1.96) -> float:
 
 
 def compute_accuracy(predictions: list[JudgePreferencePrediction]) -> AccuracyReport:
-    """总体 + 分类型准确率（非弃权样本口径）+ Wilson 95% 下界."""
+    """总体 + 分类型准确率（冻结口径：弃权/耗尽一律计错，分母=全部样本）+ Wilson 95% 下界."""
     n = len(predictions)
     abstain = sum(1 for p in predictions if p.predicted == "no_difference")
-    decisive = n - abstain
+    unreviewable = sum(1 for p in predictions if p.predicted == "unreviewable")
     correct = sum(1 for p in predictions if p.correct)
-    overall = correct / decisive if decisive else 0.0
+    overall = correct / n if n else 0.0
     per_tag: dict[str, float] = {}
     per_tag_n: dict[str, int] = {}
     by_tag: dict[str, list[JudgePreferencePrediction]] = {}
     for p in predictions:
         by_tag.setdefault(p.tag, []).append(p)
     for tag, group in by_tag.items():
-        tag_decisive = sum(1 for p in group if p.predicted != "no_difference")
-        tag_correct = sum(1 for p in group if p.correct)
-        per_tag[tag] = tag_correct / tag_decisive if tag_decisive else 0.0
-        per_tag_n[tag] = tag_decisive
+        per_tag[tag] = sum(1 for p in group if p.correct) / len(group)
+        per_tag_n[tag] = len(group)
     return AccuracyReport(
         n=n,
         abstain_count=abstain,
+        unreviewable_count=unreviewable,
         overall_accuracy=round(overall, 4),
         per_tag_accuracy={tag: round(v, 4) for tag, v in per_tag.items()},
         per_tag_n=per_tag_n,
-        wilson_low=round(_wilson_low(correct, decisive), 4),
+        wilson_low=round(_wilson_low(correct, n), 4),
     )
 
 
@@ -357,6 +369,32 @@ def freeze_quality_thresholds(
     )
 
 
+def _stratified_position_sample(
+    pairs: list[PreferencePair], sample: int
+) -> list[PreferencePair]:
+    """确定性分层采样（按 tag 轮转，保持 tag 内相对顺序）——禁止前缀采样."""
+    if sample <= 0 or len(pairs) <= sample:
+        return pairs
+    by_tag: dict[str, list[PreferencePair]] = {}
+    for pair in pairs:
+        by_tag.setdefault(pair.tag, []).append(pair)
+    selected: list[PreferencePair] = []
+    cursor: dict[str, int] = {tag: 0 for tag in sorted(by_tag)}
+    while len(selected) < sample:
+        progressed = False
+        for tag in sorted(by_tag):
+            if len(selected) >= sample:
+                break
+            index = cursor[tag]
+            if index < len(by_tag[tag]):
+                selected.append(by_tag[tag][index])
+                cursor[tag] = index + 1
+                progressed = True
+        if not progressed:
+            break
+    return selected
+
+
 def measure_position_consistency(
     pairs: list[PreferencePair],
     judge_fn,
@@ -369,14 +407,18 @@ def measure_position_consistency(
 
     call1: chosen=甲/rejected=乙；call2: rejected=甲/chosen=乙。
     (A,B) 与 (B,A) 两轮都选中 chosen → 一致；任一 no_difference 或命名不同 → 不一致。
+    协议耗尽（ReviewQualityExhaustedError）：计为「不一致」并计入分母，绝不静默排除。
 
-    ``on_pair_unreviewable(pair, exc)``：任一轮评审协议合规耗尽时回调（不把该对计为
-    「不一致」，而是整体跳过并报告）；缺省回调时异常上抛。
+    ``sample``：0/None = 全部对；>0 时按 tag 确定性分层采样（禁止前缀）。全部对
+    均不可评时返回 0.0（空评 ≠ 完美）。
+
+    ``on_pair_unreviewable(pair, exc)``：任一轮评审协议合规耗尽时回调并计入分母；
+    缺省回调时异常上抛。
     """
-    if sample is not None:
-        pairs = pairs[:sample]
+    if sample is not None and sample > 0:
+        pairs = _stratified_position_sample(pairs, sample)
     if not pairs:
-        return 1.0
+        return 0.0
     consistent = 0
     total = 0
     for pair in pairs:
@@ -386,6 +428,7 @@ def measure_position_consistency(
             if on_pair_unreviewable is None:
                 raise
             on_pair_unreviewable(pair, exc)
+            total += 1
             continue
         swapped_pair = PreferencePair(
             prompt_id=pair.prompt_id,
@@ -402,12 +445,13 @@ def measure_position_consistency(
             if on_pair_unreviewable is None:
                 raise
             on_pair_unreviewable(pair, exc)
+            total += 1
             continue
         total += 1
         if (first, swapped) in (("A", "B"), ("B", "A")):
             consistent += 1
     if total == 0:
-        return 1.0
+        return 0.0
     return round(consistent / total, 4)
 
 
@@ -419,7 +463,7 @@ def run_holdout(
     *,
     run_id: str,
     run_at: str,
-    position_sample: int | None = 20,
+    position_sample: int | None = None,
     on_pair_unreviewable=None,
 ) -> HoldoutReport:
     """在 holdout 上验证冻结阈值（只读，不回写阈值；T7.6）."""
@@ -432,9 +476,15 @@ def run_holdout(
         on_pair_unreviewable=on_pair_unreviewable,
     )
     overall_met = report.overall_accuracy >= thresholds.overall_accuracy_min
-    per_tag_met = all(
-        acc >= thresholds.per_tag_accuracy_min for acc in report.per_tag_accuracy.values()
-    )
+    holdout_tags = {p.tag for p in holdout_pairs}
+    missing_tags = sorted(holdout_tags - set(report.per_tag_accuracy))
+    if missing_tags:
+        per_tag_met = False
+    else:
+        per_tag_met = all(
+            acc >= thresholds.per_tag_accuracy_min
+            for acc in report.per_tag_accuracy.values()
+        )
     position_met = position >= thresholds.position_consistency_min
     violations: list[str] = []
     if not overall_met:
@@ -442,7 +492,11 @@ def run_holdout(
             f"overall accuracy {report.overall_accuracy} < "
             f"{thresholds.overall_accuracy_min}"
         )
-    if not per_tag_met:
+    if missing_tags:
+        violations.append(
+            f"per-tag coverage: tags not evaluated {missing_tags}"
+        )
+    elif per_tag_met is False:
         low_tags = [
             tag for tag, acc in report.per_tag_accuracy.items()
             if acc < thresholds.per_tag_accuracy_min
@@ -469,4 +523,5 @@ def run_holdout(
         violations=violations,
         run_at=run_at,
         abstain_count=report.abstain_count,
+        unreviewable_count=report.unreviewable_count,
     )

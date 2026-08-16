@@ -5,6 +5,7 @@
 """
 
 import json
+from pathlib import Path
 
 import pytest
 
@@ -17,6 +18,7 @@ from src.object_state.qualitythresholds import (
 from src.workflow_action.auto_calibrate import (
     MIN_CALIBRATION_PROMPT_IDS,
     MIN_CALIBRATION_TAGS,
+    _stratified_position_sample,
     build_preference_judge_prompt,
     compute_accuracy,
     freeze_quality_thresholds,
@@ -126,6 +128,11 @@ def _pair(prompt_id="p-001", tag="悬疑-推理故事", split="calibration",
 # ---------------------------------------------------------------------------
 
 def test_load_frozen_bench_splits_and_disjoint_prompt_ids():
+    # 冻结证据（gitignored 污染划分 split_manifest.json，20864f82）在克隆机上可能
+    # 不存在——该文件从未入库、原始字节已随历史重写丢失且不可恢复。无证据无法做
+    # 字节校验，诚实跳过而非失败；证据存在（作者机）时仍全量验证。
+    if not Path(_SPLIT).is_file():
+        pytest.skip("frozen polluted split evidence absent (split_manifest.json not present on this clone)")
     calibration, holdout = load_frozen_preference_bench(
         _BENCH, _SPLIT,
         expected_source_sha256=_BENCH_SHA,
@@ -240,6 +247,29 @@ def test_compute_accuracy_counts_abstain_as_incorrect():
     report = compute_accuracy(run_preference_judge(pairs, "reader_judge", _abstain_judge))
     assert report.overall_accuracy == 0.0
     assert report.abstain_count == 2
+    assert report.unreviewable_count == 0
+
+
+def test_compute_accuracy_mixed_abstain_counts_as_wrong():
+    # 冻结口径：弃权=错，分母=全部样本（10 对 5 正确 5 弃权 → 0.5，而非旧口径 1.0）.
+    pairs = [
+        _pair(prompt_id="p-1", tag="悬疑-推理故事"),
+        _pair(prompt_id="p-2", tag="悬疑-推理故事"),
+        _pair(prompt_id="p-3", tag="仙侠小说"),
+        _pair(prompt_id="p-4", tag="仙侠小说"),
+    ]
+
+    def judge(pair, role):
+        return "A" if pair.prompt_id in ("p-1", "p-2") else "no_difference"
+
+    report = compute_accuracy(run_preference_judge(pairs, "reader_judge", judge))
+    assert report.n == 4
+    assert report.abstain_count == 2
+    assert report.overall_accuracy == 0.5
+    assert report.per_tag_accuracy["悬疑-推理故事"] == 1.0
+    assert report.per_tag_accuracy["仙侠小说"] == 0.0  # 全弃权 tag → 0.0（分母=全部样本）
+    assert report.per_tag_n["仙侠小说"] == 2
+    assert report.wilson_low < 0.5  # Wilson 以全部样本为分母
 
 
 def _failing_judge(fail_prompt_id):
@@ -251,7 +281,7 @@ def _failing_judge(fail_prompt_id):
     return judge
 
 
-def test_run_preference_judge_on_unreviewable_records_and_continues():
+def test_run_preference_judge_unreviewable_counts_as_wrong():
     pairs = [_pair(prompt_id="p-1"), _pair(prompt_id="p-2"), _pair(prompt_id="p-3")]
     recorded = []
     predictions = run_preference_judge(
@@ -260,8 +290,19 @@ def test_run_preference_judge_on_unreviewable_records_and_continues():
             (pair.prompt_id, type(exc).__name__)
         ),
     )
-    assert [p.prompt_id for p in predictions] == ["p-1", "p-3"]
+    # 冻结口径：耗尽对记 predicted="unreviewable"、correct=False，绝不静默排除
+    assert [p.prompt_id for p in predictions] == ["p-1", "p-2", "p-3"]
+    by_id = {p.prompt_id: p for p in predictions}
+    assert by_id["p-2"].predicted == "unreviewable"
+    assert by_id["p-2"].correct is False
+    assert by_id["p-2"].reason
+    assert by_id["p-1"].correct is True and by_id["p-3"].correct is True
     assert recorded == [("p-2", "ReviewQualityExhaustedError")]
+    # 计入分母：n=3、耗尽 1 条 → 准确率 2/3（overall 已四舍五入到 4 位）
+    report = compute_accuracy(predictions)
+    assert report.n == 3
+    assert report.unreviewable_count == 1
+    assert report.overall_accuracy == pytest.approx(2 / 3, abs=1e-3)
 
 
 def test_run_preference_judge_unreviewable_without_callback_raises():
@@ -281,15 +322,45 @@ def test_run_preference_judge_nonquality_error_still_raises_with_callback():
         )
 
 
-def test_position_consistency_skips_unreviewable_pair():
+def test_position_consistency_unreviewable_counts_as_inconsistent():
     pairs = [_pair(prompt_id="p-1"), _pair(prompt_id="p-2")]
     recorded = []
     position = measure_position_consistency(
         pairs, _failing_judge("p-2"), role="reader_judge",
         on_pair_unreviewable=lambda pair, exc: recorded.append(pair.prompt_id),
     )
-    assert position == 1.0  # 只评估了 p-1（换位稳定），p-2 跳过并上报
+    # 冻结口径：耗尽计为「不一致」并计入分母（1/2），绝不静默排除
+    assert position == 0.5
     assert recorded == ["p-2"]
+
+
+def test_position_consistency_all_unreviewable_is_zero():
+    def always_exhaust(pair, role):
+        raise ReviewQualityExhaustedError("exhausted")
+
+    position = measure_position_consistency(
+        [_pair(prompt_id="p-1"), _pair(prompt_id="p-2")],
+        always_exhaust, role="reader_judge",
+        on_pair_unreviewable=lambda pair, exc: None,
+    )
+    assert position == 0.0  # 空评 ≠ 完美（旧实现返回 1.0 是测量漏洞）
+
+
+def test_position_consistency_stratified_sample_not_prefix():
+    # 6 对：仙侠 3 对 + 悬疑 3 对；sample=2 应各取 1（按 tag 分层），
+    # 而不是旧的 pairs[:2] 前缀（会全落在同一 tag）.
+    pairs = (
+        [_pair(prompt_id=f"a-{i}", tag="仙侠小说") for i in range(3)]
+        + [_pair(prompt_id=f"b-{i}", tag="悬疑-推理故事") for i in range(3)]
+    )
+    sampled = _stratified_position_sample(pairs, 2)
+    assert sorted(p.tag for p in sampled) == ["仙侠小说", "悬疑-推理故事"]
+    assert sampled[0].prompt_id == "a-0"
+    assert sampled[1].prompt_id == "b-0"
+    # 分层采样确定性：两次调用结果一致
+    assert [p.prompt_id for p in _stratified_position_sample(pairs, 2)] == [
+        p.prompt_id for p in sampled
+    ]
 
 
 # ---------------------------------------------------------------------------
@@ -402,3 +473,24 @@ def test_run_holdout_does_not_rewrite_thresholds():
     assert report.met is False
     assert report.violations  # 降级只报违规，不回写阈值
     assert thresholds.model_dump() == frozen  # T7.6：阈值不被 holdout 调整
+
+
+def test_run_holdout_fully_abstained_tag_fails_per_tag():
+    # 冻结口径：整 tag 弃权 → 该 tag 准确率 0.0 < 0.5 → per-tag 门 FAIL，
+    # 不再是「无预测 tag 虚过」.
+    pairs = [_pair(prompt_id=f"h-{i:03d}", tag="仙侠小说", split="holdout")
+             for i in range(6)]
+    thresholds = _freeze(_calibration_span_pairs(MIN_CALIBRATION_PROMPT_IDS + 2))
+
+    def abstain_judge(pair, role):
+        return "no_difference"
+
+    report = run_holdout(
+        thresholds, pairs, "reader_judge", abstain_judge,
+        run_id="run-holdout", run_at="2026-08-12T00:00:00Z",
+    )
+    assert report.met is False
+    assert report.dimension_met["per_tag"] is False
+    assert report.overall_accuracy == 0.0
+    assert report.abstain_count == 6
+    assert any("per-tag accuracy" in v for v in report.violations)

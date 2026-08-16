@@ -42,7 +42,18 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 # + M1 生产调用链回归（test_autonomous_runner.py,+1：协议违规→单次调用/终态/零污染），
 # 基线 2806 → 2814；M1b upstream_url 校验（+1 adapter 调用前 mismatch 测试）
 # + 2 builder 测试（env 注入/缺失失败）→ 2817。
-EXPECTED_TEST_BASELINE = "2817"
+# M2 deepseek profile 冻结（f8b9965，test_build_deepseek_active_bundle.py,+4：
+#   live DB provider 身份 / 拒绝非 deepseek / 拒绝 failover / judge thinking_disabled）
+# → 2817 + 4 = 2821。
+# G7 计分合同封死（docs/00_project/49_next_phase_plan.md 阶段 1；test_auto_calibrate.py,+4：
+#   混合弃权计错 / 全部耗尽 position=0 / 分层采样非前缀 / 整 tag 弃权 FAIL）→ 2821 + 4 = 2825。
+# Track A 时间一致性门禁对抗性注入（test_temporal_adversarial.py,+7：死亡后活跃 blocking /
+#   活跃先于死亡负控制 / 过期持有 warning / 未过期持有负控制 / 时间否定 blocking /
+#   不相交否定负控制 / 干净台账零误报）→ 2825 + 7 = 2832。
+# Track A 确定性防火墙不变量（test_consistency_firewall_adversarial.py,+5：viability 幂等 /
+#   required_premise 提及承诺内容 / reveal 意译负控制 / reveal 逐字正控 / 时间检出顺序无关）
+# → 2832 + 5 = 2837。
+EXPECTED_TEST_BASELINE = "2837"
 
 
 def run_script(*args: str) -> subprocess.CompletedProcess[str]:

@@ -37,11 +37,15 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 # 推导回归（test_judge_claim.py,2）再升至 2803；k3 thinking_disabled 能力
 # （test_provider_adapter.py,3）升至 2806；M1 单次调用契约重写（数量不变）
 # + deepseek_active bundle 重建入口（7）+ M1 生产调用链回归（1）升至 2814；
-# M1b upstream_url 调用前校验（+1 adapter）+ 2 builder 测试升至 2817；与
+# M1b upstream_url 调用前校验（+1 adapter）+ 2 builder 测试升至 2817；
+# M2 deepseek profile 冻结（test_build_deepseek_active_bundle.py,+4）升至 2821；与
 # test_cli_runtime_contract 的 EXPECTED_TEST_BASELINE 及
 # tier0_release_record.example.json 保持一致。冻结的 releases/tier0-release.json
 # 用其自身记录的 baseline（2301）自校验，不随此漂移。
-EXPECTED_BASELINE = 2817
+# G7 计分合同封死（test_auto_calibrate.py,+4）升至 2825。
+# Track A 时间一致性对抗性注入（test_temporal_adversarial.py,+7）升至 2832。
+# Track A 确定性防火墙不变量（test_consistency_firewall_adversarial.py,+5）升至 2837。
+EXPECTED_BASELINE = 2837
 EXAMPLE_PATH = "docs/00_project/tier0_release_record.example.json"
 CANARY_EVIDENCE_EXAMPLE_PATH = "docs/00_project/tier0_canary_evidence.example.json"
 COMMITTED_RELEASE_RECORD_PATH = "docs/00_project/releases/tier0-release.json"

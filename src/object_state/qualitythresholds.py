@@ -5,8 +5,8 @@ T7（design §10）：把评审器（fact_judge / character_judge / reader_judge
 验证——阈值一旦冻结不得根据 holdout 调整（T7.6）。
 
 - `PreferencePair`：基准单行（写作 prompt + 人类偏好 chosen/rejected，来源隐藏）；
-- `JudgePreferencePrediction`：评审对单对的预测（A/B/no_difference）与人类标签对照；
-- `AccuracyReport`：总体 + 分类型准确率 + Wilson 95% 下界 + 弃权数；
+- `JudgePreferencePrediction`：评审对单对的预测（A/B/no_difference/unreviewable）与人类标签对照；
+- `AccuracyReport`：总体 + 分类型准确率 + Wilson 95% 下界 + 弃权数 + 耗尽数（弃权/耗尽计错）；
 - `QualityThresholds`：holdout 前从 calibration 冻结的阈值（含 calibration 统计）；
 - `HoldoutReport`：holdout 验证结果（不得作为阈值调参输入）。
 
@@ -49,38 +49,48 @@ class PreferencePair(BaseModel):
 
 
 class JudgePreferencePrediction(BaseModel):
-    """评审对单对的预测：A/B/no_difference + 人类标签 + 是否命中."""
+    """评审对单对的预测：A/B/no_difference/unreviewable + 人类标签 + 是否命中."""
 
     model_config = ConfigDict(extra="forbid")
 
     prompt_id: str = Field(description="基准行 prompt_id")
     tag: str = Field(description="类型标签")
     role: str = Field(description="评审角色（fact_judge/character_judge/reader_judge）")
-    predicted: Literal["A", "B", "no_difference"] = Field(
-        description="评审预测：A=选甲，B=选乙，no_difference=无法分辨（弃权）"
+    predicted: Literal["A", "B", "no_difference", "unreviewable"] = Field(
+        description="评审预测：A=选甲，B=选乙，no_difference=弃权（错），"
+        "unreviewable=协议耗尽（错，计入分母）"
     )
     human_label: Literal["chosen", "rejected"] = Field(
         description="人类实际偏好的响应（chosen/rejected），对照基准标签"
     )
-    correct: bool = Field(description="预测与人类偏好一致（no_difference 恒 False=弃权）")
+    correct: bool = Field(
+        description="预测与人类偏好一致（no_difference/unreviewable 恒 False=错）"
+    )
+    reason: str | None = Field(
+        default=None,
+        description="unreviewable 时的耗尽原因；正常预测为 None",
+    )
 
 
 class AccuracyReport(BaseModel):
-    """总体 + 分类型准确率 + Wilson 95% 置信下界."""
+    """总体 + 分类型准确率 + Wilson 95% 置信下界（冻结口径：弃权/耗尽计错）."""
 
     model_config = ConfigDict(extra="forbid")
 
-    n: int = Field(ge=0, description="预测样本数（含弃权）")
+    n: int = Field(ge=0, description="预测样本数（含弃权与耗尽）")
     abstain_count: int = Field(ge=0, description="no_difference 弃权数")
+    unreviewable_count: int = Field(
+        ge=0, default=0, description="协议耗尽（unreviewable）样本数"
+    )
     overall_accuracy: float = Field(
-        ge=0.0, le=1.0, description="总体准确率（正确 / 非弃权样本）"
+        ge=0.0, le=1.0, description="总体准确率（正确 / 全部样本，弃权与耗尽计错）"
     )
     per_tag_accuracy: dict[str, float] = Field(
-        description="分类型准确率 {tag: accuracy}"
+        description="分类型准确率 {tag: accuracy}（分母=该 tag 全部样本）"
     )
-    per_tag_n: dict[str, int] = Field(description="分类型样本数 {tag: n}")
+    per_tag_n: dict[str, int] = Field(description="分类型样本数 {tag: n}（全部样本）")
     wilson_low: float = Field(
-        ge=0.0, le=1.0, description="总体准确率的 Wilson 95% 置信下界"
+        ge=0.0, le=1.0, description="总体准确率的 Wilson 95% 置信下界（以全部样本为分母）"
     )
 
 
@@ -155,3 +165,6 @@ class HoldoutReport(BaseModel):
     violations: list[str] = Field(default_factory=list, description="未达标维度说明")
     run_at: str = Field(description="运行时间（ISO UTC）")
     abstain_count: int = Field(ge=0, default=0, description="弃权样本数")
+    unreviewable_count: int = Field(
+        ge=0, default=0, description="协议耗尽样本数（计错，非静默排除）"
+    )

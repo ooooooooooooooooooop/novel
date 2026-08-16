@@ -93,9 +93,19 @@ def main() -> int:
     parser.add_argument("--split", default="", help="划分 manifest JSON（缺省取 policy.benchmarks）")
     parser.add_argument("--max-calibration-pairs", type=int, default=0, help="calibration 上限（0=全部）")
     parser.add_argument("--max-holdout-pairs", type=int, default=0, help="holdout 上限（0=全部）")
-    parser.add_argument("--position-sample", type=int, default=20, help="位置一致性抽样对（0=全部）")
+    parser.add_argument(
+        "--position-sample",
+        type=int,
+        default=0,
+        help="位置一致性抽样对（0=全部，缺省；>0 时按 tag 确定性分层采样，禁止前缀）",
+    )
     parser.add_argument(
         "--user-home", default="", help="Provider 凭证/身份目录（缺省 Path.home()）"
+    )
+    parser.add_argument(
+        "--skip-holdout",
+        action="store_true",
+        help="只跑 calibration（Phase 1 门禁：calibration 达标后才允许消耗一次性 holdout）",
     )
     args = parser.parse_args()
 
@@ -251,20 +261,24 @@ def main() -> int:
         return 1
 
     # ---- 2. holdout：只读验证冻结阈值（禁止据 holdout 调阈值，T7.6）。
-    try:
-        holdout_report = run_holdout(
-            thresholds,
-            holdout_pairs,
-            args.role,
-            judge_pair,
-            run_id=run_id,
-            run_at=_utc_now(),
-            position_sample=args.position_sample or None,
-            on_pair_unreviewable=record_unreviewable,
-        )
-    except Exception as exc:
-        print(f"Error: holdout 失败: {type(exc).__name__}")
-        return 1
+    # --skip-holdout 时只冻结阈值不验证 holdout（一次性 holdout 不得被未过 Phase 1
+    # 门的路线消耗）。
+    holdout_report = None
+    if not args.skip_holdout:
+        try:
+            holdout_report = run_holdout(
+                thresholds,
+                holdout_pairs,
+                args.role,
+                judge_pair,
+                run_id=run_id,
+                run_at=_utc_now(),
+                position_sample=args.position_sample or None,
+                on_pair_unreviewable=record_unreviewable,
+            )
+        except Exception as exc:
+            print(f"Error: holdout 失败: {type(exc).__name__}")
+            return 1
 
     # ---- 3. 落盘（全部凭证无关，无正文）。
     output_dir.joinpath("calibration_predictions.json").write_text(
@@ -282,10 +296,11 @@ def main() -> int:
         json.dumps(thresholds.model_dump(mode="json"), ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
-    output_dir.joinpath("holdout_report.json").write_text(
-        json.dumps(holdout_report.model_dump(mode="json"), ensure_ascii=False, indent=2),
-        encoding="utf-8",
-    )
+    if holdout_report is not None:
+        output_dir.joinpath("holdout_report.json").write_text(
+            json.dumps(holdout_report.model_dump(mode="json"), ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
     summary = {
         "schema_version": 1,
         "role": args.role,
@@ -296,20 +311,33 @@ def main() -> int:
             "pairs": len(calibration_pairs),
             "overall_accuracy": calib_report.overall_accuracy,
             "abstain_count": calib_report.abstain_count,
+            "unreviewable_count": calib_report.unreviewable_count,
             "per_tag_n": calib_report.per_tag_n,
             "wilson_low": calib_report.wilson_low,
         },
         "thresholds_id": thresholds.thresholds_id,
-        "holdout": {
-            "pairs": len(holdout_pairs),
-            "overall_accuracy": holdout_report.overall_accuracy,
-            "position_consistency": holdout_report.position_consistency,
-            "met": holdout_report.met,
-            "violations": holdout_report.violations,
-        },
-        "route": "pass" if holdout_report.met else "fail",
+        "holdout": (
+            {
+                "pairs": len(holdout_pairs),
+                "overall_accuracy": holdout_report.overall_accuracy,
+                "position_consistency": holdout_report.position_consistency,
+                "met": holdout_report.met,
+                "violations": holdout_report.violations,
+                "abstain_count": holdout_report.abstain_count,
+                "unreviewable_count": holdout_report.unreviewable_count,
+            }
+            if holdout_report is not None
+            else {"skipped": True, "note": "Phase 1 门禁：calibration 达标后才允许消耗一次性 holdout"}
+        ),
+        "route": (
+            "calibration_only"
+            if holdout_report is None
+            else ("pass" if holdout_report.met else "fail")
+        ),
         "quality": {
             "unreviewable_pairs": unreviewable_pairs,
+            "abstain_count": calib_report.abstain_count,
+            "unreviewable_count": calib_report.unreviewable_count,
         },
         "frozen_by_run": run_id,
     }
@@ -325,6 +353,17 @@ def main() -> int:
     print(f"  calibration accuracy:  {calib_report.overall_accuracy}"
           f" (wilson_low={calib_report.wilson_low})")
     print(f"  thresholds_id:         {thresholds.thresholds_id}")
+    if holdout_report is None:
+        print("  holdout:               skipped（--skip-holdout，Phase 1 门禁未放行）")
+        print(f"  usage:                 {ledger.usage.calls} calls / "
+              f"${ledger.usage.cost_usd}")
+        if unreviewable_pairs:
+            print(f"  unreviewable pairs:    {len(unreviewable_pairs)}")
+            for u in unreviewable_pairs:
+                print(f"    - {u['prompt_id']} ({u['tag']}): {u['error_type']}")
+        print(f"  thresholds:            {output_dir / 'thresholds.json'}")
+        print("\ncalibration-only：G7 未裁决；达标后才允许 run_holdout 消耗一次性 holdout")
+        return 0
     print(f"  holdout pairs:         {len(holdout_pairs)}")
     print(f"  holdout accuracy:      {holdout_report.overall_accuracy}"
           f" (>= {thresholds.overall_accuracy_min})")
