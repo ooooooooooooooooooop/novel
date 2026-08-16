@@ -382,18 +382,18 @@ class TestStructuralSearchEngine:
             StructuralProposal(
                 proposal_id="p1",
                 primary_actor="林尘",
-                core_choice="选择分支A",
-                resistance_source="阻力A",
-                cost="代价A",
-                state_change="状态A",
+                core_choice="正面硬撼执法堂审判",
+                resistance_source="戒律长老压制",
+                cost="身受重伤经脉受损",
+                state_change="道心自洽威信提升",
             ),
             StructuralProposal(
                 proposal_id="p2",
                 primary_actor="苏清雪",
-                core_choice="选择分支B",
-                resistance_source="阻力B",
-                cost="代价B",
-                state_change="状态B",
+                core_choice="暗中潜入藏经阁寻找证据",
+                resistance_source="巡夜傀儡封锁",
+                cost="欠下黑市巨大人情",
+                state_change="获得禁术线索",
             ),
         ]
 

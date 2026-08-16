@@ -405,11 +405,45 @@ def detect_invalidated_cost(objects: list) -> list[ReviewIssue]:
     if not cost_facts:
         return issues
 
-    # 查找世界规则中针对代价/禁忌的约束
-    world_rules: list[str] = []
+    # 查找世界规则中针对代价/禁忌的结构化约束 (cost_fact -> rule_id -> applies_to -> reversibility)
+    world_rule_mappings: list[dict[str, str]] = []
     for w in worlds:
-        world_rules.extend(w.consequence_logic or [])
-        world_rules.extend(w.prohibitions or [])
+        for idx, r in enumerate(w.hard_rules or []):
+            world_rule_mappings.append({
+                "rule_id": f"hard_rule_{idx+1}",
+                "rule_text": r,
+                "reversibility": "irreversible",
+            })
+        for idx, r in enumerate(w.consequence_logic or []):
+            world_rule_mappings.append({
+                "rule_id": f"consequence_logic_{idx+1}",
+                "rule_text": r,
+                "reversibility": "conditional",
+            })
+        for idx, r in enumerate(w.prohibitions or []):
+            world_rule_mappings.append({
+                "rule_id": f"prohibition_{idx+1}",
+                "rule_text": r,
+                "reversibility": "forbidden",
+            })
+        for idx, r in enumerate(w.forbidden_actions or []):
+            world_rule_mappings.append({
+                "rule_id": f"forbidden_action_{idx+1}",
+                "rule_text": r,
+                "reversibility": "forbidden",
+            })
+        if getattr(w, "death_rule", None):
+            world_rule_mappings.append({
+                "rule_id": "death_rule_1",
+                "rule_text": str(w.death_rule),
+                "reversibility": "strict_irreversible",
+            })
+        if getattr(w, "resource_system", None):
+            world_rule_mappings.append({
+                "rule_id": "resource_system_1",
+                "rule_text": str(w.resource_system),
+                "reversibility": "conservation_of_cost",
+            })
 
     for f in cost_facts:
         f_entities = _fact_entity_set(f, registry)
@@ -428,19 +462,32 @@ def detect_invalidated_cost(objects: list) -> list[ReviewIssue]:
             if any(m in text for m in _NEW_COST_PAYMENT_MARKERS):
                 continue
 
-            # 检查是否有明确世界规则约束
-            matching_rules = [r for r in world_rules if any(k in r for k in ("代价", "不可逆", "生死", "禁术", "本源", "反噬"))]
-            if not matching_rules and world_rules:
-                matching_rules = world_rules
+            # 结构化绑定世界规则: cost_fact -> rule_id -> applies_to -> reversibility
+            matching_rules = [
+                r for r in world_rule_mappings
+                if any(k in r["rule_text"] for k in ("代价", "不可逆", "生死", "禁术", "本源", "反噬", "损耗", "规则"))
+                or any(e in r["rule_text"] for e in hit_entities)
+            ]
+            if not matching_rules and world_rule_mappings:
+                matching_rules = world_rule_mappings
 
             has_hard_rule = bool(matching_rules)
             severity = "blocking" if has_hard_rule else "warning"
             issue_type = "world_violation" if has_hard_rule else "missing_cost"
-            violated_rule_str = (
-                f"世界代价规则不可免费逆转: {matching_rules[0]}"
-                if matching_rules
-                else "已付代价应持续传播或需对应代价恢复"
-            )
+
+            if matching_rules:
+                best_rule = matching_rules[0]
+                rule_id = best_rule["rule_id"]
+                rule_text = best_rule["rule_text"]
+                reversibility = best_rule["reversibility"]
+                applies_to_str = ", ".join(hit_entities[:2])
+                violated_rule_str = (
+                    f"世界代价规则不可免费逆转 [rule_id={rule_id}, applies_to={applies_to_str}, reversibility={reversibility}]: {rule_text}"
+                )
+                mechanism_desc = f"绑定世界规则 {rule_id} (applies_to={applies_to_str}, reversibility={reversibility}, 升级为阻断)"
+            else:
+                violated_rule_str = "已付代价应持续传播或需对应代价恢复"
+                mechanism_desc = "未声明硬规则（质量信号）"
 
             issues.append(
                 ReviewIssue(
@@ -455,7 +502,7 @@ def detect_invalidated_cost(objects: list) -> list[ReviewIssue]:
                         f"{hit_entities[:2]} 已付出代价，但 PlotUnit {pu.unit_id} "
                         f"出现恢复语言（{[m for m in _RECOVERY_MARKERS if m in text][:3]}）"
                         f"且无新代价支付——代价被悄悄抵消。"
-                        f"世界代价机制: {'存在明确规则约束（升级为阻断）' if has_hard_rule else '未声明硬规则（质量信号）'}。"
+                        f"世界代价机制: {mechanism_desc}。"
                     ),
                     suggested_fix=(
                         "保持代价的持续影响（资源/身体/关系/权力），或为恢复"

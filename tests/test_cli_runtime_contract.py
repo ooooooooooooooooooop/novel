@@ -63,7 +63,9 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 # P7 人类盲评与长程授权（test_human_eval.py,+5）→ 2898 + 5 = 2903。
 # R1-R9 大神级系统整改（taste_stack,+4; narrative_orchestrator,+2; structural_search,+3; causal_defense,+3; authormodel_v3,+2; human_eval,+3; test_remediation_integration.py,+1）
 # → 2903 + 18 = 2921。
-EXPECTED_TEST_BASELINE = "2921"
+# R0-R9 终审整改核心契约锁定（test_remediation_core_verification.py,+12：Orchestration事务解耦/真实3-5步对象Rollout与多样性门禁拒绝兜底/TasteStack不可变身份与算术守恒/因果防线世界规则绑定/AuthorModel原子写盘与StrictShadow/双盲N>=2混排脱敏与证据推导）
+# → 2921 + 12 = 2933。
+EXPECTED_TEST_BASELINE = "2933"
 
 
 def run_script(*args: str) -> subprocess.CompletedProcess[str]:

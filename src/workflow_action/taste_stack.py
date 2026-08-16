@@ -61,7 +61,7 @@ def _sha256_path(path: Path) -> str:
 
 
 def _extract_layer1_evidence(output_dir: Optional[Path]) -> Layer1HardGatesSummary:
-    """第 1 层确定性硬门禁：从 reader_gate_report.json / run_manifest.json 提取真实证据."""
+    """第 1 层确定性硬门禁：从 reader_gate_report.json / run_manifest.json 提取真实证据并严格绑定身份."""
     if output_dir is None:
         return Layer1HardGatesSummary(status="not_run")
 
@@ -83,6 +83,29 @@ def _extract_layer1_evidence(output_dir: Optional[Path]) -> Layer1HardGatesSumma
             errors=[err or "invalid payload shape"],
         )
 
+    # 检查 run_manifest.json 并核对不可变身份
+    manifest_path = output_dir / "run_manifest.json"
+    if not manifest_path.exists():
+        candidates = list(output_dir.glob("**/run_manifest.json"))
+        if candidates:
+            manifest_path = candidates[0]
+
+    evidence_hashes = {str(gate_report_path): _sha256_path(gate_report_path)}
+    manifest_errors: list[str] = []
+    if manifest_path.exists():
+        evidence_hashes[str(manifest_path)] = _sha256_path(manifest_path)
+        m_data, m_err = _safe_read_json(manifest_path)
+        if m_err is not None or not isinstance(m_data, dict):
+            manifest_errors.append(f"manifest corrupted: {m_err}")
+        else:
+            m_status = m_data.get("status")
+            if m_status != "committed":
+                manifest_errors.append(f"manifest status is '{m_status}', not 'committed'")
+            gate_ch = data.get("chapter_ref")
+            m_ch = m_data.get("chapter_ref")
+            if gate_ch and m_ch and gate_ch != m_ch:
+                manifest_errors.append(f"chapter_ref mismatch: gate ({gate_ch}) vs manifest ({m_ch})")
+
     route = data.get("route", "")
     reasons = data.get("reasons", [])
     issues = data.get("issues", [])
@@ -91,7 +114,11 @@ def _extract_layer1_evidence(output_dir: Optional[Path]) -> Layer1HardGatesSumma
     blocking_issues = [i for i in issues if isinstance(i, dict) and i.get("severity") in ("blocking", "critical")]
     blocking_count = len(blocking_issues)
 
-    status = "passed" if route == "pass" and blocking_count == 0 else "blocked"
+    if manifest_errors:
+        status = "invalid_evidence" if any("corrupted" in e or "mismatch" in e for e in manifest_errors) else "blocked"
+    else:
+        status = "passed" if route == "pass" and blocking_count == 0 else "blocked"
+
     checked_gates = list(axes_armed.keys()) if axes_armed else ["reader_gate"]
 
     return Layer1HardGatesSummary(
@@ -100,8 +127,9 @@ def _extract_layer1_evidence(output_dir: Optional[Path]) -> Layer1HardGatesSumma
         blocking_issues_count=blocking_count,
         blocking_issues_details=blocking_issues,
         evidence_count=len(axes_armed) if axes_armed else 1,
-        evidence_paths=[str(gate_report_path)],
-        evidence_hashes={str(gate_report_path): _sha256_path(gate_report_path)},
+        evidence_paths=[str(gate_report_path)] + ([str(manifest_path)] if manifest_path.exists() else []),
+        evidence_hashes=evidence_hashes,
+        errors=manifest_errors,
     )
 
 
@@ -180,7 +208,19 @@ def _extract_layer3_evidence(output_dir: Optional[Path]) -> Layer3BlindEvalSumma
         worse = int(data.get("worse_count", 0))
         no_diff = int(data.get("no_difference_count", 0))
         uncertain = int(data.get("uncertain_count", 0))
-        total = int(data.get("total_pairs_evaluated", better + worse + no_diff + uncertain))
+        sum_parts = better + worse + no_diff + uncertain
+
+        if "total_pairs_evaluated" in data:
+            declared_total = int(data["total_pairs_evaluated"])
+            if declared_total != sum_parts:
+                return Layer3BlindEvalSummary(
+                    status="invalid_evidence",
+                    evidence_paths=[str(blind_report_path)],
+                    errors=[f"arithmetic mismatch: declared total {declared_total} != sum of parts ({sum_parts})"],
+                )
+            total = declared_total
+        else:
+            total = sum_parts
 
         net_rate = (better - worse) / total if total > 0 else 0.0
         wilson = compute_wilson_ci(better, total)
@@ -328,6 +368,14 @@ def _extract_layer5_evidence(output_dir: Optional[Path]) -> Layer5HumanBlindEval
             status="not_run",
             evidence_paths=[str(human_report_path)],
             notes="人类盲评报告中样本数为 0",
+        )
+
+    packet_id = data.get("packet_id", "")
+    if not packet_id:
+        return Layer5HumanBlindEvalSummary(
+            status="invalid_evidence",
+            evidence_paths=[str(human_report_path)],
+            errors=["missing packet_id identity in human eval report"],
         )
 
     return Layer5HumanBlindEvalSummary(

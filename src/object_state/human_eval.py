@@ -26,7 +26,7 @@ class BlindedChapterPacket(BaseModel):
     packet_id: str = Field(description="材料包唯一标识")
     novel_name: str = Field(description="小说或评测项目名")
     chapter_range: str = Field(description="包含的章节范围（如 1-10 或 21-30）")
-    random_seed: int = Field(default=42, description="用于版本打乱与分配的显式随机种子")
+    random_seed: Optional[int] = Field(default=None, description="用于版本打乱与分配的显式随机种子（公开包中脱敏置空）")
     seed_hash: str = Field(default="", description="随机种子与参数的 SHA256 哈希")
     created_at_utc: str = Field(
         default_factory=lambda: datetime.datetime.now(datetime.timezone.utc).isoformat()

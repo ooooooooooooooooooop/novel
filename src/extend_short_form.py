@@ -65,6 +65,7 @@ from src.workflow_action.proposal_generator import (
 )
 from src.workflow_action.narrative_orchestrator import (
     load_orchestration_context,
+    build_committed_orchestration_transition,
     commit_orchestration_transition,
     derive_orchestration_plan,
     load_committed_orchestration_state,
@@ -1329,6 +1330,18 @@ def main() -> int:
                 source_text_hash = input_hash_path.read_text(encoding="utf-8").strip() or None
             if source_text_hash is None:
                 source_text_hash = file_content_hash(text_path)
+
+            # R2 闭环：在提交前构建已提交编排状态，纳入统一原子事务落盘
+            committed_orch = load_committed_orchestration_state(output_dir)
+            orch_plan = derive_orchestration_plan(committed_orch, final_objects, chapter_number=chapter_number)
+            _, orch_state_json, orch_hist_json = build_committed_orchestration_transition(
+                committed_orch,
+                orch_plan,
+                plotunit=plotunit,
+                chapter_number=chapter_number,
+                run_id=derive_run_id("extend", chapter_number),
+            )
+
             boundary = ChapterCommitBoundary(output_dir, chapters_dir)
             result = boundary.commit(
                 run_id=derive_run_id("extend", chapter_number),
@@ -1341,6 +1354,8 @@ def main() -> int:
                 frames_json=frames_json,
                 archive_text=draft_text,
                 provenance_json=prov_json,
+                orchestration_state_json=orch_state_json,
+                orchestration_history_json=orch_hist_json,
                 prev_chapter_ref=f"chapter_{chapter_number - 1}" if chapter_number > 1 else None,
                 source_text_hash=source_text_hash,
                 facts_package_hash=gate_package_hash,
@@ -1379,10 +1394,7 @@ def main() -> int:
                 ),
             )
             print(f"Committed chapter: {chapter_file}")
-
-    # F5 原文长段去重：记录 draft 与原文逐字重叠片段（只标注，不改 route）
-    if chapter_committed:
-        try:
+            # v2 模式下的兼容编排更新
             ch_num = int(chapter_file.stem[len("chapter_"):]) if chapter_file else 1
             committed_state = load_committed_orchestration_state(output_dir)
             plan = derive_orchestration_plan(committed_state, objects, chapter_number=ch_num)
@@ -1393,9 +1405,9 @@ def main() -> int:
                 chapter_number=ch_num,
                 run_id=derive_run_id("extend", ch_num),
             )
-        except Exception as exc:
-            print(f"Warning: orchestration commit transition failed: {exc}")
 
+    # F5 原文长段去重：记录 draft 与原文逐字重叠片段（只标注，不改 route）
+    if chapter_committed:
         overlap_spans = prose_action.find_overlapping_spans(draft_text or "", text)
         if overlap_spans:
             review_data["prose_overlap"] = overlap_spans

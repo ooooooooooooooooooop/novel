@@ -8,7 +8,10 @@
 
 from __future__ import annotations
 
+import os
 import re
+import tempfile
+from pathlib import Path
 from typing import Optional
 
 from src.object_state.authorkernel import (
@@ -219,40 +222,76 @@ def validate_cross_work_separation(
 # 物理持久化 (R5 整改)
 # ---------------------------------------------------------------------------
 
+def _atomic_write_text(path: Path, content: str) -> None:
+    """使用临时文件与原子替换写入文件，杜绝写入中断导致数据损坏."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temp_dir = path.parent
+    fd, temp_file = tempfile.mkstemp(prefix=f"{path.stem}_", suffix=".tmp", dir=temp_dir)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(content)
+        os.replace(temp_file, path)
+    except Exception:
+        if os.path.exists(temp_file):
+            try:
+                os.remove(temp_file)
+            except OSError:
+                pass
+        raise
+
+
 def load_author_model_v3(path_or_dir: Path) -> Optional[AuthorModelV3]:
-    """从指定路径或目录读取 author_model_v3.json."""
+    """从指定路径或目录读取 author_model_v3.json. 损坏文件将显式抛出异常."""
     p = path_or_dir if path_or_dir.is_file() else path_or_dir / "author_model_v3.json"
     if not p.exists():
         return None
     try:
         return AuthorModelV3.model_validate_json(p.read_text(encoding="utf-8"))
-    except Exception:
-        return None
+    except Exception as exc:
+        raise ValueError(f"Corrupted or invalid author_model_v3 at {p}: {exc}") from exc
 
 
 def save_author_model_v3(path_or_dir: Path, model: AuthorModelV3) -> Path:
-    """持久化保存 author_model_v3.json."""
+    """原子持久化保存 author_model_v3.json."""
     p = path_or_dir if path_or_dir.is_file() else path_or_dir / "author_model_v3.json"
-    p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text(model.model_dump_json(indent=2), encoding="utf-8")
+    _atomic_write_text(p, model.model_dump_json(indent=2))
     return p
 
 
 def load_qualification_report(path_or_dir: Path) -> Optional[CrossWorkValidationResult]:
-    """读取跨作品留一验证资格报告 qualification_report.json."""
+    """读取跨作品留一验证资格报告 qualification_report.json. 损坏文件将显式抛出异常."""
     p = path_or_dir if path_or_dir.is_file() else path_or_dir / "qualification_report.json"
     if not p.exists():
         return None
     try:
         return CrossWorkValidationResult.model_validate_json(p.read_text(encoding="utf-8"))
-    except Exception:
-        return None
+    except Exception as exc:
+        raise ValueError(f"Corrupted or invalid qualification_report at {p}: {exc}") from exc
 
 
 def save_qualification_report(path_or_dir: Path, report: CrossWorkValidationResult) -> Path:
-    """持久化保存 qualification_report.json."""
+    """原子持久化保存 qualification_report.json."""
     p = path_or_dir if path_or_dir.is_file() else path_or_dir / "qualification_report.json"
-    p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text(report.model_dump_json(indent=2), encoding="utf-8")
+    _atomic_write_text(p, report.model_dump_json(indent=2))
     return p
+
+
+def is_author_model_certified_for_production(
+    author_model: Optional[AuthorModelV3],
+    qualification_report: Optional[CrossWorkValidationResult],
+) -> bool:
+    """检查 AuthorModel 是否获得 L1WO 跨作品留一资格认证.
+
+    只有在存在资格报告且 is_valid_author_prior=True 且无词汇泄露且准确率超基线时才认证.
+    未认证前，任何生产链路必须保持 strict shadow-only 模式，不得改变生产决策.
+    """
+    if author_model is None or qualification_report is None:
+        return False
+    if qualification_report.author_id != author_model.author_id:
+        return False
+    return bool(
+        qualification_report.is_valid_author_prior
+        and not qualification_report.lexical_leakage_detected
+        and qualification_report.choice_prediction_accuracy > qualification_report.baseline_accuracy
+    )
 

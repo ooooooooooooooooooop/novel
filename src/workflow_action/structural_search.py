@@ -195,20 +195,28 @@ def clone_and_rollout_planner(
     steps: int = 3,
     workspec: Optional[WorkSpec] = None,
 ) -> RolloutEvaluation:
-    """真实深拷贝对象状态推演（RolloutPlannerUnit）:
+    """真实深拷贝对象级状态推演（RolloutPlannerUnit）:
 
     深拷贝 [NarrativeState, FactLedger, ForeshadowGraph, Characters, WorldModel]，
-    模拟 3-5 步状态演变与世界规则守恒校验。
+    多步模拟实体变更：
+    - 模拟人物张力/压力（pressure / relationship / status）
+    - 模拟世界禁忌破坏（prohibitions / cost 是否足以支付）
+    - 模拟线索饿死（thread starvation / delay）
+    - 模拟事实因果矛盾（因果连贯性）
+    发现致命非法分支时将 sustainability 归零并阻断。
     """
     steps = max(3, min(5, steps))
 
-    # 深拷贝隔离运行时对象，防止推演污染主线
+    # 1. 深度拷贝隔离运行时所有状态对象，防止推演产生主线副作用
     cloned_state = state.model_copy(deep=True)
     cloned_objects = [
         o.model_copy(deep=True) if hasattr(o, "model_copy") else copy.deepcopy(o)
         for o in objects
     ]
     cloned_world = next((o for o in cloned_objects if isinstance(o, WorldModel)), None)
+    cloned_ledger = next((o for o in cloned_objects if isinstance(o, FactLedger)), None)
+    cloned_foreshadow = next((o for o in cloned_objects if isinstance(o, ForeshadowGraph)), None)
+    cloned_characters: list[CharacterModel] = [o for o in cloned_objects if isinstance(o, CharacterModel)]
 
     proposal_text = " ".join([
         proposal.core_choice,
@@ -223,18 +231,70 @@ def clone_and_rollout_planner(
     is_deliberate_setup = any(m in proposal_text for m in _DELIBERATE_SETUP_MARKERS)
     is_cheap_cosmetic = any("flat_filler_stagnation" in f for f in risk_flags)
 
-    # 检查是否有显式违背世界规则禁忌
+    # 2. 真实对象级推演与守恒检验
+    # A. 世界规则禁忌守恒检验
     hard_rule_violation = False
-    if cloned_world and cloned_world.prohibitions:
-        for p in cloned_world.prohibitions:
-            if p in proposal_text:
-                cost_clean = proposal.cost.strip()
-                if not cost_clean or cost_clean in ("无", "无代价", "暂无", "无明确代价") or "无代价" in cost_clean:
-                    hard_rule_violation = True
-                    risk_flags.append(f"hard_rule_violation: 触犯世界禁忌[{p}]且未提供自洽代价")
+    rule_violation_detail = ""
+    if cloned_world:
+        prohibitions = list(cloned_world.prohibitions or []) + list(cloned_world.forbidden_actions or [])
+        cost_clean = proposal.cost.strip()
+        is_zero_cost = not cost_clean or cost_clean in ("无", "无代价", "暂无", "无明确代价") or "无代价" in cost_clean
+        for p in prohibitions:
+            if not p:
+                continue
+            if is_zero_cost and (
+                p in proposal_text
+                or any(k in proposal_text and k in p for k in ("逆转生死", "经脉", "复活", "禁术", "断绝生机", "损毁"))
+            ):
+                hard_rule_violation = True
+                rule_violation_detail = f"触犯世界禁忌[{p}]且未支付必要代价"
+                risk_flags.append(f"hard_rule_violation: {rule_violation_detail}")
+                break
+
+    # B. 角色压力与关系演变模拟
+    actor_char = None
+    if proposal.primary_actor and cloned_characters:
+        actor_char = next(
+            (c for c in cloned_characters if c.name == proposal.primary_actor or c.character_id == proposal.primary_actor),
+            None,
+        )
+
+    character_stress_overload = False
+    if actor_char is not None:
+        if any(w in proposal.cost for w in ("重伤", "反噬", "透支", "牺牲", "折寿", "残疾", "被废")):
+            actor_char.current_pressure.append(f"rollout_cost: {proposal.cost}")
+        if proposal.relationship_change and isinstance(actor_char.relations, dict):
+            actor_char.relations["last_shift"] = proposal.relationship_change
+        if len(actor_char.current_pressure) >= 5:
+            character_stress_overload = True
+            risk_flags.append("character_stress_overload: 角色承受压力达到崩溃临界")
+
+    # C. 事实账本因果矛盾探测
+    causal_contradiction = False
+    if cloned_ledger:
+        for entry in getattr(cloned_ledger, "entries", []):
+            if not getattr(entry, "confirmed", False):
+                continue
+            # 检查已确认死亡/终结的实体是否在 proposal 中被无解释复用
+            for term in _HIGH_STIMULUS_MARKERS:
+                if term in entry.statement and "恢复" in proposal.state_change and not is_deliberate_setup:
+                    causal_contradiction = True
+                    risk_flags.append(f"causal_contradiction: 与已确认事实『{entry.statement}』存在因果冲突")
+                    break
+            if causal_contradiction:
+                break
+
+    # D. 伏笔/线索饿死检测
+    thread_starvation = False
+    if cloned_foreshadow and hasattr(cloned_foreshadow, "nodes"):
+        open_nodes = [n for n in getattr(cloned_foreshadow, "nodes", []) if getattr(n, "status", "") == "active"]
+        if len(open_nodes) >= 4 and not proposal.released_information and not is_deliberate_setup:
+            thread_starvation = True
+            risk_flags.append("thread_starvation: 活跃线索积压过多且未在推演中进行推进或照应")
 
     rollout_steps: list[RolloutStep] = []
 
+    # 3. 动态 3-5 步对象推演状态迭代
     for step_idx in range(1, steps + 1):
         step_notes: list[str] = []
         if hard_rule_violation:
@@ -243,7 +303,21 @@ def clone_and_rollout_planner(
             delayed_payoff = 0.0
             rule_risk = 1.0
             sustainability = 0.0
-            step_notes.append(f"第+{step_idx}章: 世界规则崩溃，叙事分支不可行")
+            step_notes.append(f"第+{step_idx}章: 世界规则崩溃 ({rule_violation_detail})，分支不可行")
+        elif causal_contradiction:
+            fatigue = 0.9
+            escalation = 0.9
+            delayed_payoff = 0.0
+            rule_risk = 1.0
+            sustainability = 0.0
+            step_notes.append(f"第+{step_idx}章: 发生不可逆因果冲突，叙事链中断")
+        elif character_stress_overload:
+            fatigue = min(1.0, 0.7 + 0.1 * step_idx)
+            escalation = min(1.0, 0.6 + 0.1 * step_idx)
+            delayed_payoff = 0.1
+            rule_risk = 0.4
+            sustainability = max(0.0, 0.3 - 0.1 * step_idx)
+            step_notes.append(f"第+{step_idx}章: 角色心理与生理张力过载，行动自洽度下降")
         elif is_high_stimulus:
             fatigue = min(1.0, 0.4 + 0.25 * step_idx)
             escalation = min(1.0, 0.5 + 0.20 * step_idx)
@@ -258,13 +332,13 @@ def clone_and_rollout_planner(
             rule_risk = 0.1
             sustainability = min(1.0, 0.75 + 0.08 * step_idx)
             step_notes.append(f"第+{step_idx}章: 前置代价与暗线逐渐发酵，提供深层情绪回馈")
-        elif is_cheap_cosmetic:
+        elif is_cheap_cosmetic or thread_starvation:
             fatigue = min(1.0, 0.5 + 0.15 * step_idx)
             escalation = 0.2
             delayed_payoff = 0.2
             rule_risk = 0.1
             sustainability = max(0.2, 0.5 - 0.10 * step_idx)
-            step_notes.append(f"第+{step_idx}章: 缺乏有效状态转移，叙事动力减弱")
+            step_notes.append(f"第+{step_idx}章: 缺乏有效状态转移或支线滞留，叙事动力减弱")
         else:
             fatigue = 0.3
             escalation = 0.3
@@ -289,7 +363,7 @@ def clone_and_rollout_planner(
     avg_sustainability = sum(s.sustainability for s in rollout_steps) / len(rollout_steps)
     avg_delayed_payoff = sum(s.delayed_payoff_yield for s in rollout_steps) / len(rollout_steps)
 
-    if hard_rule_violation:
+    if hard_rule_violation or causal_contradiction:
         stimulus_vs_risk = 0.0
     elif is_high_stimulus:
         stimulus_vs_risk = 0.25
@@ -546,15 +620,18 @@ class StructuralSearchEngine:
         diversity_report = evaluate_structural_diversity(proposals)
         valid_candidates = [p for p in proposals if p.proposal_id in diversity_report.valid_proposals]
 
-        if len(proposals) > 1 and len(valid_candidates) == 0:
+        if len(proposals) > 1 and not diversity_report.is_diverse:
             raise ValueError(
-                f"structural_diversity_failed: All {len(proposals)} proposals failed structural diversity check "
-                f"(near-duplicates detected: {len(diversity_report.near_duplicates)} pairs). "
-                f"Refusing silent fallback."
+                f"structural_diversity_failed: Proposals failed structural diversity check "
+                f"({len(valid_candidates)}/{len(proposals)} valid, near-duplicates detected: "
+                f"{len(diversity_report.near_duplicates)} pairs). Refusing silent fallback."
             )
 
         if not valid_candidates:
-            valid_candidates = proposals
+            raise ValueError(
+                f"structural_diversity_failed: No valid diverse proposals found out of {len(proposals)} proposals. "
+                f"Refusing silent fallback."
+            )
 
         # 2. 3-5 章短程状态 Rollout (深拷贝对象级推演)
         rollout_evals: dict[str, RolloutEvaluation] = {}
@@ -579,7 +656,9 @@ class StructuralSearchEngine:
         valid_ids = [p.proposal_id for p in valid_candidates]
         frontier_ids = compute_structural_pareto_frontier(valid_ids, pareto_scores)
         if not frontier_ids:
-            frontier_ids = valid_ids[:1]
+            raise ValueError(
+                "pareto_frontier_empty: No non-dominated candidate could be computed from valid candidates."
+            )
 
         # 5. 候选选择预承诺 (Precommit)
         precommit = build_candidate_precommit(

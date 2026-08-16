@@ -42,7 +42,7 @@ _TMP_SUFFIX = ".tmp"
 
 # failpoint 步骤名（测试注入崩溃的写点）
 FAILPOINT_STEPS = (
-    "chapter", "archive", "provenance", "frames", "state", "manifest",
+    "chapter", "archive", "provenance", "frames", "state", "orchestration", "manifest",
     "manifest.replace",
 )
 
@@ -268,13 +268,15 @@ class ChapterCommitBoundary:
         frames_json: str,
         archive_text: str | None = None,
         provenance_json: str | None = None,
+        orchestration_state_json: str | None = None,
+        orchestration_history_json: str | None = None,
         prev_chapter_ref: str | None = None,
         source_text_hash: str | None = None,
         facts_package_hash: str | None = None,
         review_route: str | None = None,
         notes: list[str] | None = None,
     ) -> CommitResult:
-        """把一章的 正文+归档+provenance+Frame+状态包 绑定为一次原子提交.
+        """把一章的 正文+归档+provenance+Frame+状态包+编排状态 绑定为一次原子提交.
 
         产物全部落盘后，manifest（提交记录）最后原子写入；任一产物写入失败
         （含 failpoint 注入的崩溃）→ manifest 不落盘 → 重启 recover() 不识别。
@@ -319,6 +321,18 @@ class ChapterCommitBoundary:
             state_before_hash = hash_file_if_exists(state_path)
             self._touch_failpoint("state")
             state_path.write_text(state_json, encoding="utf-8")
+
+            # 6. 编排状态与历史原子写入
+            if orchestration_state_json is not None or orchestration_history_json is not None:
+                self._touch_failpoint("orchestration")
+                if orchestration_state_json is not None:
+                    orch_state_path = self.output_dir / "committed_orchestration_state.json"
+                    orch_state_path.parent.mkdir(parents=True, exist_ok=True)
+                    orch_state_path.write_text(orchestration_state_json, encoding="utf-8")
+                if orchestration_history_json is not None:
+                    orch_hist_path = self.output_dir / "orchestration_history.json"
+                    orch_hist_path.parent.mkdir(parents=True, exist_ok=True)
+                    orch_hist_path.write_text(orchestration_history_json, encoding="utf-8")
         except Exception:
             # 模拟崩溃 / 真实 IO 失败：manifest 未落盘，不算提交。
             raise
@@ -336,6 +350,12 @@ class ChapterCommitBoundary:
             )
         artifacts[self._rel(frames_path)] = sha256_file(frames_path)
         artifacts[self._rel(state_path)] = sha256_file(state_path)
+        if orchestration_state_json is not None:
+            orch_state_path = self.output_dir / "committed_orchestration_state.json"
+            artifacts[self._rel(orch_state_path)] = sha256_file(orch_state_path)
+        if orchestration_history_json is not None:
+            orch_hist_path = self.output_dir / "orchestration_history.json"
+            artifacts[self._rel(orch_hist_path)] = sha256_file(orch_hist_path)
 
         prev_chapter_hash = None
         if prev_chapter_ref:

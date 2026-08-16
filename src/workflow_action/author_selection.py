@@ -31,6 +31,7 @@ from src.workflow_action.authormemory import (
 from src.workflow_action.author_selector import (
     build_choice_record,
     evaluate_candidates,
+    reconstruct_selection_outcome,
     render_selection_report,
     select_candidate,
 )
@@ -380,12 +381,23 @@ def run_author_selection(
     """
     review = review or ReviewUnit()
     orchestration_state = None
-    orch_file = output_dir / "orchestration_state.json"
+    orch_file = output_dir / "committed_orchestration_state.json"
+    if not orch_file.exists():
+        orch_file = output_dir / "orchestration_state.json"
     if orch_file.exists():
         try:
-            orchestration_state = OrchestrationState.model_validate_json(
-                orch_file.read_text(encoding="utf-8")
-            )
+            raw_orch = orch_file.read_text(encoding="utf-8")
+            # 兼容 CommittedOrchestrationState 与 OrchestrationState
+            data = json.loads(raw_orch)
+            if "orchestration_id" in data:
+                orchestration_state = OrchestrationState.model_validate(data)
+            elif "history_entries" in data or "last_committed_chapter" in data:
+                from src.workflow_action.narrative_orchestrator import NarrativeOrchestrator
+                orchestration_state = NarrativeOrchestrator().derive_orchestration_state(
+                    objects,
+                    history=data.get("history_entries", []),
+                    chapter_number=chapter_number or 1,
+                )
         except Exception:
             pass
 
@@ -426,8 +438,17 @@ def run_author_selection(
 
     if structural_search_on and structural_search_result is not None:
         selected = structural_search_result.selected_proposal_id
-        outcome.selected_label = selected
-        print(f"\n[P3 结构搜索权威判定] 候选 {selected} 经 Pareto 前沿与多步 Rollout 胜出并绑定为生产唯一候选")
+        if selected != outcome.selected_label:
+            outcome = reconstruct_selection_outcome(
+                packages,
+                evals,
+                selected,
+                rationale=structural_search_result.selection_rationale,
+                override_source="structural_search",
+            )
+            print(f"\n[P3 结构搜索权威判定] 候选 {selected} 经 Pareto 前沿与多步 Rollout 胜出并重构 SelectionOutcome")
+        else:
+            print(f"\n[P3 结构搜索权威判定] 候选 {selected} 经 Pareto 前沿与多步 Rollout 胜出并绑定为生产唯一候选")
     else:
         selected = outcome.selected_label
 

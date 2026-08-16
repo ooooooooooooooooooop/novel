@@ -70,6 +70,7 @@ from src.workflow_action.style import load_style_context
 from src.workflow_action.retrieval import load_retrieval_context
 from src.workflow_action.narrative_orchestrator import (
     load_orchestration_context,
+    build_committed_orchestration_transition,
     commit_orchestration_transition,
     derive_orchestration_plan,
     load_committed_orchestration_state,
@@ -1201,6 +1202,18 @@ def main() -> int:
                 ensure_ascii=False,
                 indent=2,
             )
+
+            # R2 闭环：在提交前构建已提交编排状态，纳入统一原子事务落盘
+            committed_orch = load_committed_orchestration_state(output_dir)
+            orch_plan = derive_orchestration_plan(committed_orch, final_objects, chapter_number=chapter_number)
+            _, orch_state_json, orch_hist_json = build_committed_orchestration_transition(
+                committed_orch,
+                orch_plan,
+                plotunit=plotunit,
+                chapter_number=chapter_number,
+                run_id=derive_run_id("compose", chapter_number),
+            )
+
             boundary = ChapterCommitBoundary(output_dir, chapters_dir)
             result = boundary.commit(
                 run_id=derive_run_id("compose", chapter_number),
@@ -1213,6 +1226,8 @@ def main() -> int:
                 frames_json=frames_json,
                 archive_text=draft_text,
                 provenance_json=prov_json,
+                orchestration_state_json=orch_state_json,
+                orchestration_history_json=orch_hist_json,
                 prev_chapter_ref=None,
                 source_text_hash=model_content_hash(workspec),
                 facts_package_hash=gate_package_hash,
@@ -1251,6 +1266,17 @@ def main() -> int:
                 ),
             )
             print(f"Committed chapter: {chapter_file}")
+            # v2 模式下的兼容编排更新
+            ch_num = int(chapter_file.stem[len("chapter_"):]) if chapter_file else 1
+            committed_state = load_committed_orchestration_state(output_dir)
+            plan = derive_orchestration_plan(committed_state, objects, chapter_number=ch_num)
+            commit_orchestration_transition(
+                output_dir,
+                plan,
+                plotunit=plotunit,
+                chapter_number=ch_num,
+                run_id=derive_run_id("compose", ch_num),
+            )
 
     if flow_version == "2":
         # v2 原样：build package → 校验 → advance Frame → save state（旧时序）
@@ -1271,20 +1297,6 @@ def main() -> int:
         print(f"Saved: {compose_state_path}")
 
     if chapter_committed:
-        try:
-            ch_num = int(chapter_file.stem[len("chapter_"):]) if chapter_file else 1
-            committed_state = load_committed_orchestration_state(output_dir)
-            plan = derive_orchestration_plan(committed_state, objects, chapter_number=ch_num)
-            commit_orchestration_transition(
-                output_dir,
-                plan,
-                plotunit=plotunit,
-                chapter_number=ch_num,
-                run_id=derive_run_id("compose", ch_num),
-            )
-        except Exception as exc:
-            print(f"Warning: orchestration commit transition failed: {exc}")
-
         reset_consumed_responses(output_dir)
         print(
             f"[CYCLE] 本章 staged 响应已消费，下一章将从全新 prompt 开始"

@@ -23,6 +23,13 @@ from src.object_state.human_eval import (
 )
 
 
+GREEK_LETTERS: list[str] = [
+    "alpha", "beta", "gamma", "delta", "epsilon", "zeta", "eta", "theta",
+    "iota", "kappa", "lambda", "mu", "nu", "xi", "omicron", "pi",
+    "rho", "sigma", "tau", "upsilon", "phi", "chi", "psi", "omega",
+]
+
+
 def build_blinded_human_eval_packet(
     novel_name: str,
     version_chapters: dict[str, list[dict]],
@@ -32,27 +39,33 @@ def build_blinded_human_eval_packet(
     secret_output_dir: Optional[Path] = None,
     random_seed: int = 42,
 ) -> tuple[BlindedChapterPacket, dict[str, str]]:
-    """组装隐藏来源双盲评测包，真随机种子混排版本，公私目录严格物理隔离."""
+    """组装隐藏来源双盲评测包，真随机种子混排版本，公私目录严格物理隔离，支持任意版本数 (N >= 2)."""
     if public_output_dir is not None and secret_output_dir is not None:
         p_pub = Path(public_output_dir).resolve()
         p_sec = Path(secret_output_dir).resolve()
-        if p_pub == p_sec:
+        if p_pub == p_sec or p_pub in p_sec.parents or p_sec in p_pub.parents:
             raise ValueError(
-                f"public_output_dir ({p_pub}) 与 secret_output_dir ({p_sec}) 必须为严格物理隔离的独立目录，禁止同目录混存"
+                f"public_output_dir ({p_pub}) 与 secret_output_dir ({p_sec}) 存在重叠或包含关系，必须为严格物理隔离的独立目录"
             )
 
     raw_keys = sorted(version_chapters.keys())
+    if len(raw_keys) < 2:
+        raise ValueError(f"双盲评测至少需要 2 个候选版本进行比对，当前仅提供 {len(raw_keys)} 个")
+
     rng = random.Random(random_seed)
     shuffled_keys = list(raw_keys)
     rng.shuffle(shuffled_keys)
 
-    # 匿名化盲测代号（cand_alpha, cand_beta, cand_gamma, cand_delta 等）
-    blind_labels = ["cand_alpha", "cand_beta", "cand_gamma", "cand_delta"]
+    # 动态生成匿名盲测代号（支持任意 N >= 2，杜绝模运算重复）
+    blind_labels = [
+        f"cand_{GREEK_LETTERS[i]}" if i < len(GREEK_LETTERS) else f"cand_v{i+1:02d}"
+        for i in range(len(shuffled_keys))
+    ]
     secret_manifest: dict[str, str] = {}
     blinded_data: dict[str, list[dict]] = {}
 
     for i, real_key in enumerate(shuffled_keys):
-        blind_key = blind_labels[i % len(blind_labels)]
+        blind_key = blind_labels[i]
         secret_manifest[blind_key] = real_key
         # 清洗章节数据中的版本与生成器标识
         cleaned_chapters = []
@@ -77,21 +90,23 @@ def build_blinded_human_eval_packet(
         secret_manifest_hash=manifest_hash,
     )
 
-    # 写入公开目录（仅含脱敏盲评材料）
+    # 写入公开目录（仅含脱敏盲评材料，明确抹除明文种子）
     if public_output_dir is not None:
         p_pub = Path(public_output_dir)
         p_pub.mkdir(parents=True, exist_ok=True)
+        public_packet_dict = packet.model_dump(mode="json")
+        public_packet_dict["random_seed"] = None  # 公开包绝不泄露随机种子
         (p_pub / "blinded_packet.json").write_text(
-            json.dumps(packet.model_dump(mode="json"), ensure_ascii=False, indent=2),
+            json.dumps(public_packet_dict, ensure_ascii=False, indent=2),
             encoding="utf-8",
         )
         # 提供给读者的空提交模版
         template = {
-            "submission_id": f"sub_reader_001",
+            "submission_id": "sub_reader_001",
             "packet_id": packet.packet_id,
             "reader_id": "reader_anonymous_001",
             "reader_group": "veteran_reader",
-            "preferred_version": "cand_alpha",
+            "preferred_version": blind_labels[0],
             "continuation_willingness_by_version": {k: True for k in blinded_data},
             "abandonment_by_version": {k: None for k in blinded_data},
             "abandonment_reasons_by_version": {k: None for k in blinded_data},
@@ -101,7 +116,7 @@ def build_blinded_human_eval_packet(
             json.dumps(template, ensure_ascii=False, indent=2), encoding="utf-8"
         )
 
-    # 写入保密目录（含真实映射与种子哈希）
+    # 写入保密目录（含真实映射与明文种子）
     if secret_output_dir is not None:
         p_sec = Path(secret_output_dir)
         p_sec.mkdir(parents=True, exist_ok=True)
@@ -124,9 +139,8 @@ def evaluate_human_submissions(
     submissions: list[HumanEvaluationSubmission],
     secret_manifest: dict[str, str],
 ) -> dict:
-    """揭盲并聚合真实读者提交（偏好分布、按版本独立统计追读率与弃读位置）."""
-    total_submissions = len(submissions)
-    if total_submissions == 0:
+    """揭盲并聚合真实读者提交（严格读者去重、偏好分布、按版本独立统计追读率与弃读位置）."""
+    if not submissions:
         return {
             "status": "no_submissions",
             "total_readers": 0,
@@ -136,12 +150,23 @@ def evaluate_human_submissions(
             "abandonment_points": [],
         }
 
+    # 读者去重（同一读者保留最新提交，防止刷票）
+    seen_readers: set[str] = set()
+    deduped_submissions: list[HumanEvaluationSubmission] = []
+    for sub in reversed(submissions):
+        if sub.reader_id not in seen_readers:
+            seen_readers.add(sub.reader_id)
+            deduped_submissions.append(sub)
+    deduped_submissions.reverse()
+
+    total_submissions = len(deduped_submissions)
+
     pref_counts: dict[str, int] = {}
     continuation_counts: dict[str, int] = {}
     abandonment_counts_by_version: dict[str, int] = {}
     abandonments: list[dict] = []
 
-    for sub in submissions:
+    for sub in deduped_submissions:
         # 解析真实版本
         if sub.preferred_version == "no_difference":
             real_winner = "no_difference"
@@ -201,71 +226,166 @@ def evaluate_human_submissions(
     }
 
 
+def _safe_load_json_file(path: Path) -> tuple[Optional[dict | list], Optional[str]]:
+    if not path.exists():
+        return None, "file not found"
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        return data, None
+    except Exception as exc:
+        return None, str(exc)
+
+
 def inspect_long_horizon_preconditions(
     workspace_dir: Optional[Path] = None,
 ) -> LongHorizonPreconditionStatus:
-    """从磁盘真实证据逐项推导 10 项前置条件（无真人数据严格返回 False，绝不虚假通过）."""
+    """从磁盘真实证据逐项推导 10 项前置条件（废除所有 import 作弊与硬编码，无证据严格返回 False）."""
     status = LongHorizonPreconditionStatus()
+    if workspace_dir is None:
+        return status
 
-    # 1. P1 长程因果防线代码与测试
-    try:
-        from src.domain_layer.causal_defense import run_causal_defense
-        status.p1_causal_defense_complete = True
-    except Exception:
-        status.p1_causal_defense_complete = False
+    w_dir = Path(workspace_dir).resolve()
+    if not w_dir.exists():
+        return status
 
-    # 2. P2 叙事编排器在生产链中
-    try:
-        from src.workflow_action.narrative_orchestrator import load_committed_orchestration_state
-        status.p2_orchestrator_in_production = True
-    except Exception:
-        status.p2_orchestrator_in_production = False
+    # 1. P1 长程因果防线：检查 reader_gate_report.json 中因果防线与事实一致性门禁
+    gate_p = w_dir / "reader_gate_report.json"
+    if not gate_p.exists():
+        candidates = list(w_dir.glob("**/reader_gate_report.json"))
+        if candidates:
+            gate_p = candidates[0]
+    if gate_p.exists():
+        data, err = _safe_load_json_file(gate_p)
+        if err is None and isinstance(data, dict):
+            axes = data.get("axes_armed", {})
+            issues = [
+                i for i in data.get("issues", [])
+                if isinstance(i, dict) and i.get("severity") in ("blocking", "critical")
+            ]
+            if (data.get("route") == "pass" or axes) and len(issues) == 0:
+                status.p1_causal_defense_complete = True
 
-    # 3. P3 结构搜索生效
-    try:
-        from src.workflow_action.structural_search import StructuralSearchEngine
-        status.p3_structural_search_active = True
-    except Exception:
-        status.p3_structural_search_active = False
+    # 2. P2 叙事编排器：检查 committed_orchestration_state.json 与 orchestration_history.json
+    orch_state = w_dir / "committed_orchestration_state.json"
+    if not orch_state.exists():
+        candidates = list(w_dir.glob("**/committed_orchestration_state.json"))
+        if candidates:
+            orch_state = candidates[0]
+    orch_hist = w_dir / "orchestration_history.json"
+    if not orch_hist.exists():
+        candidates = list(w_dir.glob("**/orchestration_history.json"))
+        if candidates:
+            orch_hist = candidates[0]
+    if orch_state.exists() and orch_hist.exists():
+        s_data, s_err = _safe_load_json_file(orch_state)
+        h_data, h_err = _safe_load_json_file(orch_hist)
+        if s_err is None and h_err is None and isinstance(s_data, dict):
+            status.p2_orchestrator_in_production = True
 
-    # 4. P3 异质性门禁
-    try:
-        from src.workflow_action.structural_search import evaluate_structural_diversity
-        status.p3_diversity_validated = True
-    except Exception:
-        status.p3_diversity_validated = False
+    # 3. P3 结构搜索：检查 author_selection_report.json / structural_search_report.json
+    search_report = w_dir / "author_selection_report.json"
+    if not search_report.exists():
+        candidates = list(w_dir.glob("**/author_selection_report.json")) + list(w_dir.glob("**/structural_search_report.json"))
+        if candidates:
+            search_report = candidates[0]
+    if search_report.exists():
+        s_data, s_err = _safe_load_json_file(search_report)
+        if s_err is None and isinstance(s_data, dict):
+            if (
+                s_data.get("structural_search_active")
+                or s_data.get("search_overridden") is not None
+                or "candidates_evaluated" in s_data
+                or "pareto_frontier" in s_data
+            ):
+                status.p3_structural_search_active = True
 
-    # 5. P4 Blind Eval
-    try:
-        from src.workflow_action.taste_stack import build_unified_quality_report
-        status.p4_blind_eval_stable = True
-    except Exception:
-        status.p4_blind_eval_stable = False
+    # 4. P3 异质性门禁：检查 diversity_report.json 或 selection_report 中的多样性状态
+    div_report = w_dir / "diversity_report.json"
+    if not div_report.exists():
+        candidates = list(w_dir.glob("**/diversity_report.json"))
+        if candidates:
+            div_report = candidates[0]
+    if div_report.exists():
+        d_data, d_err = _safe_load_json_file(div_report)
+        if d_err is None and isinstance(d_data, dict) and d_data.get("is_diverse", False):
+            status.p3_diversity_validated = True
+    elif search_report.exists():
+        s_data, _ = _safe_load_json_file(search_report)
+        if isinstance(s_data, dict) and (s_data.get("diversity_validated") or s_data.get("is_diverse")):
+            status.p3_diversity_validated = True
 
-    # 6. P4 PASS Audit
-    status.p4_pass_audit_frozen = True
+    # 5. P4 Blind Eval：检查 ab_blind_eval_report.json
+    blind_p = w_dir / "ab_blind_eval_report.json"
+    if not blind_p.exists():
+        candidates = list(w_dir.glob("**/ab_blind_eval_report.json"))
+        if candidates:
+            blind_p = candidates[0]
+    if blind_p.exists():
+        b_data, b_err = _safe_load_json_file(blind_p)
+        if b_err is None and isinstance(b_data, dict):
+            if int(b_data.get("total_pairs_evaluated", 0)) > 0:
+                status.p4_blind_eval_stable = True
 
-    # 7. P4 人类盲评协议冻结
-    status.p4_human_eval_protocol_frozen = True
+    # 6. P4 PASS Audit：检查 pass_audit_report.json
+    audit_p = w_dir / "pass_audit_report.json"
+    if not audit_p.exists():
+        candidates = list(w_dir.glob("**/pass_audit_report.json"))
+        if candidates:
+            audit_p = candidates[0]
+    if audit_p.exists():
+        a_data, a_err = _safe_load_json_file(audit_p)
+        if a_err is None and isinstance(a_data, dict):
+            if int(a_data.get("total_pass_chapters_audited", 0)) > 0:
+                status.p4_pass_audit_frozen = True
 
-    # 8. 系统外真实人类连续阅读实验数据（必须检查真实 submissions 文件）
-    has_real_human_data = False
-    if workspace_dir is not None:
-        p_sub = Path(workspace_dir) / "human_eval" / "submissions.json"
-        if p_sub.exists():
-            try:
-                data = json.loads(p_sub.read_text(encoding="utf-8"))
-                if isinstance(data, list) and len(data) >= 10:  # 至少 10 位真实读者
-                    has_real_human_data = True
-            except Exception:
-                has_real_human_data = False
-    status.real_human_continuous_reading_data_exists = has_real_human_data
+    # 7. P4 人类盲评协议：检查 blinded_packet.json
+    packet_p = w_dir / "human_eval" / "blinded_packet.json"
+    if not packet_p.exists():
+        candidates = list(w_dir.glob("**/blinded_packet.json"))
+        if candidates:
+            packet_p = candidates[0]
+    if packet_p.exists():
+        p_data, p_err = _safe_load_json_file(packet_p)
+        if p_err is None and isinstance(p_data, dict) and p_data.get("seed_hash") and p_data.get("secret_manifest_hash"):
+            status.p4_human_eval_protocol_frozen = True
+
+    # 8. 系统外真实人类连续阅读实验数据（必须检查真实 submissions.json）
+    sub_p = w_dir / "human_eval" / "submissions.json"
+    if not sub_p.exists():
+        candidates = list(w_dir.glob("**/submissions.json"))
+        if candidates:
+            sub_p = candidates[0]
+    if sub_p.exists():
+        s_data, s_err = _safe_load_json_file(sub_p)
+        if s_err is None and isinstance(s_data, list):
+            valid_readers: set[str] = set()
+            for item in s_data:
+                if isinstance(item, dict) and item.get("reader_id") and item.get("preferred_version"):
+                    valid_readers.add(item["reader_id"])
+            if len(valid_readers) >= 10:
+                status.real_human_continuous_reading_data_exists = True
 
     # 9. Provider 档案与预算硬上限冻结
-    status.provider_profile_and_budget_frozen = True
+    prov_p = w_dir / "provider_profiles.json"
+    if not prov_p.exists():
+        candidates = list(w_dir.glob("**/provider_profiles.json")) + list(w_dir.glob("**/run_manifest.json"))
+        if candidates:
+            prov_p = candidates[0]
+    if prov_p.exists():
+        pv_data, pv_err = _safe_load_json_file(prov_p)
+        if pv_err is None and isinstance(pv_data, dict):
+            status.provider_profile_and_budget_frozen = True
 
     # 10. 历史发布证据
-    status.historical_release_records_intact = True
+    rel_p = w_dir / "release_record.json"
+    if not rel_p.exists():
+        candidates = list(w_dir.glob("**/release_record.json")) + list(w_dir.glob("**/run_manifest.json"))
+        if candidates:
+            rel_p = candidates[0]
+    if rel_p.exists():
+        r_data, r_err = _safe_load_json_file(rel_p)
+        if r_err is None and isinstance(r_data, dict):
+            status.historical_release_records_intact = True
 
     return status
 

@@ -533,6 +533,89 @@ def select_candidate(
     )
 
 
+def reconstruct_selection_outcome(
+    packages: list[dict],
+    evals: dict[str, CandidateEvaluation],
+    selected_label: str,
+    *,
+    rationale: str = "",
+    override_source: str = "structural_search",
+) -> SelectionOutcome:
+    """当外部权威（如结构搜索 Pareto / 真实 Rollout）决定选择时，重构一致的 SelectionOutcome."""
+    labels = [candidate_label(i) for i in range(len(packages))]
+    if selected_label not in evals:
+        raise ValueError(f"selected_label '{selected_label}' not in candidate evaluations")
+
+    rejected: list[dict] = []
+    for label in labels:
+        if label == selected_label:
+            continue
+        e = evals[label]
+        if not e.consistency_pass:
+            blocking = [
+                i["description"] for i in e.consistency_issues if i.get("severity") == "blocking"
+            ]
+            reason = "Consistency Gate 阻断：" + ("；".join(blocking) if blocking else "硬规则不通过")
+        elif e.author_veto:
+            reason = "作者硬禁忌否决"
+        else:
+            se = evals[selected_label]
+            dims = []
+            if e.author_score < se.author_score:
+                dims.append(f"作者对齐 {e.author_score} < {se.author_score}")
+            if e.style_score < se.style_score:
+                dims.append(f"文风 {e.style_score} < {se.style_score}")
+            if e.reader_score < se.reader_score:
+                dims.append(f"读者 {e.reader_score} < {se.reader_score}")
+            reason = f"经 {override_source} 权威多维推演淘汰：" + ("；".join(dims) if dims else "非支配序靠后")
+        rejected.append({"label": label, "reason": reason})
+
+    sel_eval = evals[selected_label]
+    gained: list[str] = []
+    best_loser = {
+        dim: max(
+            (getattr(evals[l], dim) for l in labels if l != selected_label),
+            default=0.0,
+        )
+        for dim in ("author_score", "style_score", "reader_score")
+    }
+    if sel_eval.author_score > best_loser["author_score"]:
+        gained.append(
+            f"作者对齐更高（{sel_eval.author_score:.2f} vs 最高落选 {best_loser['author_score']:.2f}）"
+        )
+    if sel_eval.style_score > best_loser["style_score"]:
+        gained.append(
+            f"文风吻合更高（{sel_eval.style_score:.2f} vs 最高落选 {best_loser['style_score']:.2f}）"
+        )
+    if sel_eval.reader_score > best_loser["reader_score"]:
+        gained.append(
+            f"读者体验更高（{sel_eval.reader_score:.2f} vs 最高落选 {best_loser['reader_score']:.2f}）"
+        )
+    if best_loser["reader_score"] > sel_eval.reader_score:
+        gained.append(
+            f"接受 Reader 较低（放弃最高 {best_loser['reader_score']:.2f}，"
+            f"选中 {sel_eval.reader_score:.2f}）"
+        )
+    tradeoff = "换取 ".join(["放弃候选落选者优势"] + gained) if gained else "多视角均衡，无显著取舍"
+    if rationale:
+        tradeoff = f"{rationale}；{tradeoff}"
+
+    all_conflicts: list[str] = []
+    for e in evals.values():
+        for c in e.value_conflicts:
+            if c not in all_conflicts:
+                all_conflicts.append(c)
+
+    return SelectionOutcome(
+        selected_label=selected_label,
+        evaluations=evals,
+        rejected=rejected,
+        tradeoff=tradeoff,
+        value_conflicts=all_conflicts,
+        all_vetoed=evals[selected_label].author_veto,
+    )
+
+
 def build_choice_record(
     packages: list[dict],
     outcome: SelectionOutcome,

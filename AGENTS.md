@@ -8,7 +8,7 @@ Automatic Novel Narrative System
 - 当前状态唯一权威入口：`docs/00_project/03_current_status.md` §0（能力边界 / G7 退役 / 五层评价）。
 - 大神级升级计划：`docs/00_project/52_mastery_upgrade_plan.md`（P0–P7）。
 - A1 自动调用与单章自动生产链已存在但**未获生产资格**；G7 自动审美资格失败、已退役为研究性子能力。
-- 测试基线：2920 passed, 1 skipped（收集 2921；「2921 tests passing」为收集数表述）。
+- 测试基线：2932 passed, 1 skipped（收集 2933；「2933 tests passing」为收集数表述）。
 
 ## Current Phase
 Tier 0 production ready — three-flow daily-production hardened (2026-07-29). End-to-end validated, Codex-native orchestration. All three slices (`audit_short_form`, `extend_short_form`, `compose_short_form`) are code-complete and validated, and each has a real staged Codex canary passing `novel gate`.
@@ -19,7 +19,7 @@ This is a phase boundary, not a permanent repository boundary.
 Tier 0 production evidence:
 
 - production tier: `local staged CLI v0` (operator-in-the-loop, no DirectAPI)
-- release record: `docs/00_project/releases/tier0-release.json` (passes the single combined validation command at the current full-pytest baseline 2921)
+- release record: `docs/00_project/releases/tier0-release.json` (passes the single combined validation command at the current full-pytest baseline 2933)
 - canary evidence: `docs/00_project/releases/tier0-canary-evidence.json`
 - saved canary gate result: `docs/00_project/releases/tier0-canary-gate.json`
 - immutable checkpoint: git tag `v0.1.2-tier0`
@@ -114,7 +114,7 @@ Do not optimize for:
 - Slice 3 (`compose_short_form`): code complete, default WorkSpec validated, end-to-end PASS
 - LLM layer split: workflow units expose `build_prompt()` and `parse_response()`; scripts do not call LLMs internally
 - Long-form multi-arc stress test: PASS
-- No-regression tests: 2921 tests passing
+- No-regression tests: 2933 tests passing
 - End-to-end Audit / Extend / Compose validation: PASS
 
 If you are asked to write code, the existing infrastructure is:

@@ -174,11 +174,11 @@ def derive_orchestration_plan(
 
 
 # =============================================================================
-# 阶段 3: 事务提交后原子落盘 (Commit)
+# 阶段 3: 事务提交与状态计算 (Commit Transition Builder & Committer)
 # =============================================================================
 
-def commit_orchestration_transition(
-    output_dir: Path,
+def build_committed_orchestration_transition(
+    committed_state: CommittedOrchestrationState,
     plan: OrchestrationPlan,
     plotunit: Optional[PlotUnit] = None,
     *,
@@ -188,10 +188,11 @@ def commit_orchestration_transition(
     threads_advanced: Optional[list[str]] = None,
     payoff_promises: Optional[list[str]] = None,
     relational_shifts: Optional[list[str]] = None,
-) -> CommittedOrchestrationState:
-    """仅在章节提交事务成功后执行：原子更新已提交编排状态并落盘."""
-    current_state = load_committed_orchestration_state(output_dir)
+) -> tuple[CommittedOrchestrationState, str, str]:
+    """纯函数/内存构建已提交编排状态，返回 (updated_state, state_json, history_json).
 
+    供 ChapterCommitBoundary 统一纳入单事务原子提交，杜绝独立 try/except 孤立落盘。
+    """
     # 提取本章实际发生的推进
     advanced = list(threads_advanced or [])
     payoffs = list(payoff_promises or [])
@@ -202,9 +203,16 @@ def commit_orchestration_transition(
         if not emotion or emotion == "normal":
             emotion = getattr(plotunit, "emotional_shift", "") or "normal"
         if not payoffs:
-            payoffs = getattr(plotunit, "released_information", []) or []
+            payoffs = list(getattr(plotunit, "released_information", []) or [])
         if not advanced:
-            advanced = getattr(plotunit, "participants", []) or []
+            # 严格解耦：角色 ID (participants) 不等于叙事线索 (threads)
+            focal = getattr(plotunit, "focal_threads", None) or getattr(plotunit, "active_threads", None)
+            if focal:
+                advanced = list(focal)
+            elif plan.payoff_targets:
+                advanced = list(plan.payoff_targets)
+            else:
+                advanced = [f"thread_ch_{chapter_number}"]
 
     entry = CommittedOrchestrationHistoryEntry(
         chapter=chapter_number,
@@ -215,21 +223,30 @@ def commit_orchestration_transition(
         relational_shifts=relations,
     )
 
-    new_history = list(current_state.history_entries)
+    new_history = list(committed_state.history_entries)
     # 若存在同章节记录则替换，否则追加
     new_history = [e for e in new_history if e.chapter != chapter_number]
     new_history.append(entry)
     new_history.sort(key=lambda x: x.chapter)
 
-    # 更新索引字典
-    thread_seen = dict(current_state.thread_last_seen)
-    thread_adv = dict(current_state.thread_last_advanced)
-    exp_started = dict(current_state.expectation_started_at)
-    exp_adv = dict(current_state.expectation_last_advanced_at)
+    # 更新索引字典与时间戳
+    thread_seen = dict(committed_state.thread_last_seen)
+    thread_adv = dict(committed_state.thread_last_advanced)
+    exp_started = dict(committed_state.expectation_started_at)
+    exp_adv = dict(committed_state.expectation_last_advanced_at)
 
     for t in advanced:
         thread_seen[t] = chapter_number
         thread_adv[t] = chapter_number
+        exp_adv[t] = chapter_number
+
+    for p in payoffs:
+        exp_adv[p] = chapter_number
+
+    for task in plan.priority_tasks:
+        if task not in exp_started:
+            exp_started[task] = chapter_number
+        exp_adv[task] = chapter_number
 
     recent_funcs = [e.function for e in new_history[-10:]]
     recent_emotions = [e.emotion for e in new_history[-10:]]
@@ -246,18 +263,48 @@ def commit_orchestration_transition(
         recent_emotional_patterns=recent_emotions,
     )
 
-    # 原子写入 committed_orchestration_state.json
+    state_json = json.dumps(
+        updated_state.model_dump(), ensure_ascii=False, indent=2
+    )
+    hist_json = json.dumps(
+        [e.model_dump() for e in new_history], ensure_ascii=False, indent=2
+    )
+
+    return updated_state, state_json, hist_json
+
+
+def commit_orchestration_transition(
+    output_dir: Path,
+    plan: OrchestrationPlan,
+    plotunit: Optional[PlotUnit] = None,
+    *,
+    chapter_number: int,
+    run_id: str,
+    emotional_shift: str = "normal",
+    threads_advanced: Optional[list[str]] = None,
+    payoff_promises: Optional[list[str]] = None,
+    relational_shifts: Optional[list[str]] = None,
+) -> CommittedOrchestrationState:
+    """原子更新已提交编排状态并落盘（直接独立落盘辅助函数）."""
+    current_state = load_committed_orchestration_state(output_dir)
+    updated_state, state_json, hist_json = build_committed_orchestration_transition(
+        current_state,
+        plan,
+        plotunit=plotunit,
+        chapter_number=chapter_number,
+        run_id=run_id,
+        emotional_shift=emotional_shift,
+        threads_advanced=threads_advanced,
+        payoff_promises=payoff_promises,
+        relational_shifts=relational_shifts,
+    )
+
     output_dir.mkdir(parents=True, exist_ok=True)
     target_file = output_dir / "committed_orchestration_state.json"
     history_file = output_dir / "orchestration_history.json"
 
-    data_bytes = json.dumps(
-        updated_state.model_dump(), ensure_ascii=False, indent=2
-    ).encode("utf-8")
-
-    hist_bytes = json.dumps(
-        [e.model_dump() for e in new_history], ensure_ascii=False, indent=2
-    ).encode("utf-8")
+    data_bytes = state_json.encode("utf-8")
+    hist_bytes = hist_json.encode("utf-8")
 
     # 写临时文件后 rename 实现原子落盘
     tmp_fd, tmp_path = tempfile.mkstemp(dir=output_dir, prefix="orch_state_", suffix=".tmp")
