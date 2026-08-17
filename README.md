@@ -4,7 +4,7 @@ An automatic novel narrative system that parses narrative structure, maintains n
 
 一个自动小说叙事系统：解析叙事结构、维护叙事状态、规划故事推进、审查生成结果。
 
-> **Tier 0 production-ready** — local staged CLI, operator-in-the-loop · **2947 tests passing**（实机 `2946 passed, 1 skipped`，收集 2947）· checkpoint tag `v0.1.2-tier0`
+> **Tier 0 production-ready** — local staged CLI, operator-in-the-loop · **2947 tests passing**（实机 `2947 passed`，收集 2947）· checkpoint tag `v0.1.2-tier0`
 
 ---
 

@@ -150,15 +150,16 @@ def evaluate_human_submissions(
             "abandonment_points": [],
         }
 
-    # 1. 密钥哈希校验：sha256(secret_manifest) == packet.secret_manifest_hash
+    # 1. 密钥哈希校验：sha256(secret_manifest) == packet.secret_manifest_hash (强制密码学签名，杜绝任何 dummy_hash 绕过)
+    if not packet.secret_manifest_hash:
+        raise ValueError("Missing secret_manifest_hash in packet: unverified protocol")
     manifest_json = json.dumps(secret_manifest, sort_keys=True)
     actual_manifest_hash = hashlib.sha256(manifest_json.encode("utf-8")).hexdigest()
-    if packet.secret_manifest_hash and packet.secret_manifest_hash != "dummy_hash":
-        if actual_manifest_hash != packet.secret_manifest_hash:
-            raise ValueError(
-                f"Secret manifest hash mismatch: calculated '{actual_manifest_hash}' "
-                f"does not match packet '{packet.secret_manifest_hash}'"
-            )
+    if actual_manifest_hash != packet.secret_manifest_hash:
+        raise ValueError(
+            f"Secret manifest hash mismatch: calculated '{actual_manifest_hash}' "
+            f"does not match packet '{packet.secret_manifest_hash}'"
+        )
 
     required_versions = set(packet.blinded_versions.keys()) or set(secret_manifest.keys())
 
@@ -214,6 +215,18 @@ def evaluate_human_submissions(
     for sub in reversed(submissions):
         if sub.reader_id not in seen_readers:
             seen_readers.add(sub.reader_id)
+            # 判定长程资格有效性 (必须具备 100% 版本全覆盖)
+            missing_cont = (
+                required_versions - set(sub.continuation_willingness_by_version.keys())
+                if sub.continuation_willingness_by_version
+                else required_versions
+            )
+            missing_aban = (
+                required_versions - set(sub.abandonment_by_version.keys())
+                if sub.abandonment_by_version
+                else required_versions
+            )
+            sub.qualification_eligible = bool(len(missing_cont) == 0 and len(missing_aban) == 0 and sub.reader_id)
             deduped_submissions.append(sub)
     deduped_submissions.reverse()
 
@@ -297,7 +310,7 @@ def _safe_load_json_file(path: Path) -> tuple[Optional[dict | list], Optional[st
 def inspect_long_horizon_preconditions(
     workspace_dir: Optional[Path] = None,
 ) -> LongHorizonPreconditionStatus:
-    """从磁盘真实证据逐项推导 10 项前置条件（废除所有 import 作弊与硬编码，无证据严格返回 False）."""
+    """从磁盘真实证据逐项推导 10 项前置条件（基于不可伪造资格证据、密码学哈希与数学守恒校验）."""
     status = LongHorizonPreconditionStatus()
     if workspace_dir is None:
         return status
@@ -306,12 +319,18 @@ def inspect_long_horizon_preconditions(
     if not w_dir.exists():
         return status
 
-    # 1. P1 长程因果防线：检查 reader_gate_report.json 中因果防线与事实一致性门禁
+    # 1. P1 长程因果防线：检查 reader_gate_report.json 与 run_manifest 提交哈希绑定及 5 类因果防线
     gate_p = w_dir / "reader_gate_report.json"
     if not gate_p.exists():
         candidates = list(w_dir.glob("**/reader_gate_report.json"))
         if candidates:
             gate_p = candidates[0]
+    manifest_p = w_dir / "run_manifest.json"
+    if not manifest_p.exists():
+        m_candidates = list(w_dir.glob("**/run_manifest.json"))
+        if m_candidates:
+            manifest_p = m_candidates[0]
+
     if gate_p.exists():
         data, err = _safe_load_json_file(gate_p)
         if err is None and isinstance(data, dict):
@@ -320,7 +339,25 @@ def inspect_long_horizon_preconditions(
                 i for i in data.get("issues", [])
                 if isinstance(i, dict) and i.get("severity") in ("blocking", "critical")
             ]
-            if (data.get("route") == "pass" or axes) and len(issues) == 0:
+            # 校验 RunManifest 绑定（若存在 manifest 则必须为 committed 且哈希一致）
+            manifest_ok = True
+            if manifest_p.exists():
+                m_data, m_err = _safe_load_json_file(manifest_p)
+                if m_err is None and isinstance(m_data, dict):
+                    if m_data.get("status") != "committed":
+                        manifest_ok = False
+                    artifacts = m_data.get("artifacts", {})
+                    gate_rel = "reader_gate_report.json"
+                    if gate_rel in artifacts:
+                        art_val = artifacts[gate_rel]
+                        expected_h = art_val.get("sha256") if isinstance(art_val, dict) else art_val
+                        actual_h = hashlib.sha256(gate_p.read_bytes()).hexdigest()
+                        if expected_h and expected_h != actual_h:
+                            manifest_ok = False
+                else:
+                    manifest_ok = False
+
+            if manifest_ok and (data.get("route") == "pass" or axes) and len(issues) == 0:
                 status.p1_causal_defense_complete = True
 
     # 2. P2 叙事编排器：检查 committed_orchestration_state.json 与 orchestration_history.json
@@ -337,27 +374,29 @@ def inspect_long_horizon_preconditions(
     if orch_state.exists() and orch_hist.exists():
         s_data, s_err = _safe_load_json_file(orch_state)
         h_data, h_err = _safe_load_json_file(orch_hist)
-        if s_err is None and h_err is None and isinstance(s_data, dict):
-            status.p2_orchestrator_in_production = True
+        if s_err is None and h_err is None and isinstance(s_data, dict) and isinstance(h_data, list):
+            if int(s_data.get("last_committed_chapter", 0)) >= 2 and len(h_data) >= 1:
+                status.p2_orchestrator_in_production = True
 
-    # 3. P3 结构搜索：检查 author_selection_report.json / structural_search_report.json
-    search_report = w_dir / "author_selection_report.json"
+    # 3. P3 结构搜索：检查 structural_search_record.json / author_selection_report.json
+    search_report = w_dir / "structural_search_record.json"
     if not search_report.exists():
-        candidates = list(w_dir.glob("**/author_selection_report.json")) + list(w_dir.glob("**/structural_search_report.json"))
+        candidates = list(w_dir.glob("**/structural_search_record.json")) + list(w_dir.glob("**/author_selection_report.json"))
         if candidates:
             search_report = candidates[0]
     if search_report.exists():
         s_data, s_err = _safe_load_json_file(search_report)
         if s_err is None and isinstance(s_data, dict):
+            frontier = s_data.get("pareto_frontier", [])
+            rollouts = s_data.get("rollout_evaluations", {})
             if (
-                s_data.get("structural_search_active")
-                or s_data.get("search_overridden") is not None
-                or "candidates_evaluated" in s_data
-                or "pareto_frontier" in s_data
+                isinstance(frontier, list)
+                and len(frontier) >= 1
+                and (len(rollouts) >= 1 or "candidates_evaluated" in s_data)
             ):
                 status.p3_structural_search_active = True
 
-    # 4. P3 异质性门禁：检查 diversity_report.json 或 selection_report 中的多样性状态
+    # 4. P3 异质性门禁：检查 diversity_report.json 或 search_report 中的多样性状态
     div_report = w_dir / "diversity_report.json"
     if not div_report.exists():
         candidates = list(w_dir.glob("**/diversity_report.json"))
@@ -366,13 +405,18 @@ def inspect_long_horizon_preconditions(
     if div_report.exists():
         d_data, d_err = _safe_load_json_file(div_report)
         if d_err is None and isinstance(d_data, dict) and d_data.get("is_diverse", False):
-            status.p3_diversity_validated = True
+            if float(d_data.get("diversity_score", 0.0)) >= 0.3:
+                status.p3_diversity_validated = True
     elif search_report.exists():
         s_data, _ = _safe_load_json_file(search_report)
-        if isinstance(s_data, dict) and (s_data.get("diversity_validated") or s_data.get("is_diverse")):
-            status.p3_diversity_validated = True
+        if isinstance(s_data, dict):
+            div_sub = s_data.get("diversity_report", {})
+            if isinstance(div_sub, dict) and div_sub.get("is_diverse"):
+                status.p3_diversity_validated = True
+            elif s_data.get("diversity_validated"):
+                status.p3_diversity_validated = True
 
-    # 5. P4 Blind Eval：检查 ab_blind_eval_report.json
+    # 5. P4 Blind Eval：检查 ab_blind_eval_report.json (要求样本 >= 10 且严格算术守恒)
     blind_p = w_dir / "ab_blind_eval_report.json"
     if not blind_p.exists():
         candidates = list(w_dir.glob("**/ab_blind_eval_report.json"))
@@ -381,10 +425,17 @@ def inspect_long_horizon_preconditions(
     if blind_p.exists():
         b_data, b_err = _safe_load_json_file(blind_p)
         if b_err is None and isinstance(b_data, dict):
-            if int(b_data.get("total_pairs_evaluated", 0)) > 0:
-                status.p4_blind_eval_stable = True
+            tot = int(b_data.get("total_pairs_evaluated", 0))
+            if tot >= 10:
+                b_cnt = int(b_data.get("better_count", 0))
+                w_cnt = int(b_data.get("worse_count", 0))
+                nd_cnt = int(b_data.get("no_difference_count", 0))
+                u_cnt = int(b_data.get("uncertain_count", 0))
+                # 算术守恒检查
+                if b_cnt + w_cnt + nd_cnt + u_cnt == tot:
+                    status.p4_blind_eval_stable = True
 
-    # 6. P4 PASS Audit：检查 pass_audit_report.json
+    # 6. P4 PASS Audit：检查 pass_audit_report.json (要求抽检样本 >= 5 且冻结口径)
     audit_p = w_dir / "pass_audit_report.json"
     if not audit_p.exists():
         candidates = list(w_dir.glob("**/pass_audit_report.json"))
@@ -393,10 +444,11 @@ def inspect_long_horizon_preconditions(
     if audit_p.exists():
         a_data, a_err = _safe_load_json_file(audit_p)
         if a_err is None and isinstance(a_data, dict):
-            if int(a_data.get("total_pass_chapters_audited", 0)) > 0:
+            tot_aud = int(a_data.get("total_pass_chapters_audited", 0))
+            if tot_aud >= 5 and "true_miss_rate" in a_data:
                 status.p4_pass_audit_frozen = True
 
-    # 7. P4 人类盲评协议：检查 blinded_packet.json
+    # 7. P4 人类盲评协议：检查 blinded_packet.json (必须具备有效 seed_hash 与 64 位 SHA256 secret_manifest_hash)
     packet_p = w_dir / "human_eval" / "blinded_packet.json"
     if not packet_p.exists():
         candidates = list(w_dir.glob("**/blinded_packet.json"))
@@ -404,10 +456,13 @@ def inspect_long_horizon_preconditions(
             packet_p = candidates[0]
     if packet_p.exists():
         p_data, p_err = _safe_load_json_file(packet_p)
-        if p_err is None and isinstance(p_data, dict) and p_data.get("seed_hash") and p_data.get("secret_manifest_hash"):
-            status.p4_human_eval_protocol_frozen = True
+        if p_err is None and isinstance(p_data, dict):
+            seed_h = str(p_data.get("seed_hash", ""))
+            sec_h = str(p_data.get("secret_manifest_hash", ""))
+            if seed_h and len(sec_h) == 64:
+                status.p4_human_eval_protocol_frozen = True
 
-    # 8. 系统外真实人类连续阅读实验数据（必须检查真实 submissions.json）
+    # 8. 系统外真实人类连续阅读实验数据 (必须具备 >= 10 位具备全版本覆盖资格的独立读者提交)
     sub_p = w_dir / "human_eval" / "submissions.json"
     if not sub_p.exists():
         candidates = list(w_dir.glob("**/submissions.json"))
@@ -416,11 +471,15 @@ def inspect_long_horizon_preconditions(
     if sub_p.exists():
         s_data, s_err = _safe_load_json_file(sub_p)
         if s_err is None and isinstance(s_data, list):
-            valid_readers: set[str] = set()
+            valid_qualified_readers: set[str] = set()
             for item in s_data:
                 if isinstance(item, dict) and item.get("reader_id") and item.get("preferred_version"):
-                    valid_readers.add(item["reader_id"])
-            if len(valid_readers) >= 10:
+                    cont_map = item.get("continuation_willingness_by_version", {})
+                    aban_map = item.get("abandonment_by_version", {})
+                    # 必须具备全版本覆盖结构 (至少包含 2 个版本的独立追读与弃读记录)
+                    if isinstance(cont_map, dict) and len(cont_map) >= 2 and isinstance(aban_map, dict) and len(aban_map) >= 2:
+                        valid_qualified_readers.add(item["reader_id"])
+            if len(valid_qualified_readers) >= 10:
                 status.real_human_continuous_reading_data_exists = True
 
     # 9. Provider 档案与预算硬上限冻结（必须为真实 provider_profiles.json / canary_policy_*.json，杜绝 run_manifest 兜底）
@@ -435,7 +494,7 @@ def inspect_long_horizon_preconditions(
             prov_p = candidates[0]
     if prov_p.exists():
         pv_data, pv_err = _safe_load_json_file(prov_p)
-        if pv_err is None and isinstance(pv_data, dict):
+        if pv_err is None and isinstance(pv_data, dict) and len(pv_data) >= 1:
             status.provider_profile_and_budget_frozen = True
 
     # 10. 历史发布证据（必须为真实 release_record.json / *-release.json，杜绝 run_manifest 兜底）
@@ -451,7 +510,7 @@ def inspect_long_horizon_preconditions(
             rel_p = candidates[0]
     if rel_p.exists():
         r_data, r_err = _safe_load_json_file(rel_p)
-        if r_err is None and isinstance(r_data, dict):
+        if r_err is None and isinstance(r_data, dict) and r_data.get("release_tag") and (r_data.get("git_commit") or r_data.get("commit")):
             status.historical_release_records_intact = True
 
     return status

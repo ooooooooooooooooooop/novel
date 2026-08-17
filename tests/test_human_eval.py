@@ -9,6 +9,7 @@
    - 10 项全满足时才输出 long_run_authorized。
 """
 
+import hashlib
 import json
 from pathlib import Path
 
@@ -87,17 +88,20 @@ class TestHumanBlindEvalToolkit:
             )
 
     def test_evaluate_human_submissions_per_version_metrics(self):
+        secret_manifest = {
+            "cand_alpha": "system_v3",
+            "cand_beta": "human_original",
+        }
+        manifest_hash = hashlib.sha256(
+            json.dumps(secret_manifest, sort_keys=True).encode("utf-8")
+        ).hexdigest()
         packet = BlindedChapterPacket(
             packet_id="packet_test_01",
             novel_name="万物伏藏",
             chapter_range="1-5",
             blinded_versions={"cand_alpha": [], "cand_beta": []},
-            secret_manifest_hash="dummy_hash",
+            secret_manifest_hash=manifest_hash,
         )
-        secret_manifest = {
-            "cand_alpha": "system_v3",
-            "cand_beta": "human_original",
-        }
 
         submissions = [
             HumanEvaluationSubmission(
@@ -147,14 +151,17 @@ class TestHumanBlindEvalToolkit:
         assert len(result["abandonment_points"]) == 3
 
     def test_evaluate_human_submissions_strict_validation(self):
+        secret_manifest = {"cand_alpha": "v1", "cand_beta": "v2"}
+        manifest_hash = hashlib.sha256(
+            json.dumps(secret_manifest, sort_keys=True).encode("utf-8")
+        ).hexdigest()
         packet = BlindedChapterPacket(
             packet_id="packet_test_valid",
             novel_name="万物伏藏",
             chapter_range="1-2",
             blinded_versions={"cand_alpha": [], "cand_beta": []},
-            secret_manifest_hash="dummy_hash",
+            secret_manifest_hash=manifest_hash,
         )
-        secret_manifest = {"cand_alpha": "v1", "cand_beta": "v2"}
 
         # 1. 重复 submission_id
         sub_dup1 = HumanEvaluationSubmission(

@@ -79,6 +79,10 @@ class HumanEvaluationSubmission(BaseModel):
     qualitative_feedback: str = Field(
         default="", description="读者自由定性评价与细节反馈"
     )
+    qualification_eligible: bool = Field(
+        default=False,
+        description="是否具备全版本覆盖且无缺失项，满足长程授权资格评测有效性要求",
+    )
 
 
 class LongHorizonPreconditionStatus(BaseModel):

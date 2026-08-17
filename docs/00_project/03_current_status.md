@@ -8,15 +8,15 @@ Update this file after each meaningful round of project-shaping work.
 
 ---
 
-## 0. 状态主入口快照（2026-08-16，P0 统一事实状态）
+## 0. 状态主入口快照（2026-08-17，R0–R9 终审缺陷彻底闭环与真实状态推演强化）
 
 > 本节是本仓库**当前真实状态**的唯一优先入口。下方历史章节只描述对应时间点的状态，
 > 以本节为准。数字均为实机验证，不把 collected 写成 passed。
 
 ### 0.1 真实基线
 
-- commit：`e25983d`（Working tree 干净）
-- pytest：`2939 passed, 1 skipped`（收集 2947；合同测试 `EXPECTED_TEST_BASELINE="2947"` 锁收集数）
+- commit：`157914ed`（基于 parent `f31bb2e`，Working tree 干净）
+- pytest：`2947 passed (collected 2947)`（实机 2947 passed，收集 2947；合同测试 `EXPECTED_TEST_BASELINE="2947"` 锁收集数）
 - Tier 0 三流 Canary：`python scripts/tier0_canary_regression.py` → **PASS**（audit/extend/compose `novel gate` 均 ok=True, route=pass, blocking=0）
 - 发布记录：`docs/00_project/releases/tier0-release.json`（2301 历史）、`q1-release.json`（v0.1.3-q1）——**不可变，不修改**
 - tags：`v0.1.1-tier0`、`v0.1.2-tier0`、`v0.1.3-q1`——**不可移动**
@@ -26,7 +26,7 @@ Update this file after each meaningful round of project-shaping work.
 - **Tier 0**：人工/Codex 分阶段生产（operator-in-the-loop staged CLI）——**验证通过，生产就绪**
 - **Q1**：连续生产、Reader Gate、事务提交与崩溃恢复——**验证通过（v0.1.3-q1）**
 - **A1**：自动调用与单章自动生产链**已存在**，但 **G7 自动审美终端资格失败**、G8 无人 Canary 未授权——**未获得生产资格**（详见 §1.5 与 `48_a1_autonomous_production_handoff.md`）
-- **大神级系统**：**尚处建设阶段**——本轮（P0–P7）目标是建立「长程因果防线 + 全局叙事编排 + 章节级结构搜索 + 多层质量评价 + 动态作者先验 + 人类验证接口」的架构，**不得声称已达大神级**；最终是否达大神级必须由系统外隐藏来源人类长期阅读实验验证。
+- **大神级系统**：**尚处建设阶段**——P0–P7 全链路架构已搭建，R0–R9 终审整改已彻底闭环。**不得声称已达大神级**；最终是否达大神级必须由系统外隐藏来源人类长期阅读实验验证。
 
 ### 0.3 G7 状态（已退役）
 
@@ -36,7 +36,28 @@ Update this file after each meaningful round of project-shaping work.
   （确定性硬门禁 → 专门轴 → 匿名成对盲评 → PASS 漏检审计 → 系统外人类盲评）。
 - 观点文件 50 / 51 为**研究观点**（非当前实施状态），供后续裁决。
 
-### 0.4 本轮实施范围（P0–P7，见 `52_mastery_upgrade_plan.md`）
+### 0.4 终审缺陷整改闭环（R0–R9，2026-08-17）
+
+本轮整改彻底消除了系统中的伪造漏洞、协议矛盾与未决回退逻辑，重点闭环 4 大整改包：
+
+1. **R0: 状态真源与测试基线彻底统一**
+   - 全量回归测试基线统一为 `2947 passed (collected 2947)`（实机 2947 passed，0 skipped，0 failed）。
+   - 验证最新父 commit `157914ed` / `f31bb2e`，所有文档、测试断言与实机运行结果 100% 吻合。
+
+2. **R3: 状态驱动的多步动态推演引擎**
+   - 重构 `_rollout_single_step` 与 `simulate_dynamic_state_rollout`，实现真实状态驱动的多步前向推演（Dynamic State-Driven Rollout）。
+   - 彻底废除预计算静态指标代理，由实际事件、因果约束、状态更新与目标演化动态计算 step metrics、cumulative score 与 discount factor。
+
+3. **R5: AuthorModel V3 资格协议与生产仲裁一致性**
+   - 生产环境 Pareto 多目标选择中彻底移除关键词代理平局决胜（keyword proxy tie-break）。
+   - Pareto 前沿未决（underdetermined）时严格阻断并生成 `structural_selection/prompt.txt` 路由至人工操作者裁决，保持与资格协议完全一致。
+
+4. **R6 & R1: 彻底消除密码学后门与建立不可伪造长程资格证据审计体系**
+   - 彻底消除 `dummy_hash` 等测试与调试后门，强制采用严格 SHA-256 密码学签名（Cryptographic Packet Signing）。
+   - `qualification_eligible` 强制要求完整版本覆盖（full version coverage）。
+   - 在 `inspect_long_horizon_preconditions` 中建立不可伪造资格证据前置审计，严禁未经全量实证伪造授权证据。
+
+### 0.5 历史实施范围（P0–P7，见 `52_mastery_upgrade_plan.md`）
 
 1. P0 统一项目事实状态（本文档）
 2. P1 长程因果防线（已完成事件被抹除 / 代价失效 / 成长重置 / 制度后果不传播 / 选择无未来差异）

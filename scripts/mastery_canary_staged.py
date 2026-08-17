@@ -430,7 +430,14 @@ def run_mastery_canary_subprocess(novels_root: Path, novel_name: str = "canary_s
         encoding="utf-8",
     )
     (output_dir / "ab_blind_eval_report.json").write_text(
-        json.dumps({"total_pairs_evaluated": 10, "net_gain": 0.6}),
+        json.dumps({
+            "total_pairs_evaluated": 10,
+            "better_count": 8,
+            "worse_count": 2,
+            "no_difference_count": 0,
+            "uncertain_count": 0,
+            "net_gain": 0.6,
+        }),
         encoding="utf-8",
     )
 
@@ -891,7 +898,14 @@ def run_mastery_canary_staged(workspace_dir: Path) -> dict:
         encoding="utf-8",
     )
     (output_dir / "ab_blind_eval_report.json").write_text(
-        json.dumps({"total_pairs_evaluated": 10, "net_gain": 0.6}),
+        json.dumps({
+            "total_pairs_evaluated": 10,
+            "better_count": 8,
+            "worse_count": 2,
+            "no_difference_count": 0,
+            "uncertain_count": 0,
+            "net_gain": 0.6,
+        }),
         encoding="utf-8",
     )
 

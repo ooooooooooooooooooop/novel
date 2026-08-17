@@ -38,7 +38,7 @@ def score_author_prior(
     author_model: Optional[AuthorModelV3],
     work_spec: Optional[WorkSpec] = None,
 ) -> float:
-    """计算结构候选与作者决策先验的对齐度（0.0 ~ 1.0，用于 Pareto 与 tie-break）."""
+    """计算结构候选与作者决策先验的关键词对齐度（Shadow Measurement 仅供观察与离线分析，严禁用于正式生产 tie-break）."""
     if author_model is None or not author_model.principles:
         return 0.5  # 中性默认先验
 
