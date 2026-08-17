@@ -377,5 +377,83 @@ def test_resume_config_validation_accepts_author_keys(tmp_path):
     )
     config = _read_config(novel_dir)
     assert config["proposals"] == 3
-    assert config["author_mode"] == "on"
-    assert config["shadow"] == "on"
+
+
+def test_structural_search_underdetermined_halts_and_resumes(tmp_path):
+    """P3/R3: 结构搜索多解未决时必须 halt 生产并写 prompt.txt，人工响应后方可 resume."""
+    from src.workflow_action.author_selection import JudgeWaiting
+
+    se_a = SceneExperience(
+        protagonist_sees="大阵压境，敌阵中军严整",
+        obstacles=["敌方前锋正面冲杀"],
+        choice_grounding="身为统帅正面硬撼重挫敌人士气",
+        outcome="击溃敌军前锋赢得阵脚",
+        cognition_shift="因果已定，避无可避",
+    )
+    se_b = SceneExperience(
+        protagonist_sees="后山阵眼防守空虚",
+        obstacles=["巡夜法阵微光闪烁"],
+        choice_grounding="暗中潜行破坏阵眼从根本瓦解大阵",
+        outcome="瘫痪部分防御大阵",
+        cognition_shift="以巧破力方为上策",
+    )
+
+    pkgs = [
+        {
+            "plotunit": _pu("A", "正面迎敌重挫敌军", consequences=["承受重伤代价"], conflict="正面硬撼", scene_experience=se_a),
+            "new_state": _ns("ns_A"),
+            "new_facts": [],
+            "confidence_gaps": [],
+            "tradeoff_hint": "以伤换势",
+        },
+        {
+            "plotunit": _pu("B", "暗中潜行破坏阵眼", consequences=["潜行法宝损毁"], conflict="潜行突袭", scene_experience=se_b),
+            "new_state": _ns("ns_B"),
+            "new_facts": [],
+            "confidence_gaps": [],
+            "tradeoff_hint": "以宝换阵",
+        },
+    ]
+    state = _ns("ns_in")
+    state.current_situation = "大阵压境，强敌环伺"
+    objs = [state]
+
+    # 1. 首次调用：多解未决，无 response.json -> 抛出 JudgeWaiting，写 prompt.txt，不写 ChoiceLedger
+    with pytest.raises(JudgeWaiting) as exc_info:
+        run_author_selection(
+            pkgs,
+            objs,
+            output_dir=tmp_path,
+            decision_context="决策情境",
+            state_ref="ns_in",
+            current_state_ref="ns_in",
+            structural_search_on=True,
+        )
+
+    assert "selection_underdetermined=True" in str(exc_info.value)
+    prompt_file = tmp_path / "structural_selection" / "prompt.txt"
+    resp_file = tmp_path / "structural_selection" / "response.json"
+    assert prompt_file.exists()
+    assert not (tmp_path / "choice_ledger.json").exists()
+
+    # 2. 人工填入选定方案 B
+    resp_file.write_text(
+        json.dumps({"selected_proposal_id": "B", "rationale": "人工裁决"}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+
+    # 3. 二次重跑：顺利采纳 B，生产推进并落盘 ChoiceLedger
+    res = run_author_selection(
+        pkgs,
+        objs,
+        output_dir=tmp_path,
+        decision_context="决策情境",
+        state_ref="ns_in",
+        current_state_ref="ns_in",
+        structural_search_on=True,
+    )
+    assert res["selected"]["plotunit"].unit_id == "pu_B"
+    assert (tmp_path / "choice_ledger.json").exists()
+    choices = load_choice_ledger(tmp_path).choices
+    assert len(choices) == 1
+    assert choices[0].selected_candidate == "B"

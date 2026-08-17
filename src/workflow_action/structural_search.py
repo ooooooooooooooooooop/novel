@@ -179,6 +179,12 @@ _HIGH_STIMULUS_MARKERS = (
     "瞬间突破", "连破三阶", "毫无悬念", "神级底牌",
 )
 
+_FATAL_TERMINAL_FACT_MARKERS = (
+    "死亡", "已死", "殒命", "身亡", "击杀", "阵亡",
+    "摧毁", "毁灭", "彻底损毁", "化为飞灰", "灰飞烟灭",
+    "失去", "被夺", "被废", "剥夺", "公之于众", "废除",
+)
+
 _DELIBERATE_SETUP_MARKERS = (
     "暗中布局", "隐忍", "潜伏", "埋下暗线", "付出重伤代价", "牺牲", "封印",
     "借力打力", "以退为进", "交换条件", "立下血誓", "交出秘宝",
@@ -310,18 +316,29 @@ def clone_and_rollout_planner(
             character_stress_overload = True
             risk_flags.append("character_stress_overload: 角色承受压力达到崩溃临界")
 
-    # C. 事实账本因果矛盾探测
+    # C. 事实账本终结性事实冲突探测 (Fatal/Terminal Fact Check)
     causal_contradiction = False
     if cloned_ledger:
         for entry in getattr(cloned_ledger, "entries", []):
             if not getattr(entry, "confirmed", False):
                 continue
-            # 检查已确认死亡/终结的实体是否在 proposal 中被无解释复用
-            for term in _HIGH_STIMULUS_MARKERS:
-                if term in entry.statement and "恢复" in proposal.state_change and not is_deliberate_setup:
-                    causal_contradiction = True
-                    risk_flags.append(f"causal_contradiction: 与已确认事实『{entry.statement}』存在因果冲突")
-                    break
+            # 检查已确认死亡/终结/摧毁/失去的实体是否在 proposal 中被无代价或矛盾逆转复用
+            for term in _FATAL_TERMINAL_FACT_MARKERS:
+                if term in entry.statement:
+                    involved = getattr(entry, "involved_entities", [])
+                    matches_entity = any(ent in proposal_text for ent in involved if ent) or any(
+                        chunk in entry.statement for chunk in (proposal.primary_actor, proposal.core_choice[:10]) if chunk
+                    )
+                    if matches_entity:
+                        if any(rev in proposal.state_change or rev in proposal.core_choice for rev in ("恢复", "完好如初", "平安无事", "现身相助", "未死", "重获")):
+                            if not is_deliberate_setup:
+                                causal_contradiction = True
+                                risk_flags.append(f"causal_contradiction: 与已确认终结性事实『{entry.statement}』存在矛盾逆转冲突")
+                                break
+                    elif term in entry.statement and "恢复" in proposal.state_change and not is_deliberate_setup:
+                        causal_contradiction = True
+                        risk_flags.append(f"causal_contradiction: 与已确认终结性事实『{entry.statement}』存在因果冲突")
+                        break
             if causal_contradiction:
                 break
 
@@ -395,10 +412,19 @@ def clone_and_rollout_planner(
             step_notes.append(f"第+{step_idx}章: 因果自洽推进，预期正常流转")
 
         # 真实变异状态对象以反映状态转移
+        cur_sit_delta = ""
+        cur_rel_shifts: list[str] = []
+        cur_foreshadow_adv: list[str] = []
+
         if step_idx == 1:
-            cloned_state.current_situation = f"{cloned_state.current_situation} -> 产生转移: {proposal.state_change[:25]}"
+            # Step 1: 主角核心选择落地与代价支付
+            cur_sit_delta = f"主角行动落地: [{proposal.core_choice[:20]}] -> {proposal.state_change[:25]}"
+            cloned_state.current_situation = f"{cloned_state.current_situation} -> {cur_sit_delta}"
             if proposal.relationship_change:
+                cur_rel_shifts.append(proposal.relationship_change)
                 step_notes.append(f"关系重构: {proposal.relationship_change}")
+            if proposal.information_reveal:
+                cur_foreshadow_adv.append(f"信息公开: {proposal.information_reveal}")
             if cloned_ledger and proposal.state_change:
                 cloned_ledger.entries.append(
                     FactEntry(
@@ -409,8 +435,36 @@ def clone_and_rollout_planner(
                         involved_entities=[proposal.primary_actor] if proposal.primary_actor else [],
                     )
                 )
+        elif step_idx == 2:
+            # Step 2: 阻力方与外部世界反制反应
+            resistance_src = proposal.resistance_source or "外部反制力量"
+            risk_outcome = proposal.primary_risk or "次生风险与局势演变"
+            cur_sit_delta = f"阻力方[{resistance_src[:15]}]采取应对措施，局势演变为: {risk_outcome[:25]}"
+            cloned_state.current_situation = f"{cloned_state.current_situation} -> {cur_sit_delta}"
+            step_notes.append(f"阻力反制: 来自 {resistance_src[:15]} 的反应展开")
+            if actor_char is not None:
+                actor_char.current_pressure.append(f"外部反制压力: 来自 {resistance_src[:15]}")
+            if cloned_ledger:
+                cloned_ledger.entries.append(
+                    FactEntry(
+                        fact_id=f"f_rollout_step2_{proposal.proposal_id}",
+                        fact_type="event",
+                        statement=f"{resistance_src}针对主角行动采取应对反制",
+                        confirmed=True,
+                        involved_entities=[proposal.primary_actor] if proposal.primary_actor else [],
+                    )
+                )
+            if proposal.primary_risk:
+                cur_foreshadow_adv.append(f"风险显露: {proposal.primary_risk[:20]}")
         else:
-            cloned_state.current_situation = f"{cloned_state.current_situation} -> 承接第+{step_idx}步演化效应"
+            # Step 3+: 因果后果长程发酵与预期流转
+            impact_desc = proposal.impact_next_3_to_5_chapters or "进入下一阶段叙事稳态"
+            exp_desc = proposal.reader_expectation_delta or "期待流转"
+            cur_sit_delta = f"因果后果发酵: {impact_desc[:25]}，期待流转: {exp_desc[:20]}"
+            cloned_state.current_situation = f"{cloned_state.current_situation} -> {cur_sit_delta}"
+            step_notes.append(f"长程发酵: {impact_desc[:25]}")
+            if proposal.reader_expectation_delta:
+                cur_foreshadow_adv.append(f"期待推进: {proposal.reader_expectation_delta[:20]}")
 
         # 计算转移后快照
         next_pressures = {
@@ -454,14 +508,14 @@ def clone_and_rollout_planner(
         delta = RolloutDelta(
             step_from=current_snapshot.step_index,
             step_to=step_idx,
-            situation_delta=proposal.state_change if step_idx == 1 else f"第+{step_idx}步因果链衍生",
+            situation_delta=cur_sit_delta,
             pressure_deltas={
                 k: [p for p in next_pressures.get(k, []) if p not in current_snapshot.character_pressures.get(k, [])]
                 for k in next_pressures
             },
-            relationship_shifts=[proposal.relationship_change] if step_idx == 1 and proposal.relationship_change else [],
+            relationship_shifts=cur_rel_shifts,
             new_facts_count=max(0, next_facts_count - current_snapshot.facts_count),
-            foreshadow_advancements=[proposal.information_reveal] if step_idx == 1 and proposal.information_reveal else [],
+            foreshadow_advancements=cur_foreshadow_adv,
             rule_violations=[rule_violation_detail] if hard_rule_violation and step_idx == 1 else [],
         )
 
@@ -731,6 +785,7 @@ class StructuralSearchEngine:
         orchestration_state: Optional[OrchestrationState] = None,
         author_model: Optional[AuthorModelV3] = None,
         qualification_report: Optional[CrossWorkValidationResult] = None,
+        manual_selection: Optional[str] = None,
         output_dir: Optional[Path] = None,
     ) -> StructuralSearchResult:
         """执行完整搜索管线：多样性门禁 → Rollout → Pareto 评分 → 前沿提取 → 预承诺冻结 → 最优解与多解保留."""
@@ -789,11 +844,21 @@ class StructuralSearchEngine:
             orchestration_state=orchestration_state,
         )
 
-        # 6. 从前沿中进行仲裁选择（Pareto Dominance / Certified Author Prior / Unqualified Tie-Break）
+        # 6. 从前沿中进行仲裁选择（Manual Selection / Pareto Dominance / Certified Author Prior / Unqualified Tie-Break）
         is_certified = is_author_model_certified_for_production(author_model, qualification_report)
         prop_map = {p.proposal_id: p for p in valid_candidates}
 
-        if len(frontier_ids) == 1:
+        if manual_selection and manual_selection in frontier_ids:
+            selected_id = manual_selection
+            tie_break_method = "manual_operator_selection"
+            selection_underdetermined = False
+            selected_score = pareto_scores[selected_id]
+            rationale = (
+                f"帕累托前沿存在多解 [{', '.join(frontier_ids)}]，由操作者手动指定选定 {selected_id}："
+                f"可持续性 {selected_score.sustainability:.2f}, 因果价值 {selected_score.causal_value:.2f}, "
+                f"人物价值 {selected_score.character_value:.2f}。"
+            )
+        elif len(frontier_ids) == 1:
             selected_id = frontier_ids[0]
             tie_break_method = "pareto_dominance"
             selection_underdetermined = False
@@ -834,7 +899,7 @@ class StructuralSearchEngine:
             selected_score = pareto_scores[selected_id]
             rationale = (
                 f"帕累托前沿存在多解 [{', '.join(frontier_ids)}] 且无已获生产资格认证的作者模型仲裁。"
-                f"按规范默认以最高可持续性推进候选 {selected_id}，但显式保留不可比较状态 (selection_underdetermined=True)。"
+                f"按规范提供最高可持续性建议候选 {selected_id}，但显式保留不可比较状态 (selection_underdetermined=True)。"
             )
 
         incomparable = [cid for cid in frontier_ids if cid != selected_id]

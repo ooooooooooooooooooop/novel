@@ -30,6 +30,7 @@ from src.workflow_action.authormemory import (
     save_author_kernel,
 )
 from src.workflow_action.author_selector import (
+    _one_line_summary,
     build_choice_record,
     evaluate_candidates,
     reconstruct_selection_outcome,
@@ -422,7 +423,15 @@ def run_author_selection(
             load_qualification_report,
         )
         props = packages_to_structural_proposals(packages, orchestration_state=orchestration_state)
-        curr_state = next((o for o in objects if isinstance(o, NarrativeState)), NarrativeState())
+        curr_state = next(
+            (o for o in objects if isinstance(o, NarrativeState)),
+            NarrativeState(
+                state_id=state_ref or "ns_default",
+                current_time="当前时间",
+                current_location="当前场景",
+                current_situation=decision_context or "当前局势",
+            ),
+        )
         workspec = next((o for o in objects if isinstance(o, WorkSpec)), None)
         author_model_v3 = load_author_model_v3(output_dir)
         qual_report = load_qualification_report(output_dir)
@@ -441,6 +450,101 @@ def run_author_selection(
         print(f"\n[P3 结构搜索] 帕累托前沿: {structural_search_result.pareto_frontier}，推荐候选: {structural_search_result.selected_proposal_id}")
         if structural_search_result.diversity_report.near_duplicates:
             print(f"  结构近重复检出: {len(structural_search_result.diversity_report.near_duplicates)} 对")
+
+        if structural_search_result.selection_underdetermined:
+            # 检查操作者人工选择槽 (structural_selection/response.json)
+            sel_dir = output_dir / "structural_selection"
+            sel_dir.mkdir(parents=True, exist_ok=True)
+            sel_resp_path = sel_dir / "response.json"
+            sel_prompt_path = sel_dir / "prompt.txt"
+
+            manual_choice: Optional[str] = None
+            if sel_resp_path.exists():
+                try:
+                    resp_data = json.loads(sel_resp_path.read_text(encoding="utf-8"))
+                    cand = (
+                        resp_data.get("selected_proposal_id")
+                        or resp_data.get("selected_label")
+                        or resp_data.get("selected")
+                    )
+                    if cand:
+                        cand_str = str(cand).strip()
+                        if cand_str in structural_search_result.pareto_frontier:
+                            manual_choice = cand_str
+                        else:
+                            for idx, pkg in enumerate(packages):
+                                if candidate_label(idx) == cand_str or pkg["plotunit"].unit_id == cand_str:
+                                    p_id = candidate_label(idx)
+                                    if p_id in structural_search_result.pareto_frontier:
+                                        manual_choice = p_id
+                                        break
+                except Exception as exc:
+                    print(f"Warning: Failed to parse structural_selection/response.json: {exc}")
+
+            if manual_choice:
+                # 重新应用人工选择
+                structural_search_result = engine.search_and_evaluate(
+                    props,
+                    curr_state,
+                    objects,
+                    target_chapter=chapter_number or 1,
+                    workspec=workspec,
+                    orchestration_state=orchestration_state,
+                    author_model=author_model_v3,
+                    qualification_report=qual_report,
+                    manual_selection=manual_choice,
+                    output_dir=output_dir,
+                )
+                print(f"\n[P3 结构搜索人工选择] 采纳操作者在 response.json 中指定的候选: {manual_choice}")
+            else:
+                # 物化结构搜索多解未决 prompt.txt 并阻断生产！绝不静默兜底进入正文生成
+                lines = [
+                    "# 章节级结构搜索未决多解仲裁（P3 / R3）",
+                    "",
+                    f"当前章节 (第 {chapter_number or 1} 章) 帕累托前沿存在多个非支配解，且无已通过资格认证的作者模型。",
+                    "按规范禁止系统自动静默选择候选生成正文，必须由操作者进行人工仲裁选择。",
+                    "",
+                    "## 帕累托前沿候选对比",
+                ]
+                for cid in structural_search_result.pareto_frontier:
+                    p = next((x for x in props if x.proposal_id == cid), None)
+                    p_score = structural_search_result.pareto_scores.get(cid)
+                    p_rollout = structural_search_result.rollout_evaluations.get(cid)
+                    lines.append(f"### 候选方案 [{cid}]")
+                    if p:
+                        lines.append(f"- 核心选择: {p.core_choice}")
+                        lines.append(f"- 主要行动者: {p.primary_actor}")
+                        lines.append(f"- 阻力来源: {p.resistance_source}")
+                        lines.append(f"- 付出代价: {p.cost}")
+                        lines.append(f"- 状态变化: {p.state_change}")
+                        if p.impact_next_3_to_5_chapters:
+                            lines.append(f"- 未来3-5章影响: {p.impact_next_3_to_5_chapters}")
+                    if p_score:
+                        lines.append(
+                            f"- 多维得分: 可持续性={p_score.sustainability:.2f}, "
+                            f"因果价值={p_score.causal_value:.2f}, 人物价值={p_score.character_value:.2f}, "
+                            f"读者动力={p_score.reader_momentum:.2f}, 安全分={1.0 - p_score.risk_penalty:.2f}"
+                        )
+                    if p_rollout:
+                        lines.append(f"- Rollout 摘要: {p_rollout.summary}")
+                    lines.append("")
+
+                lines += [
+                    "## 输出格式说明 (请写入 response.json)",
+                    "```json",
+                    "{",
+                    f'  "selected_proposal_id": "{structural_search_result.pareto_frontier[0]}",',
+                    '  "rationale": "选择理由说明"',
+                    "}",
+                    "```",
+                    f"可选候选 ID: {structural_search_result.pareto_frontier}",
+                ]
+                sel_prompt_path.write_text("\n".join(lines), encoding="utf-8")
+                raise JudgeWaiting(
+                    f"结构搜索未决多解 (selection_underdetermined=True)。\n"
+                    f"[WAITING] 请在 {sel_resp_path} 中填写选定方案 (候选: {structural_search_result.pareto_frontier})\n"
+                    f"[RESUME] 填写保存后重跑当前命令继续生产。"
+                )
 
     production_kernel = kernel if author_mode_on else None
     outcome = select_candidate(packages, evals, kernel=production_kernel)

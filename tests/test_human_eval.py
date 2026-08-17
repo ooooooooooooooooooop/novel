@@ -196,6 +196,39 @@ class TestHumanBlindEvalToolkit:
         with pytest.raises(ValueError, match="not found in blinded packet manifest"):
             evaluate_human_submissions(packet, [sub_unknown], secret_manifest)
 
+        # 4. 密钥哈希不匹配
+        bad_packet = BlindedChapterPacket(
+            packet_id="packet_bad_hash",
+            novel_name="万物伏藏",
+            chapter_range="1-2",
+            blinded_versions={"cand_alpha": [], "cand_beta": []},
+            secret_manifest_hash="0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+        )
+        sub_ok = HumanEvaluationSubmission(
+            submission_id="sub_ok_1",
+            packet_id="packet_bad_hash",
+            reader_id="r1",
+            reader_group="veteran_reader",
+            preferred_version="cand_alpha",
+            continuation_willingness_by_version={"cand_alpha": True, "cand_beta": True},
+            abandonment_by_version={"cand_alpha": None, "cand_beta": None},
+        )
+        with pytest.raises(ValueError, match="Secret manifest hash mismatch"):
+            evaluate_human_submissions(bad_packet, [sub_ok], secret_manifest)
+
+        # 5. 版本覆盖不全
+        sub_incomplete = HumanEvaluationSubmission(
+            submission_id="sub_inc",
+            packet_id="packet_test_valid",
+            reader_id="r1",
+            reader_group="veteran_reader",
+            preferred_version="cand_alpha",
+            continuation_willingness_by_version={"cand_alpha": True},  # 缺少 cand_beta
+            abandonment_by_version={"cand_alpha": None, "cand_beta": None},
+        )
+        with pytest.raises(ValueError, match="missing continuation evaluation for versions"):
+            evaluate_human_submissions(packet, [sub_incomplete], secret_manifest)
+
 
 class TestLongHorizonAuthorization:
     def test_default_status_strictly_rejects_authorization_due_to_missing_human_data(self):

@@ -9,6 +9,7 @@
 6. 完整端到端生命周期断点恢复与回滚安全性。
 """
 
+import hashlib
 import json
 from pathlib import Path
 import pytest
@@ -469,14 +470,15 @@ class TestHumanEvalProtocolHardening:
 
     def test_reader_deduplication(self):
         """同一读者多次提交时严格去重（保留最新记录）."""
+        mapping = {"cand_alpha": "v_sys", "cand_beta": "v_hum"}
+        manifest_hash = hashlib.sha256(json.dumps(mapping, sort_keys=True).encode("utf-8")).hexdigest()
         packet = BlindedChapterPacket(
             packet_id="pkt_01",
             novel_name="测试",
             chapter_range="1-1",
             blinded_versions={"cand_alpha": [], "cand_beta": []},
-            secret_manifest_hash="hash",
+            secret_manifest_hash=manifest_hash,
         )
-        mapping = {"cand_alpha": "v_sys", "cand_beta": "v_hum"}
 
         submissions = [
             HumanEvaluationSubmission(

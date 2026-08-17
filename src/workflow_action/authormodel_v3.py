@@ -63,12 +63,23 @@ def score_author_prior(
         vocab_key = principle.value_vocab_key
         direction = value_direction(text_corpus, vocab_key)
 
+        # 1. 词汇语义方向对齐
         if direction == "pro":
             score_acc += 0.15 * weight
             matched_principles += 1
         elif direction == "contra":
             score_acc -= 0.2 * weight
             matched_principles += 1
+
+        # 2. 结构化案例支撑与反例权衡 (Case-based / Grounding Evaluation)
+        for sup in getattr(principle, "supporting_samples", []):
+            if sup.tradeoff_rationale and any(chunk in text_corpus for chunk in sup.tradeoff_rationale.split() if len(chunk) >= 2):
+                score_acc += 0.05 * weight
+                break
+        for contra in getattr(principle, "counterexamples", []):
+            if contra.deviation_reason and any(chunk in text_corpus for chunk in contra.deviation_reason.split() if len(chunk) >= 2):
+                score_acc -= 0.08 * weight
+                break
 
     return max(0.0, min(1.0, round(score_acc, 3)))
 

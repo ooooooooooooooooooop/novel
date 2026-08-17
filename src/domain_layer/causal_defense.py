@@ -58,7 +58,8 @@ _ERASURE_MARKERS: frozenset[str] = frozenset(
 _COST_FACT_MARKERS: frozenset[str] = frozenset(
     (
         "失去", "付出", "损失", "牺牲", "耗尽", "重伤", "折寿", "受罚", "代价",
-        "被废", "被夺", "断臂", "失明", "废了", "反噬", "透支", "残疾",
+        "被废", "被夺", "断臂", "失明", "废了", "反噬", "透支", "残疾", "尽断",
+        "残废", "损毁", "碎裂", "自损",
     )
 )
 
@@ -154,6 +155,8 @@ class EntityAliasRegistry:
                     self._extract_statement_entities(prohibition)
                 for cl in obj.consequence_logic or []:
                     self._extract_statement_entities(cl)
+                for hr in obj.hard_rules or []:
+                    self._extract_statement_entities(hr)
 
     def _extract_statement_entities(self, statement: str) -> None:
         """从陈述中提取主语/专有名词（如'古堡'、'张三'、'李四'、'王城'）."""
@@ -318,24 +321,32 @@ def resolve_narrative_timeline(fact: FactEntry, pu: PlotUnit, objects: list) -> 
                 pu_chapter=pu_chapter,
                 notes=[fact.chronological_order],
             )
+        elif any(w in fact.chronological_order for w in ("未决", "待定", "未知", "unreviewable", "不确定")):
+            return TimelineResolution(
+                established=None,
+                status="unreviewable",
+                fact_chapter=fact_start_chapter,
+                pu_chapter=pu_chapter,
+                notes=["时序标注为未决/未知，降级为 unreviewable"],
+            )
 
-    # 6. 如果事实已确认且未声明冲突
-    if fact.confirmed:
+    # 6. 未确认事实 -> 降级为 unreviewable
+    if not getattr(fact, "confirmed", False):
         return TimelineResolution(
-            established=True,
-            status="resolved",
+            established=None,
+            status="unreviewable",
             fact_chapter=fact_start_chapter,
             pu_chapter=pu_chapter,
-            notes=["事实已确认且未声明未来/失效区间"],
+            notes=["事实未确认且时间线无法判定前后序，降级为 unreviewable"],
         )
 
-    # 7. 未确认事实且时间线完全不可判定 -> unreviewable
+    # 7. 事实已确认且未声明冲突 -> resolved
     return TimelineResolution(
-        established=None,
-        status="unreviewable",
+        established=True,
+        status="resolved",
         fact_chapter=fact_start_chapter,
         pu_chapter=pu_chapter,
-        notes=["事实未确认且时间线无法判定前后序，降级为 unreviewable"],
+        notes=["事实已确认且未声明未来/失效区间"],
     )
 
 
@@ -355,52 +366,74 @@ def extract_world_causal_rules(objects: list) -> dict[str, CausalRule]:
         if isinstance(o, CausalRule):
             rules[o.rule_id] = o
 
+    _KW_APPLIES = ("修为", "灵力", "本源", "经脉", "生死", "命", "灵魂", "寿元", "生命", "资源", "灵石", "法宝", "禁术", "透支", "神识", "肉身", "气血", "丹药")
     for w in worlds:
         for idx, r in enumerate(w.hard_rules or []):
             rid = f"hard_rule_{idx+1}"
             cost_type = "general"
-            if any(k in r for k in ("生死", "命", "亡", "死")):
+            if any(k in r for k in ("生死", "命", "亡", "死", "寿元", "生命", "灵魂")):
                 cost_type = "life"
-            elif any(k in r for k in ("修为", "灵力", "本源", "经脉")):
+            elif any(k in r for k in ("修为", "灵力", "本源", "经脉", "透支", "禁术")):
                 cost_type = "cultivation"
             elif any(k in r for k in ("资源", "灵石", "法宝", "财")):
                 cost_type = "resource"
+            elif any(k in r for k in ("断臂", "失明", "残疾", "肉身", "气血")):
+                cost_type = "body"
             rules[rid] = CausalRule(
                 rule_id=rid,
                 rule_type="hard_rule",
                 statement=r,
-                applies_to=[],
+                applies_to=[k for k in _KW_APPLIES if k in r],
                 cost_type=cost_type,
                 reversibility="irreversible",
             )
         for idx, r in enumerate(w.consequence_logic or []):
             rid = f"consequence_logic_{idx+1}"
+            cost_type = "general"
+            if any(k in r for k in ("生死", "命", "亡", "死", "寿元", "生命", "灵魂")):
+                cost_type = "life"
+            elif any(k in r for k in ("修为", "灵力", "本源", "经脉", "透支", "禁术")):
+                cost_type = "cultivation"
+            elif any(k in r for k in ("资源", "灵石", "法宝", "财")):
+                cost_type = "resource"
+            elif any(k in r for k in ("断臂", "失明", "残疾", "肉身", "气血")):
+                cost_type = "body"
             rules[rid] = CausalRule(
                 rule_id=rid,
                 rule_type="consequence_logic",
                 statement=r,
-                applies_to=[],
-                cost_type="general",
+                applies_to=[k for k in _KW_APPLIES if k in r],
+                cost_type=cost_type,
                 reversibility="conditional",
             )
         for idx, r in enumerate(w.prohibitions or []):
             rid = f"prohibition_{idx+1}"
+            cost_type = "general"
+            if any(k in r for k in ("生死", "命", "亡", "死", "寿元", "生命", "灵魂")):
+                cost_type = "life"
+            elif any(k in r for k in ("修为", "灵力", "本源", "经脉", "透支", "禁术")):
+                cost_type = "cultivation"
             rules[rid] = CausalRule(
                 rule_id=rid,
                 rule_type="prohibition",
                 statement=r,
-                applies_to=[],
-                cost_type="general",
+                applies_to=[k for k in _KW_APPLIES if k in r],
+                cost_type=cost_type,
                 reversibility="forbidden",
             )
         for idx, r in enumerate(w.forbidden_actions or []):
             rid = f"forbidden_action_{idx+1}"
+            cost_type = "general"
+            if any(k in r for k in ("生死", "命", "亡", "死", "寿元", "生命", "灵魂")):
+                cost_type = "life"
+            elif any(k in r for k in ("修为", "灵力", "本源", "经脉", "透支", "禁术")):
+                cost_type = "cultivation"
             rules[rid] = CausalRule(
                 rule_id=rid,
                 rule_type="forbidden_action",
                 statement=r,
-                applies_to=[],
-                cost_type="general",
+                applies_to=[k for k in _KW_APPLIES if k in r],
+                cost_type=cost_type,
                 reversibility="forbidden",
             )
         if getattr(w, "death_rule", None):
@@ -579,42 +612,90 @@ def detect_invalidated_cost(objects: list) -> list[ReviewIssue]:
             if any(m in text for m in _NEW_COST_PAYMENT_MARKERS):
                 continue
 
+            # 确定事实本身的代价类型
+            f_cost_type = "general"
+            if any(k in f.statement for k in ("生死", "命", "亡", "死", "寿元", "生命", "灵魂")):
+                f_cost_type = "life"
+            elif any(k in f.statement for k in ("修为", "灵力", "本源", "经脉", "透支", "禁术")):
+                f_cost_type = "cultivation"
+            elif any(k in f.statement for k in ("资源", "灵石", "法宝", "财")):
+                f_cost_type = "resource"
+            elif any(k in f.statement for k in ("断臂", "失明", "残疾", "肉身", "气血")):
+                f_cost_type = "body"
+
             # 结构化绑定: FactEntry.cost_rule_id -> CausalRule.rule_id -> applies_to -> cost_type -> reversibility
             matching_rule: Optional[CausalRule] = None
             if f.cost_rule_id and f.cost_rule_id in causal_rules:
                 matching_rule = causal_rules[f.cost_rule_id]
             else:
-                # 匹配实体或规则
+                # 1. 实体或关键词精准匹配
                 for r in causal_rules.values():
-                    if any(e in r.statement for e in hit_entities) or any(e in r.applies_to for e in hit_entities):
+                    if any(e in r.applies_to for e in hit_entities) or any(e in r.statement for e in hit_entities):
                         matching_rule = r
                         break
-                if matching_rule is None and causal_rules:
+                # 2. 领域代价类型匹配 (life/cultivation/resource/body 且非通用 general)
+                if matching_rule is None and f_cost_type != "general":
                     for r in causal_rules.values():
-                        if any(k in r.statement for k in ("代价", "不可逆", "生死", "禁术", "本源", "反噬", "损耗", "规则")):
+                        if r.cost_type == f_cost_type:
                             matching_rule = r
                             break
-                if matching_rule is None and causal_rules:
-                    matching_rule = next(iter(causal_rules.values()))
 
-            has_hard_rule = matching_rule is not None
-            severity = "blocking" if has_hard_rule else "warning"
-            issue_type = "world_violation" if has_hard_rule else "missing_cost"
+            # 严禁任何无关联规则兜底！未匹配规则时作为质量信号 (warning / missing_cost)
+            has_hard_rule = False
+            severity = "warning"
+            issue_type = "missing_cost"
+            violated_rule_str = "已付代价应持续传播或需对应代价恢复"
+            mechanism_desc = "未声明硬规则（质量信号）"
 
-            if matching_rule:
+            if matching_rule is not None:
                 rule_id = matching_rule.rule_id
                 rule_text = matching_rule.statement
                 reversibility = matching_rule.reversibility
                 cost_type = matching_rule.cost_type
                 applies_to_str = ", ".join(matching_rule.applies_to or hit_entities[:2])
-                violated_rule_str = (
-                    f"世界代价规则不可免费逆转 [rule_id={rule_id}, applies_to={applies_to_str}, "
-                    f"cost_type={cost_type}, reversibility={reversibility}]: {rule_text}"
-                )
-                mechanism_desc = f"绑定世界规则 {rule_id} (applies_to={applies_to_str}, cost_type={cost_type}, reversibility={reversibility}, 升级为阻断)"
-            else:
-                violated_rule_str = "已付代价应持续传播或需对应代价恢复"
-                mechanism_desc = "未声明硬规则（质量信号）"
+
+                # 严格执行可逆性模式 (Strict enforcement of reversibility modes)
+                if reversibility in ("irreversible", "strict_irreversible", "forbidden"):
+                    has_hard_rule = True
+                    severity = "blocking"
+                    issue_type = "world_violation"
+                    violated_rule_str = (
+                        f"世界代价规则不可逆转 [rule_id={rule_id}, applies_to={applies_to_str}, "
+                        f"cost_type={cost_type}, reversibility={reversibility}]: {rule_text}"
+                    )
+                    mechanism_desc = f"绑定世界不可逆规则 {rule_id} (applies_to={applies_to_str}, cost_type={cost_type}, reversibility={reversibility}, 严格阻断)"
+                elif reversibility == "conditional":
+                    reqs = getattr(matching_rule, "reversal_requirements", []) or []
+                    if reqs and any(req in text for req in reqs):
+                        # 满足逆转前置条件，合法逆转，不报警
+                        continue
+                    has_hard_rule = True
+                    severity = "blocking"
+                    issue_type = "world_violation"
+                    req_hint = f"（需满足前置条件: {', '.join(reqs)}）" if reqs else "（未满足逆转条件）"
+                    violated_rule_str = (
+                        f"世界代价规则条件可逆未满足 [rule_id={rule_id}, applies_to={applies_to_str}, "
+                        f"cost_type={cost_type}, reversibility={reversibility}]: {rule_text} {req_hint}"
+                    )
+                    mechanism_desc = f"绑定世界条件可逆规则 {rule_id} (未满足逆转条件，阻断)"
+                elif reversibility == "conservation_of_cost":
+                    has_hard_rule = True
+                    severity = "blocking"
+                    issue_type = "world_violation"
+                    violated_rule_str = (
+                        f"世界代价规则守恒未满足 [rule_id={rule_id}, applies_to={applies_to_str}, "
+                        f"cost_type={cost_type}, reversibility={reversibility}]: {rule_text}（未支付等价新代价）"
+                    )
+                    mechanism_desc = f"绑定世界代价守恒规则 {rule_id} (未支付等价新代价，阻断)"
+                else:
+                    has_hard_rule = (matching_rule.rule_type in ("hard_rule", "prohibition", "death_rule"))
+                    severity = "blocking" if has_hard_rule else "warning"
+                    issue_type = "world_violation" if has_hard_rule else "missing_cost"
+                    violated_rule_str = (
+                        f"世界代价规则 [rule_id={rule_id}, applies_to={applies_to_str}, "
+                        f"cost_type={cost_type}, reversibility={reversibility}]: {rule_text}"
+                    )
+                    mechanism_desc = f"绑定世界规则 {rule_id}"
 
             issues.append(
                 ReviewIssue(

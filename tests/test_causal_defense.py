@@ -571,3 +571,93 @@ def test_world_rule_explicit_linkage_in_cost_invalidation():
     assert issues[0].issue_type == "world_violation"
     assert "生死逆转必付同等天道代价" in issues[0].violated_rule
 
+
+def test_conditional_reversibility_satisfied_is_clean():
+    """条件可逆：满足 reversal_requirements 时合法逆转，不报警."""
+    rule = CausalRule(
+        rule_id="rule_cond_meridian",
+        rule_type="consequence_logic",
+        statement="经脉尽断需服用九转还魂丹方可复原",
+        applies_to=["林尘", "经脉"],
+        cost_type="cultivation",
+        reversibility="conditional",
+        reversal_requirements=["九转还魂丹"],
+    )
+    fact = FactEntry(
+        fact_id="f_meridian",
+        statement="林尘经脉尽断",
+        fact_type="event",
+        involved_entities=["林尘", "经脉"],
+        confirmed=True,
+        cost_rule_id="rule_cond_meridian",
+    )
+    pu_sat = _pu(
+        "pu_heal",
+        goal="疗伤",
+        conflict="炼丹",
+        released=["林尘历经千辛万苦寻得九转还魂丹并服下，经脉重新复原"],
+    )
+    assert detect_invalidated_cost([rule, _ledger(fact), pu_sat]) == []
+
+
+def test_conditional_reversibility_unsatisfied_is_blocking():
+    """条件可逆：未满足 reversal_requirements 时升级为 blocking world_violation."""
+    rule = CausalRule(
+        rule_id="rule_cond_meridian_2",
+        rule_type="consequence_logic",
+        statement="经脉尽断需服用九转还魂丹方可复原",
+        applies_to=["林尘", "经脉"],
+        cost_type="cultivation",
+        reversibility="conditional",
+        reversal_requirements=["九转还魂丹"],
+    )
+    fact = FactEntry(
+        fact_id="f_meridian_2",
+        statement="林尘经脉尽断",
+        fact_type="event",
+        involved_entities=["林尘", "经脉"],
+        confirmed=True,
+        cost_rule_id="rule_cond_meridian_2",
+    )
+    pu_unsat = _pu(
+        "pu_heal_unexplained",
+        goal="运功",
+        conflict="突破",
+        released=["林尘打坐一夜，断裂的经脉竟已复原如初"],
+    )
+    issues = detect_invalidated_cost([rule, _ledger(fact), pu_unsat])
+    assert len(issues) == 1
+    assert issues[0].severity == "blocking"
+    assert issues[0].issue_type == "world_violation"
+    assert "条件可逆未满足" in issues[0].violated_rule
+
+
+def test_unrelated_world_rules_do_not_arbitrarily_upgrade_to_blocking():
+    """当世界规则与事实领域/实体完全无关时，严禁任意兜底绑定规则升级为 blocking."""
+    # 规则是关于生死与灵魂的
+    world = WorldModel(
+        consequence_logic=["灵魂碎裂者不可逆转"],
+        hard_rules=["生死界限不可逾越"],
+    )
+    # 事实是普通的世俗财物损失
+    fact = FactEntry(
+        fact_id="f_money_cost",
+        statement="沈万三损失全部家财",
+        fact_type="event",
+        involved_entities=["沈万三", "家财"],
+        confirmed=True,
+    )
+    pu = _pu(
+        "pu_trade",
+        goal="经商",
+        conflict="重整旗鼓",
+        released=["沈万三丢失的家财转眼失而复得"],
+    )
+    issues = detect_invalidated_cost([world, _ledger(fact), pu])
+    assert len(issues) == 1
+    # 应当仅作为缺失代价的质量信号 (warning / missing_cost)，绝不升级为 blocking world_violation
+    assert issues[0].severity == "warning"
+    assert issues[0].issue_type == "missing_cost"
+    assert "未声明硬规则" in issues[0].description
+
+

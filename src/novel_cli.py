@@ -306,7 +306,7 @@ def _capture_long_config(args: argparse.Namespace) -> dict:
 
 
 def _author_config_fields(args: argparse.Namespace) -> dict:
-    """作者感知选择链的 config 字段（--proposals/--author-mode/--kernel/--shadow/--drift-review）."""
+    """作者感知选择链的 config 字段（--proposals/--author-mode/--kernel/--shadow/--drift-review 等）."""
     return {
         "proposals": getattr(args, "proposals", 1),
         "author_mode": getattr(args, "author_mode", "off"),
@@ -317,11 +317,14 @@ def _author_config_fields(args: argparse.Namespace) -> dict:
         "consolidation_min": getattr(args, "consolidation_min", None),
         "consolidation_min_support": getattr(args, "consolidation_min_support", None),
         "consolidation_contested_ratio": getattr(args, "consolidation_contested_ratio", None),
+        "structural_search": getattr(args, "structural_search", "off"),
+        "rollout_steps": getattr(args, "rollout_steps", 3),
+        "author_model_v3": getattr(args, "author_model_v3", "off"),
     }
 
 
 def _append_author_options(command: list[str], args: argparse.Namespace) -> None:
-    """把作者感知选择链选项追加到 extend/compose 子命令（默认值不追加，零成本）."""
+    """把作者感知选择链与结构搜索选项追加到 extend/compose 子命令（默认值不追加，零成本）."""
     proposals = getattr(args, "proposals", 1)
     if proposals > 1:
         command.extend(["--proposals", str(proposals)])
@@ -341,10 +344,16 @@ def _append_author_options(command: list[str], args: argparse.Namespace) -> None
         command.extend(["--consolidation-min-support", str(args.consolidation_min_support)])
     if getattr(args, "consolidation_contested_ratio", None) is not None:
         command.extend(["--consolidation-contested-ratio", str(args.consolidation_contested_ratio)])
+    if getattr(args, "structural_search", "off") == "on":
+        command.extend(["--structural-search", "on"])
+    if getattr(args, "rollout_steps", 3) != 3:
+        command.extend(["--rollout-steps", str(args.rollout_steps)])
+    if getattr(args, "author_model_v3", "off") == "on":
+        command.extend(["--author-model-v3", "on"])
 
 
 def _append_configured_author_options(command: list[str], config: dict) -> None:
-    """resume 从 config 重建作者感知选择链选项（缺省零成本）."""
+    """resume 从 config 重建作者感知选择链与结构搜索选项（缺省零成本）."""
     proposals = config.get("proposals") or 1
     if proposals > 1:
         command.extend(["--proposals", str(proposals)])
@@ -364,6 +373,12 @@ def _append_configured_author_options(command: list[str], config: dict) -> None:
         command.extend(["--consolidation-min-support", str(config["consolidation_min_support"])])
     if config.get("consolidation_contested_ratio"):
         command.extend(["--consolidation-contested-ratio", str(config["consolidation_contested_ratio"])])
+    if config.get("structural_search") == "on":
+        command.extend(["--structural-search", "on"])
+    if config.get("rollout_steps") and config.get("rollout_steps") != 3:
+        command.extend(["--rollout-steps", str(config["rollout_steps"])])
+    if config.get("author_model_v3") == "on":
+        command.extend(["--author-model-v3", "on"])
 
 
 def _run_child(command: list[str]) -> int:
@@ -984,6 +999,16 @@ def _run_pass_audit(args: argparse.Namespace) -> int:
     if args.force:
         command.append("--force")
     return _run_child(command)
+
+
+def _validate_quality_json_payload(payload: dict[str, object]) -> None:
+    if not isinstance(payload, dict) or "novel_name" not in payload:
+        raise ValueError("Invalid quality JSON payload")
+
+
+def _validate_human_eval_json_payload(payload: dict[str, object]) -> None:
+    if not isinstance(payload, dict):
+        raise ValueError("Invalid human eval JSON payload")
 
 
 def _run_quality(args: argparse.Namespace) -> int:

@@ -517,3 +517,73 @@ class TestStructuralSearchEngine:
         assert res_cert.selection_underdetermined is False
         assert res_cert.tie_break_method == "certified_author_prior"
 
+    def test_fatal_terminal_fact_contradiction_detected(self):
+        from src.object_state.factledger import FactEntry, FactLedger
+
+        state, objects, workspec = _make_sample_state()
+        ledger = FactLedger(
+            entries=[
+                FactEntry(
+                    fact_id="f_death_01",
+                    fact_type="event",
+                    statement="楚阳长老在锁妖塔之战中已身亡殒命",
+                    confirmed=True,
+                    involved_entities=["楚阳"],
+                )
+            ]
+        )
+        objects_with_ledger = [state, workspec, ledger]
+
+        # 提案试图让已死人物无解释现身相助/恢复
+        prop_contradict = StructuralProposal(
+            proposal_id="p_bad_resurrect",
+            primary_actor="楚阳",
+            core_choice="楚阳长老突然现身相助正面迎敌",
+            resistance_source="强敌阻拦",
+            cost="轻伤",
+            state_change="楚阳长老恢复全盛状态击退敌人",
+            chapter_function="危机",
+        )
+        eval_res = clone_and_rollout_planner(
+            prop_contradict, state, objects_with_ledger, steps=3, workspec=workspec
+        )
+        assert eval_res.overall_sustainability == 0.0
+        assert any("causal_contradiction" in f for f in eval_res.risk_flags)
+
+    def test_manual_operator_selection_resolves_underdetermined(self):
+        state, objects, workspec = _make_sample_state()
+        proposals = [
+            StructuralProposal(
+                proposal_id="p_causal",
+                primary_actor="林尘",
+                core_choice="坚守因果与宗门规则正面答辩",
+                resistance_source="执法堂长老",
+                cost="承受法器重击付出重伤代价",
+                state_change="洗清嫌疑赢得道义威信",
+                chapter_function="蓄力",
+                summary="稳扎稳打坚守因果",
+            ),
+            StructuralProposal(
+                proposal_id="p_quick",
+                primary_actor="苏清雪",
+                core_choice="利用假死丹药金蝉脱壳潜逃避开执法堂",
+                resistance_source="封山大阵",
+                cost="失去宗门合法身份",
+                state_change="转入地下隐蔽活动",
+                chapter_function="危机",
+                reader_expectation_delta="期待地下暗线与宗门追捕",
+                summary="出人意料反常规破局",
+            ),
+        ]
+        engine = StructuralSearchEngine(rollout_steps=3)
+        res = engine.search_and_evaluate(
+            proposals,
+            state,
+            objects,
+            manual_selection="p_quick",
+        )
+        assert res.selected_proposal_id == "p_quick"
+        assert res.selection_underdetermined is False
+        assert res.tie_break_method == "manual_operator_selection"
+
+

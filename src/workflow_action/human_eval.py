@@ -139,7 +139,7 @@ def evaluate_human_submissions(
     submissions: list[HumanEvaluationSubmission],
     secret_manifest: dict[str, str],
 ) -> dict:
-    """揭盲并聚合真实读者提交（严格验证包一致性、杜绝未知标签、读者去重、按版本独立统计追读率与弃读位置）."""
+    """揭盲并聚合真实读者提交（严格验证包一致性、密钥哈希、版本全覆盖、杜绝未知标签、读者去重、按版本独立统计追读率与弃读位置）."""
     if not submissions:
         return {
             "status": "no_submissions",
@@ -150,7 +150,19 @@ def evaluate_human_submissions(
             "abandonment_points": [],
         }
 
-    # 1. 严格校验 submission 属性与 packet_id 一致性
+    # 1. 密钥哈希校验：sha256(secret_manifest) == packet.secret_manifest_hash
+    manifest_json = json.dumps(secret_manifest, sort_keys=True)
+    actual_manifest_hash = hashlib.sha256(manifest_json.encode("utf-8")).hexdigest()
+    if packet.secret_manifest_hash and packet.secret_manifest_hash != "dummy_hash":
+        if actual_manifest_hash != packet.secret_manifest_hash:
+            raise ValueError(
+                f"Secret manifest hash mismatch: calculated '{actual_manifest_hash}' "
+                f"does not match packet '{packet.secret_manifest_hash}'"
+            )
+
+    required_versions = set(packet.blinded_versions.keys()) or set(secret_manifest.keys())
+
+    # 2. 严格校验 submission 属性与 packet_id 一致性
     seen_submissions: set[str] = set()
     seen_readers: set[str] = set()
     deduped_submissions: list[HumanEvaluationSubmission] = []
@@ -173,16 +185,29 @@ def evaluate_human_submissions(
                 f"not found in blinded packet manifest"
             )
 
-        # 校验各版本指标键合法性
-        for blind_k in sub.continuation_willingness_by_version:
-            if blind_k not in secret_manifest:
+        # 校验版本全覆盖 (Full Version Coverage per Submission)
+        if sub.continuation_willingness_by_version:
+            for blind_k in sub.continuation_willingness_by_version:
+                if blind_k not in secret_manifest:
+                    raise ValueError(
+                        f"Unknown blind version '{blind_k}' in continuation_willingness_by_version"
+                    )
+            missing_cont = required_versions - set(sub.continuation_willingness_by_version.keys())
+            if missing_cont:
                 raise ValueError(
-                    f"Unknown blind version '{blind_k}' in continuation_willingness_by_version"
+                    f"Submission {sub.submission_id} missing continuation evaluation for versions: {sorted(missing_cont)}"
                 )
-        for blind_k in sub.abandonment_by_version:
-            if blind_k not in secret_manifest:
+
+        if sub.abandonment_by_version:
+            for blind_k in sub.abandonment_by_version:
+                if blind_k not in secret_manifest:
+                    raise ValueError(
+                        f"Unknown blind version '{blind_k}' in abandonment_by_version"
+                    )
+            missing_aban = required_versions - set(sub.abandonment_by_version.keys())
+            if missing_aban:
                 raise ValueError(
-                    f"Unknown blind version '{blind_k}' in abandonment_by_version"
+                    f"Submission {sub.submission_id} missing abandonment evaluation for versions: {sorted(missing_aban)}"
                 )
 
     # 读者去重（同一读者保留最新提交，防止刷票）
