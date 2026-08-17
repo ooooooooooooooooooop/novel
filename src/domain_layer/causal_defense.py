@@ -21,12 +21,14 @@ import re
 from typing import Optional, Set
 
 from src.object_state import (
+    CausalRule,
     CharacterModel,
     FactEntry,
     FactLedger,
     NarrativeState,
     PlotUnit,
     ReviewIssue,
+    TimelineResolution,
     WorldModel,
 )
 
@@ -244,8 +246,11 @@ def _parse_chapter_num(val: Optional[str]) -> Optional[int]:
     return None
 
 
-def _is_fact_established_before_or_at(fact: FactEntry, pu: PlotUnit, objects: list) -> bool:
-    """校验事实是否在候选 PlotUnit 发生前已成立 (Narrative Chronology)."""
+def resolve_narrative_timeline(fact: FactEntry, pu: PlotUnit, objects: list) -> TimelineResolution:
+    """校验事实与情节单元的时间线前后序 (Narrative Chronology & Degradation).
+
+    返回 TimelineResolution, 包含 established 状态与 unreviewable 降级判定.
+    """
     pu_chapter = _parse_chapter_num(pu.unit_id) or _parse_chapter_num(pu.input_state_ref)
     if pu_chapter is None:
         for obj in objects:
@@ -254,25 +259,171 @@ def _is_fact_established_before_or_at(fact: FactEntry, pu: PlotUnit, objects: li
                 if pu_chapter is not None:
                     break
 
-    # 1. 检查事实的有效起点 valid_from / timestamp
+    # 1. 检查事实的有效起点 valid_from / timestamp / source_plotunit
     fact_start_chapter = None
     if fact.validity_interval and fact.validity_interval.valid_from:
         fact_start_chapter = _parse_chapter_num(fact.validity_interval.valid_from)
     elif fact.timestamp:
         fact_start_chapter = _parse_chapter_num(fact.timestamp)
+    elif fact.source_plotunit:
+        fact_start_chapter = _parse_chapter_num(fact.source_plotunit)
 
-    # 2. 如果两者都能解析出章节号：事实必须 <= 候选章节号
-    if pu_chapter is not None and fact_start_chapter is not None:
-        if fact_start_chapter > pu_chapter:
-            return False  # 属于未来事实，不约束当前历史
+    # 2. 显式未来事实
+    if pu_chapter is not None and fact_start_chapter is not None and fact_start_chapter > pu_chapter:
+        return TimelineResolution(
+            established=False,
+            status="future_fact",
+            fact_chapter=fact_start_chapter,
+            pu_chapter=pu_chapter,
+            notes=[f"事实在第 {fact_start_chapter} 章生效，晚于当前单元第 {pu_chapter} 章"],
+        )
 
-    # 3. 检查有效终点 valid_until
+    # 3. 显式失效事实
     if fact.validity_interval and fact.validity_interval.valid_until and pu_chapter is not None:
         fact_end_chapter = _parse_chapter_num(fact.validity_interval.valid_until)
         if fact_end_chapter is not None and pu_chapter > fact_end_chapter:
-            return False  # 事实已失效
+            return TimelineResolution(
+                established=False,
+                status="expired",
+                fact_chapter=fact_start_chapter,
+                pu_chapter=pu_chapter,
+                notes=[f"事实在第 {fact_end_chapter} 章失效，早于当前单元第 {pu_chapter} 章"],
+            )
 
-    return True
+    # 4. 双方均有确凿章节序号，且事实 <= pu
+    if pu_chapter is not None and fact_start_chapter is not None:
+        return TimelineResolution(
+            established=True,
+            status="resolved",
+            fact_chapter=fact_start_chapter,
+            pu_chapter=pu_chapter,
+            notes=[f"事实在第 {fact_start_chapter} 章生效，有效约束当前第 {pu_chapter} 章"],
+        )
+
+    # 5. 事实包含相对时间顺序标注
+    if fact.chronological_order:
+        if any(w in fact.chronological_order for w in ("之前", "早于", "前置", "前")):
+            return TimelineResolution(
+                established=True,
+                status="resolved",
+                fact_chapter=fact_start_chapter,
+                pu_chapter=pu_chapter,
+                notes=[fact.chronological_order],
+            )
+        elif any(w in fact.chronological_order for w in ("之后", "晚于", "后续", "后")):
+            return TimelineResolution(
+                established=False,
+                status="future_fact",
+                fact_chapter=fact_start_chapter,
+                pu_chapter=pu_chapter,
+                notes=[fact.chronological_order],
+            )
+
+    # 6. 如果事实已确认且未声明冲突
+    if fact.confirmed:
+        return TimelineResolution(
+            established=True,
+            status="resolved",
+            fact_chapter=fact_start_chapter,
+            pu_chapter=pu_chapter,
+            notes=["事实已确认且未声明未来/失效区间"],
+        )
+
+    # 7. 未确认事实且时间线完全不可判定 -> unreviewable
+    return TimelineResolution(
+        established=None,
+        status="unreviewable",
+        fact_chapter=fact_start_chapter,
+        pu_chapter=pu_chapter,
+        notes=["事实未确认且时间线无法判定前后序，降级为 unreviewable"],
+    )
+
+
+def _is_fact_established_before_or_at(fact: FactEntry, pu: PlotUnit, objects: list) -> bool:
+    """向下兼容的布尔校验函数."""
+    res = resolve_narrative_timeline(fact, pu, objects)
+    return res.established is True
+
+
+def extract_world_causal_rules(objects: list) -> dict[str, CausalRule]:
+    """从 WorldModel 与传入对象中提取强类型 CausalRule 字典 (rule_id -> CausalRule)."""
+    rules: dict[str, CausalRule] = {}
+    worlds = [o for o in objects if isinstance(o, WorldModel)]
+
+    # 直接传入的 CausalRule 对象
+    for o in objects:
+        if isinstance(o, CausalRule):
+            rules[o.rule_id] = o
+
+    for w in worlds:
+        for idx, r in enumerate(w.hard_rules or []):
+            rid = f"hard_rule_{idx+1}"
+            cost_type = "general"
+            if any(k in r for k in ("生死", "命", "亡", "死")):
+                cost_type = "life"
+            elif any(k in r for k in ("修为", "灵力", "本源", "经脉")):
+                cost_type = "cultivation"
+            elif any(k in r for k in ("资源", "灵石", "法宝", "财")):
+                cost_type = "resource"
+            rules[rid] = CausalRule(
+                rule_id=rid,
+                rule_type="hard_rule",
+                statement=r,
+                applies_to=[],
+                cost_type=cost_type,
+                reversibility="irreversible",
+            )
+        for idx, r in enumerate(w.consequence_logic or []):
+            rid = f"consequence_logic_{idx+1}"
+            rules[rid] = CausalRule(
+                rule_id=rid,
+                rule_type="consequence_logic",
+                statement=r,
+                applies_to=[],
+                cost_type="general",
+                reversibility="conditional",
+            )
+        for idx, r in enumerate(w.prohibitions or []):
+            rid = f"prohibition_{idx+1}"
+            rules[rid] = CausalRule(
+                rule_id=rid,
+                rule_type="prohibition",
+                statement=r,
+                applies_to=[],
+                cost_type="general",
+                reversibility="forbidden",
+            )
+        for idx, r in enumerate(w.forbidden_actions or []):
+            rid = f"forbidden_action_{idx+1}"
+            rules[rid] = CausalRule(
+                rule_id=rid,
+                rule_type="forbidden_action",
+                statement=r,
+                applies_to=[],
+                cost_type="general",
+                reversibility="forbidden",
+            )
+        if getattr(w, "death_rule", None):
+            rid = "death_rule_1"
+            rules[rid] = CausalRule(
+                rule_id=rid,
+                rule_type="death_rule",
+                statement=str(w.death_rule),
+                applies_to=["死亡", "灵魂"],
+                cost_type="life",
+                reversibility="strict_irreversible",
+            )
+        if getattr(w, "resource_system", None):
+            rid = "resource_system_1"
+            rules[rid] = CausalRule(
+                rule_id=rid,
+                rule_type="resource_system",
+                statement=str(w.resource_system),
+                applies_to=["资源"],
+                cost_type="resource",
+                reversibility="conservation_of_cost",
+            )
+    return rules
 
 
 def _plotunit_text(pu: PlotUnit) -> str:
@@ -340,7 +491,8 @@ def detect_erased_committed_event(objects: list) -> list[ReviewIssue]:
     for f in terminal_facts:
         f_entities = _fact_entity_set(f, registry)
         for pu in plotunits:
-            if not _is_fact_established_before_or_at(f, pu, objects):
+            timeline_res = resolve_narrative_timeline(f, pu, objects)
+            if timeline_res.established is False or timeline_res.status == "unreviewable":
                 continue
             text = _plotunit_text(pu)
             if not text:
@@ -405,50 +557,15 @@ def detect_invalidated_cost(objects: list) -> list[ReviewIssue]:
     if not cost_facts:
         return issues
 
-    # 查找世界规则中针对代价/禁忌的结构化约束 (cost_fact -> rule_id -> applies_to -> reversibility)
-    world_rule_mappings: list[dict[str, str]] = []
-    for w in worlds:
-        for idx, r in enumerate(w.hard_rules or []):
-            world_rule_mappings.append({
-                "rule_id": f"hard_rule_{idx+1}",
-                "rule_text": r,
-                "reversibility": "irreversible",
-            })
-        for idx, r in enumerate(w.consequence_logic or []):
-            world_rule_mappings.append({
-                "rule_id": f"consequence_logic_{idx+1}",
-                "rule_text": r,
-                "reversibility": "conditional",
-            })
-        for idx, r in enumerate(w.prohibitions or []):
-            world_rule_mappings.append({
-                "rule_id": f"prohibition_{idx+1}",
-                "rule_text": r,
-                "reversibility": "forbidden",
-            })
-        for idx, r in enumerate(w.forbidden_actions or []):
-            world_rule_mappings.append({
-                "rule_id": f"forbidden_action_{idx+1}",
-                "rule_text": r,
-                "reversibility": "forbidden",
-            })
-        if getattr(w, "death_rule", None):
-            world_rule_mappings.append({
-                "rule_id": "death_rule_1",
-                "rule_text": str(w.death_rule),
-                "reversibility": "strict_irreversible",
-            })
-        if getattr(w, "resource_system", None):
-            world_rule_mappings.append({
-                "rule_id": "resource_system_1",
-                "rule_text": str(w.resource_system),
-                "reversibility": "conservation_of_cost",
-            })
+    causal_rules = extract_world_causal_rules(objects)
 
     for f in cost_facts:
         f_entities = _fact_entity_set(f, registry)
         for pu in plotunits:
-            if not _is_fact_established_before_or_at(f, pu, objects):
+            timeline_res = resolve_narrative_timeline(f, pu, objects)
+            if timeline_res.established is False:
+                continue
+            if timeline_res.status == "unreviewable":
                 continue
             text = _plotunit_text(pu)
             if not text:
@@ -462,29 +579,39 @@ def detect_invalidated_cost(objects: list) -> list[ReviewIssue]:
             if any(m in text for m in _NEW_COST_PAYMENT_MARKERS):
                 continue
 
-            # 结构化绑定世界规则: cost_fact -> rule_id -> applies_to -> reversibility
-            matching_rules = [
-                r for r in world_rule_mappings
-                if any(k in r["rule_text"] for k in ("代价", "不可逆", "生死", "禁术", "本源", "反噬", "损耗", "规则"))
-                or any(e in r["rule_text"] for e in hit_entities)
-            ]
-            if not matching_rules and world_rule_mappings:
-                matching_rules = world_rule_mappings
+            # 结构化绑定: FactEntry.cost_rule_id -> CausalRule.rule_id -> applies_to -> cost_type -> reversibility
+            matching_rule: Optional[CausalRule] = None
+            if f.cost_rule_id and f.cost_rule_id in causal_rules:
+                matching_rule = causal_rules[f.cost_rule_id]
+            else:
+                # 匹配实体或规则
+                for r in causal_rules.values():
+                    if any(e in r.statement for e in hit_entities) or any(e in r.applies_to for e in hit_entities):
+                        matching_rule = r
+                        break
+                if matching_rule is None and causal_rules:
+                    for r in causal_rules.values():
+                        if any(k in r.statement for k in ("代价", "不可逆", "生死", "禁术", "本源", "反噬", "损耗", "规则")):
+                            matching_rule = r
+                            break
+                if matching_rule is None and causal_rules:
+                    matching_rule = next(iter(causal_rules.values()))
 
-            has_hard_rule = bool(matching_rules)
+            has_hard_rule = matching_rule is not None
             severity = "blocking" if has_hard_rule else "warning"
             issue_type = "world_violation" if has_hard_rule else "missing_cost"
 
-            if matching_rules:
-                best_rule = matching_rules[0]
-                rule_id = best_rule["rule_id"]
-                rule_text = best_rule["rule_text"]
-                reversibility = best_rule["reversibility"]
-                applies_to_str = ", ".join(hit_entities[:2])
+            if matching_rule:
+                rule_id = matching_rule.rule_id
+                rule_text = matching_rule.statement
+                reversibility = matching_rule.reversibility
+                cost_type = matching_rule.cost_type
+                applies_to_str = ", ".join(matching_rule.applies_to or hit_entities[:2])
                 violated_rule_str = (
-                    f"世界代价规则不可免费逆转 [rule_id={rule_id}, applies_to={applies_to_str}, reversibility={reversibility}]: {rule_text}"
+                    f"世界代价规则不可免费逆转 [rule_id={rule_id}, applies_to={applies_to_str}, "
+                    f"cost_type={cost_type}, reversibility={reversibility}]: {rule_text}"
                 )
-                mechanism_desc = f"绑定世界规则 {rule_id} (applies_to={applies_to_str}, reversibility={reversibility}, 升级为阻断)"
+                mechanism_desc = f"绑定世界规则 {rule_id} (applies_to={applies_to_str}, cost_type={cost_type}, reversibility={reversibility}, 升级为阻断)"
             else:
                 violated_rule_str = "已付代价应持续传播或需对应代价恢复"
                 mechanism_desc = "未声明硬规则（质量信号）"
@@ -610,7 +737,8 @@ def detect_group_consequence_unpropagated(objects: list) -> list[ReviewIssue]:
     for f in institutional_facts:
         f_entities = _fact_entity_set(f, registry)
         for pu in plotunits:
-            if not _is_fact_established_before_or_at(f, pu, objects):
+            timeline_res = resolve_narrative_timeline(f, pu, objects)
+            if timeline_res.established is False or timeline_res.status == "unreviewable":
                 continue
             text = _plotunit_text(pu)
             if not text:

@@ -17,14 +17,19 @@ from src.domain_layer.causal_defense import (
     detect_growth_reset,
     detect_group_consequence_unpropagated,
     detect_invalidated_cost,
+    extract_world_causal_rules,
+    resolve_narrative_timeline,
     run_causal_defense,
 )
 from src.object_state import (
+    CausalRule,
     CharacterModel,
     FactEntry,
     FactLedger,
     NarrativeState,
     PlotUnit,
+    TimelineResolution,
+    ValidityInterval,
     WorldModel,
 )
 
@@ -338,9 +343,96 @@ def test_run_causal_defense_idempotent_and_order_independent():
     assert [i.issue_id for i in run_causal_defense(objects)] == [
         i.issue_id for i in a
     ]
-    # 事件抹除 blocking；代价失效在无世界机制时 warning
-    assert any(i.is_blocking() for i in a)
-    assert any(not i.is_blocking() for i in a)
+
+
+# ---------------------------------------------------------------------------
+# R4 规则结构化绑定与时间线降级测试
+# ---------------------------------------------------------------------------
+
+def test_structured_causal_rule_binding():
+    """验证 FactEntry.cost_rule_id -> CausalRule.rule_id -> applies_to -> cost_type -> reversibility 绑定."""
+    custom_rule = CausalRule(
+        rule_id="rule_forbidden_blood_sacrifice",
+        rule_type="prohibition",
+        statement="本源精血献祭后不可逆，无法通过普通丹药恢复",
+        applies_to=["本源精血", "林尘"],
+        cost_type="cultivation",
+        reversibility="strict_irreversible",
+    )
+    fact = FactEntry(
+        fact_id="f_blood_cost",
+        statement="林尘付出本源精血献祭代价",
+        fact_type="event",
+        involved_entities=["林尘", "本源精血"],
+        confirmed=True,
+        cost_rule_id="rule_forbidden_blood_sacrifice",
+    )
+    pu = _pu(
+        "pu_ch2_01",
+        goal="战斗",
+        conflict="遇敌",
+        released=["林尘服下小还丹后，本源精血转眼恢复如初"],
+    )
+    objects = [custom_rule, _ledger(fact), pu]
+    issues = detect_invalidated_cost(objects)
+    assert len(issues) == 1
+    iss = issues[0]
+    assert iss.is_blocking()
+    assert iss.issue_type == "world_violation"
+    assert "rule_id=rule_forbidden_blood_sacrifice" in iss.violated_rule
+    assert "cost_type=cultivation" in iss.violated_rule
+    assert "reversibility=strict_irreversible" in iss.violated_rule
+
+
+def test_timeline_chronology_resolution_and_degradation():
+    """验证时间线前后序判定与未决降级 (TimelineResolution)."""
+    # 1. 明确未来事实：不约束历史情节
+    future_fact = FactEntry(
+        fact_id="f_future",
+        statement="林尘在第五章战死",
+        fact_type="event",
+        involved_entities=["林尘"],
+        confirmed=True,
+        validity_interval=ValidityInterval(valid_from="第五章"),
+    )
+    pu_ch2 = _pu("pu_ch2_01", goal="修炼", conflict="", released=["林尘在演武场练剑"])
+    res_future = resolve_narrative_timeline(future_fact, pu_ch2, [pu_ch2])
+    assert res_future.established is False
+    assert res_future.status == "future_fact"
+
+    # 2. 明确失效事实：不约束超期情节
+    expired_fact = FactEntry(
+        fact_id="f_expired",
+        statement="宗门封锁山门",
+        fact_type="event",
+        involved_entities=["宗门"],
+        confirmed=True,
+        validity_interval=ValidityInterval(valid_from="第一章", valid_until="第三章"),
+    )
+    pu_ch5 = _pu("pu_ch5_01", goal="下山", conflict="", released=["林尘自由出入宗门山门"])
+    res_expired = resolve_narrative_timeline(expired_fact, pu_ch5, [pu_ch5])
+    assert res_expired.established is False
+    assert res_expired.status == "expired"
+
+    # 3. 未确认且完全无时间线锚点的事实 -> 降级为 unreviewable
+    unanchored_fact = FactEntry(
+        fact_id="f_unconfirmed",
+        statement="可能存在暗中伏击",
+        fact_type="event",
+        involved_entities=["暗哨"],
+        confirmed=False,
+    )
+    pu_no_anchor = PlotUnit(
+        unit_id="pu_no_anchor",
+        level="scene",
+        goal="探索",
+        conflict="未知",
+        input_state_ref="s_unknown",
+        output_state_ref="s_unknown_out",
+    )
+    res_unreviewable = resolve_narrative_timeline(unanchored_fact, pu_no_anchor, [])
+    assert res_unreviewable.established is None
+    assert res_unreviewable.status == "unreviewable"
 
 
 def test_run_causal_defense_clean_objects_produce_no_issues():

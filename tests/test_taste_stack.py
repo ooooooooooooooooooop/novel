@@ -165,17 +165,37 @@ class TestUnifiedQualityReportEvidenceAggregation:
         assert report.layer3_blind_eval.wilson_ci_95[1] <= 1.0
 
     def test_reader_gate_pass_and_block_integration(self, tmp_path):
-        """Reader Gate 结果真实映射到 Layer 1."""
+        """Reader Gate 结果真实映射到 Layer 1，并强制核验 run_manifest.json."""
+        import hashlib
+
+        # 0. 无 manifest 时严格为 invalid_evidence
+        gate_unverified = {"route": "pass", "issues": []}
+        (tmp_path / "reader_gate_report.json").write_text(json.dumps(gate_unverified), encoding="utf-8")
+        report_unverified = build_unified_quality_report("测试作", output_dir=tmp_path)
+        assert report_unverified.layer1_hard_gates.status == "invalid_evidence"
+
         # 1. Block 情况
         gate_block = {
             "route": "block",
+            "chapter_ref": "chapter_1",
             "reasons": ["因果防线：死亡后无因活跃"],
             "issues": [{"severity": "blocking", "description": "角色死而复生"}],
             "axes_armed": {"causal_defense": True},
         }
-        (tmp_path / "reader_gate_report.json").write_text(
-            json.dumps(gate_block), encoding="utf-8"
-        )
+        gate_block_file = tmp_path / "reader_gate_report.json"
+        gate_block_file.write_text(json.dumps(gate_block, ensure_ascii=False), encoding="utf-8")
+        gate_sha = hashlib.sha256(gate_block_file.read_bytes()).hexdigest()
+
+        manifest_block = {
+            "run_id": "run_01",
+            "status": "committed",
+            "chapter_ref": "chapter_1",
+            "artifacts": {
+                "reader_gate_report.json": gate_sha,
+            },
+        }
+        (tmp_path / "run_manifest.json").write_text(json.dumps(manifest_block), encoding="utf-8")
+
         report = build_unified_quality_report("测试作", output_dir=tmp_path)
         assert report.layer1_hard_gates.status == "blocked"
         assert report.layer1_hard_gates.blocking_issues_count == 1
@@ -183,13 +203,25 @@ class TestUnifiedQualityReportEvidenceAggregation:
         # 2. Pass 情况
         gate_pass = {
             "route": "pass",
+            "chapter_ref": "chapter_1",
             "reasons": [],
             "issues": [],
             "axes_armed": {"fact_consistency": True, "temporal_consistency": True},
         }
-        (tmp_path / "reader_gate_report.json").write_text(
-            json.dumps(gate_pass), encoding="utf-8"
-        )
+        gate_pass_file = tmp_path / "reader_gate_report.json"
+        gate_pass_file.write_text(json.dumps(gate_pass, ensure_ascii=False), encoding="utf-8")
+        gate_pass_sha = hashlib.sha256(gate_pass_file.read_bytes()).hexdigest()
+
+        manifest_pass = {
+            "run_id": "run_01",
+            "status": "committed",
+            "chapter_ref": "chapter_1",
+            "artifacts": {
+                "reader_gate_report.json": gate_pass_sha,
+            },
+        }
+        (tmp_path / "run_manifest.json").write_text(json.dumps(manifest_pass), encoding="utf-8")
+
         report_pass = build_unified_quality_report("测试作", output_dir=tmp_path)
         assert report_pass.layer1_hard_gates.status == "passed"
         assert report_pass.layer1_hard_gates.blocking_issues_count == 0

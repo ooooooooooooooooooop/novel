@@ -410,3 +410,110 @@ class TestStructuralSearchEngine:
         assert state.model_dump_json() == initial_state_json
         assert not (tmp_path / "structural_search_record.json").exists()
         assert result.selected_proposal_id in ("p1", "p2")
+
+    def test_rollout_transitions_and_snapshots_evolution(self):
+        state, objects, workspec = _make_sample_state()
+        prop = StructuralProposal(
+            proposal_id="p_evolve",
+            primary_actor="林尘",
+            core_choice="破而后立推演古经",
+            resistance_source="经脉残损",
+            cost="承受神魂撕裂之痛",
+            state_change="开辟第二气海",
+            relationship_change="与护法长老建立秘密同盟",
+            information_reveal="获知上古宗门旧址",
+        )
+        rollout = clone_and_rollout_planner(prop, state, objects, steps=3, workspec=workspec)
+
+        assert rollout.initial_snapshot is not None
+        assert rollout.initial_snapshot.step_index == 0
+        assert rollout.final_snapshot is not None
+        assert rollout.final_snapshot.step_index == 3
+        assert len(rollout.transitions) == 3
+
+        # 校验第一步转移增量
+        t1 = rollout.transitions[0]
+        assert t1.from_snapshot.step_index == 0
+        assert t1.to_snapshot.step_index == 1
+        assert t1.delta.step_from == 0
+        assert t1.delta.step_to == 1
+        assert "开辟第二气海" in t1.delta.situation_delta
+
+    def test_search_tie_break_certified_vs_unqualified(self):
+        from src.object_state.authormodel_v3 import (
+            AuthorModelV3,
+            AuthorPrincipleV3,
+            CrossWorkValidationResult,
+        )
+
+        state, objects, workspec = _make_sample_state()
+        proposals = [
+            StructuralProposal(
+                proposal_id="p_causal",
+                primary_actor="林尘",
+                core_choice="坚守因果与宗门规则正面答辩",
+                resistance_source="执法堂长老",
+                cost="承受法器重击付出重伤代价",
+                state_change="洗清嫌疑赢得道义威信",
+                chapter_function="蓄力",
+                summary="稳扎稳打坚守因果",
+            ),
+            StructuralProposal(
+                proposal_id="p_quick",
+                primary_actor="苏清雪",
+                core_choice="利用假死丹药金蝉脱壳潜逃避开执法堂",
+                resistance_source="封山大阵",
+                cost="失去宗门合法身份",
+                state_change="转入地下隐蔽活动",
+                chapter_function="危机",
+                reader_expectation_delta="期待地下暗线与宗门追捕",
+                summary="出人意料反常规破局",
+            ),
+        ]
+
+        engine = StructuralSearchEngine(rollout_steps=3)
+
+        # 1. 未认证作者模型 -> unqualified_tie_break, selection_underdetermined=True
+        unauth_model = AuthorModelV3(author_id="unauth_01")
+        res_unauth = engine.search_and_evaluate(
+            proposals,
+            state,
+            objects,
+            author_model=unauth_model,
+            qualification_report=None,
+        )
+        assert res_unauth.selection_underdetermined is True
+        assert res_unauth.tie_break_method == "unqualified_tie_break"
+
+        # 2. 已通过 L1WO 资格认证的作者模型 -> certified_author_prior, selection_underdetermined=False
+        cert_model = AuthorModelV3(
+            author_id="cert_01",
+            principles=[
+                AuthorPrincipleV3(
+                    principle_id="ap_01",
+                    statement="坚持因果承载重于情节便捷",
+                    value_vocab_key="character_causality_over_plot_convenience",
+                    confidence=0.9,
+                    status="stable",
+                )
+            ],
+        )
+        cert_report = CrossWorkValidationResult(
+            author_id="cert_01",
+            holdout_work="作品B",
+            training_works=["作品A"],
+            choice_prediction_accuracy=0.85,
+            baseline_accuracy=0.5,
+            lexical_leakage_detected=False,
+            is_valid_author_prior=True,
+        )
+        res_cert = engine.search_and_evaluate(
+            proposals,
+            state,
+            objects,
+            author_model=cert_model,
+            qualification_report=cert_report,
+        )
+        assert res_cert.selection_underdetermined is False
+        assert res_cert.tie_break_method == "certified_author_prior"
+

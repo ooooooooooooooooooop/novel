@@ -139,20 +139,53 @@ def evaluate_human_submissions(
     submissions: list[HumanEvaluationSubmission],
     secret_manifest: dict[str, str],
 ) -> dict:
-    """揭盲并聚合真实读者提交（严格读者去重、偏好分布、按版本独立统计追读率与弃读位置）."""
+    """揭盲并聚合真实读者提交（严格验证包一致性、杜绝未知标签、读者去重、按版本独立统计追读率与弃读位置）."""
     if not submissions:
         return {
             "status": "no_submissions",
             "total_readers": 0,
             "preference_distribution": {},
             "continuation_rate_by_version": {},
-            "abandonment_by_version": {},
+            "abandonment_counts_by_version": {},
             "abandonment_points": [],
         }
 
-    # 读者去重（同一读者保留最新提交，防止刷票）
+    # 1. 严格校验 submission 属性与 packet_id 一致性
+    seen_submissions: set[str] = set()
     seen_readers: set[str] = set()
     deduped_submissions: list[HumanEvaluationSubmission] = []
+
+    for sub in submissions:
+        if sub.submission_id in seen_submissions:
+            raise ValueError(f"Duplicate submission_id detected: {sub.submission_id}")
+        seen_submissions.add(sub.submission_id)
+
+        if sub.packet_id != packet.packet_id:
+            raise ValueError(
+                f"Packet ID mismatch: submission {sub.submission_id} has packet_id '{sub.packet_id}' "
+                f"but expected '{packet.packet_id}'"
+            )
+
+        # 校验 preferred_version 必须在 secret_manifest 或为 no_difference
+        if sub.preferred_version != "no_difference" and sub.preferred_version not in secret_manifest:
+            raise ValueError(
+                f"Invalid preferred_version '{sub.preferred_version}' in submission {sub.submission_id}: "
+                f"not found in blinded packet manifest"
+            )
+
+        # 校验各版本指标键合法性
+        for blind_k in sub.continuation_willingness_by_version:
+            if blind_k not in secret_manifest:
+                raise ValueError(
+                    f"Unknown blind version '{blind_k}' in continuation_willingness_by_version"
+                )
+        for blind_k in sub.abandonment_by_version:
+            if blind_k not in secret_manifest:
+                raise ValueError(
+                    f"Unknown blind version '{blind_k}' in abandonment_by_version"
+                )
+
+    # 读者去重（同一读者保留最新提交，防止刷票）
     for sub in reversed(submissions):
         if sub.reader_id not in seen_readers:
             seen_readers.add(sub.reader_id)
@@ -167,17 +200,17 @@ def evaluate_human_submissions(
     abandonments: list[dict] = []
 
     for sub in deduped_submissions:
-        # 解析真实版本
+        # 解析真实版本（杜绝 fallback）
         if sub.preferred_version == "no_difference":
             real_winner = "no_difference"
         else:
-            real_winner = secret_manifest.get(sub.preferred_version, sub.preferred_version)
+            real_winner = secret_manifest[sub.preferred_version]
 
         pref_counts[real_winner] = pref_counts.get(real_winner, 0) + 1
 
         # 1. 独立按版本追读统计
         for blind_k, will_continue in sub.continuation_willingness_by_version.items():
-            real_k = secret_manifest.get(blind_k, blind_k)
+            real_k = secret_manifest[blind_k]
             if will_continue:
                 continuation_counts[real_k] = continuation_counts.get(real_k, 0) + 1
 
@@ -188,7 +221,7 @@ def evaluate_human_submissions(
         # 2. 独立按版本弃读统计
         for blind_k, ab_ch in sub.abandonment_by_version.items():
             if ab_ch is not None:
-                real_k = secret_manifest.get(blind_k, blind_k)
+                real_k = secret_manifest[blind_k]
                 abandonment_counts_by_version[real_k] = abandonment_counts_by_version.get(real_k, 0) + 1
                 reason = sub.abandonment_reasons_by_version.get(blind_k) or "未指明"
                 abandonments.append(
@@ -365,10 +398,14 @@ def inspect_long_horizon_preconditions(
             if len(valid_readers) >= 10:
                 status.real_human_continuous_reading_data_exists = True
 
-    # 9. Provider 档案与预算硬上限冻结
+    # 9. Provider 档案与预算硬上限冻结（必须为真实 provider_profiles.json / canary_policy_*.json，杜绝 run_manifest 兜底）
     prov_p = w_dir / "provider_profiles.json"
     if not prov_p.exists():
-        candidates = list(w_dir.glob("**/provider_profiles.json")) + list(w_dir.glob("**/run_manifest.json"))
+        candidates = (
+            list(w_dir.glob("**/provider_profiles.json"))
+            + list(w_dir.glob("**/provider_profile_*.json"))
+            + list(w_dir.glob("**/canary_policy_*.json"))
+        )
         if candidates:
             prov_p = candidates[0]
     if prov_p.exists():
@@ -376,10 +413,15 @@ def inspect_long_horizon_preconditions(
         if pv_err is None and isinstance(pv_data, dict):
             status.provider_profile_and_budget_frozen = True
 
-    # 10. 历史发布证据
+    # 10. 历史发布证据（必须为真实 release_record.json / *-release.json，杜绝 run_manifest 兜底）
     rel_p = w_dir / "release_record.json"
     if not rel_p.exists():
-        candidates = list(w_dir.glob("**/release_record.json")) + list(w_dir.glob("**/run_manifest.json"))
+        candidates = (
+            list(w_dir.glob("**/release_record.json"))
+            + list(w_dir.glob("**/*-release.json"))
+            + list(w_dir.glob("**/tier0-release.json"))
+            + list(w_dir.glob("**/q1-release.json"))
+        )
         if candidates:
             rel_p = candidates[0]
     if rel_p.exists():

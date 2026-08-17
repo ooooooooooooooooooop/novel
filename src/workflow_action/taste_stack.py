@@ -83,31 +83,54 @@ def _extract_layer1_evidence(output_dir: Optional[Path]) -> Layer1HardGatesSumma
             errors=[err or "invalid payload shape"],
         )
 
-    # 检查 run_manifest.json 并核对不可变身份
+    # 检查 run_manifest.json 并核对不可变身份（强制要求已提交 manifest，杜绝孤立门禁报告作弊）
     manifest_path = output_dir / "run_manifest.json"
     if not manifest_path.exists():
         candidates = list(output_dir.glob("**/run_manifest.json"))
         if candidates:
             manifest_path = candidates[0]
 
-    evidence_hashes = {str(gate_report_path): _sha256_path(gate_report_path)}
+    if not manifest_path.exists():
+        return Layer1HardGatesSummary(
+            status="invalid_evidence",
+            evidence_paths=[str(gate_report_path)],
+            evidence_hashes={str(gate_report_path): _sha256_path(gate_report_path)},
+            errors=["missing run_manifest.json: reader gate evidence is uncommitted and unverified"],
+        )
+
+    gate_sha = _sha256_path(gate_report_path)
+    evidence_hashes = {
+        str(gate_report_path): gate_sha,
+        str(manifest_path): _sha256_path(manifest_path),
+    }
     manifest_errors: list[str] = []
-    if manifest_path.exists():
-        evidence_hashes[str(manifest_path)] = _sha256_path(manifest_path)
-        m_data, m_err = _safe_read_json(manifest_path)
-        if m_err is not None or not isinstance(m_data, dict):
-            manifest_errors.append(f"manifest corrupted: {m_err}")
-        else:
-            m_status = m_data.get("status")
-            if m_status != "committed":
-                manifest_errors.append(f"manifest status is '{m_status}', not 'committed'")
-            gate_ch = data.get("chapter_ref")
-            m_ch = m_data.get("chapter_ref")
-            if gate_ch and m_ch and gate_ch != m_ch:
-                manifest_errors.append(f"chapter_ref mismatch: gate ({gate_ch}) vs manifest ({m_ch})")
+    m_data, m_err = _safe_read_json(manifest_path)
+    if m_err is not None or not isinstance(m_data, dict):
+        manifest_errors.append(f"manifest corrupted: {m_err}")
+    else:
+        m_status = m_data.get("status")
+        if m_status != "committed":
+            manifest_errors.append(f"manifest status is '{m_status}', not 'committed'")
+        gate_ch = data.get("chapter_ref")
+        m_ch = m_data.get("chapter_ref")
+        if gate_ch and m_ch and gate_ch != m_ch:
+            manifest_errors.append(f"chapter_ref mismatch: gate ({gate_ch}) vs manifest ({m_ch})")
+
+        # 校验 reader_gate_report.json 是否记录在 manifest.artifacts 且哈希吻合
+        m_artifacts = m_data.get("artifacts", {})
+        matched_artifact_sha = None
+        for art_k, art_sha in m_artifacts.items():
+            if art_k.endswith("reader_gate_report.json"):
+                matched_artifact_sha = art_sha
+                break
+        if matched_artifact_sha is None:
+            manifest_errors.append("reader_gate_report.json not registered in manifest.artifacts")
+        elif matched_artifact_sha != gate_sha:
+            manifest_errors.append(
+                f"reader_gate_report hash mismatch: disk ({gate_sha}) vs manifest ({matched_artifact_sha})"
+            )
 
     route = data.get("route", "")
-    reasons = data.get("reasons", [])
     issues = data.get("issues", [])
     axes_armed = data.get("axes_armed", {})
 
@@ -115,7 +138,7 @@ def _extract_layer1_evidence(output_dir: Optional[Path]) -> Layer1HardGatesSumma
     blocking_count = len(blocking_issues)
 
     if manifest_errors:
-        status = "invalid_evidence" if any("corrupted" in e or "mismatch" in e for e in manifest_errors) else "blocked"
+        status = "invalid_evidence"
     else:
         status = "passed" if route == "pass" and blocking_count == 0 else "blocked"
 
@@ -127,7 +150,7 @@ def _extract_layer1_evidence(output_dir: Optional[Path]) -> Layer1HardGatesSumma
         blocking_issues_count=blocking_count,
         blocking_issues_details=blocking_issues,
         evidence_count=len(axes_armed) if axes_armed else 1,
-        evidence_paths=[str(gate_report_path)] + ([str(manifest_path)] if manifest_path.exists() else []),
+        evidence_paths=[str(gate_report_path), str(manifest_path)],
         evidence_hashes=evidence_hashes,
         errors=manifest_errors,
     )

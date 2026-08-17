@@ -65,7 +65,9 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 # → 2903 + 18 = 2921。
 # R0-R9 终审整改核心契约锁定（test_remediation_core_verification.py,+12：Orchestration事务解耦/真实3-5步对象Rollout与多样性门禁拒绝兜底/TasteStack不可变身份与算术守恒/因果防线世界规则绑定/AuthorModel原子写盘与StrictShadow/双盲N>=2混排脱敏与证据推导）
 # → 2921 + 12 = 2933。
-EXPECTED_TEST_BASELINE = "2933"
+# R0-R9 深度闭环（test_causal_defense.py结构化CausalRule与时间线未决降级,+2; test_human_eval.py严格提交验证与无run_manifest兜底,+4; test_mastery_canary_staged.py真实2章CLI Canary,+1）
+# → 2933 + 7 = 2940。
+EXPECTED_TEST_BASELINE = "2940"
 
 
 def run_script(*args: str) -> subprocess.CompletedProcess[str]:

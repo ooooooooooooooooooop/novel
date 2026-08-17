@@ -146,6 +146,56 @@ class TestHumanBlindEvalToolkit:
         assert result["abandonment_counts_by_version"]["human_original"] == 2
         assert len(result["abandonment_points"]) == 3
 
+    def test_evaluate_human_submissions_strict_validation(self):
+        packet = BlindedChapterPacket(
+            packet_id="packet_test_valid",
+            novel_name="万物伏藏",
+            chapter_range="1-2",
+            blinded_versions={"cand_alpha": [], "cand_beta": []},
+            secret_manifest_hash="dummy_hash",
+        )
+        secret_manifest = {"cand_alpha": "v1", "cand_beta": "v2"}
+
+        # 1. 重复 submission_id
+        sub_dup1 = HumanEvaluationSubmission(
+            submission_id="sub_dup",
+            packet_id="packet_test_valid",
+            reader_id="r1",
+            reader_group="veteran_reader",
+            preferred_version="cand_alpha",
+        )
+        sub_dup2 = HumanEvaluationSubmission(
+            submission_id="sub_dup",
+            packet_id="packet_test_valid",
+            reader_id="r2",
+            reader_group="veteran_reader",
+            preferred_version="cand_beta",
+        )
+        with pytest.raises(ValueError, match="Duplicate submission_id detected"):
+            evaluate_human_submissions(packet, [sub_dup1, sub_dup2], secret_manifest)
+
+        # 2. packet_id 不匹配
+        sub_mismatch = HumanEvaluationSubmission(
+            submission_id="sub_mis",
+            packet_id="packet_wrong_id",
+            reader_id="r1",
+            reader_group="veteran_reader",
+            preferred_version="cand_alpha",
+        )
+        with pytest.raises(ValueError, match="Packet ID mismatch"):
+            evaluate_human_submissions(packet, [sub_mismatch], secret_manifest)
+
+        # 3. 未知版本代号（杜绝 fallback）
+        sub_unknown = HumanEvaluationSubmission(
+            submission_id="sub_unk",
+            packet_id="packet_test_valid",
+            reader_id="r1",
+            reader_group="veteran_reader",
+            preferred_version="cand_gamma_unregistered",
+        )
+        with pytest.raises(ValueError, match="not found in blinded packet manifest"):
+            evaluate_human_submissions(packet, [sub_unknown], secret_manifest)
+
 
 class TestLongHorizonAuthorization:
     def test_default_status_strictly_rejects_authorization_due_to_missing_human_data(self):
@@ -196,3 +246,17 @@ class TestLongHorizonAuthorization:
         verdict = evaluate_long_horizon_authorization(status)
         assert verdict.verdict == "long_run_not_authorized"
         assert "P1 长程因果防线未完全闭环" in verdict.unmet_preconditions
+
+    def test_inspect_preconditions_no_run_manifest_fallback_for_p9_p10(self, tmp_path):
+        # 仅有 run_manifest.json，没有真实 provider_profiles 或 release_record
+        manifest = {
+            "status": "committed",
+            "run_id": "run_001",
+            "artifacts": {},
+        }
+        (tmp_path / "run_manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+
+        status = inspect_long_horizon_preconditions(tmp_path)
+        # P9 与 P10 绝不能因为存在 run_manifest.json 就被误判为 True
+        assert status.provider_profile_and_budget_frozen is False
+        assert status.historical_release_records_intact is False

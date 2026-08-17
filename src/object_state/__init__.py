@@ -30,9 +30,12 @@ from .autonomous import (
 )
 from .causal_compiler import (
     CausalDerivation,
-    CausalRule,
     CostPropagationAuditReport,
     RuleDeletionAuditReport,
+)
+from .causal_defense import (
+    CausalRule,
+    TimelineResolution,
 )
 from .character_policy import (
     CharacterActionProposal,

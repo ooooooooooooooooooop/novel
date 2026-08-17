@@ -121,6 +121,60 @@ class RolloutStep(BaseModel):
     notes: list[str] = Field(default_factory=list)
 
 
+class RolloutStateSnapshot(BaseModel):
+    """第 k 步状态演化快照 (用于多步真实对象级仿真)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    step_index: int = Field(ge=0, description="推演步 (0 为初始状态)")
+    state_id: str = Field(description="快照状态 ID")
+    current_situation: str = Field(description="当前局势与环境")
+    open_questions: list[str] = Field(default_factory=list, description="当前未决疑问")
+    active_conflicts: list[str] = Field(default_factory=list, description="活跃冲突")
+    active_threads: list[str] = Field(default_factory=list, description="活跃伏笔线索")
+    character_pressures: dict[str, list[str]] = Field(
+        default_factory=dict, description="各角色承受压力清单"
+    )
+    facts_count: int = Field(default=0, description="已确认事实数")
+    prohibitions_checked: list[str] = Field(
+        default_factory=list, description="已核验的世界禁忌"
+    )
+
+
+class RolloutDelta(BaseModel):
+    """第 k -> k+1 步的状态演化增量."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    step_from: int = Field(ge=0, description="起始步")
+    step_to: int = Field(ge=1, description="目标步")
+    situation_delta: str = Field(description="局势推进增量")
+    pressure_deltas: dict[str, list[str]] = Field(
+        default_factory=dict, description="角色压力变化"
+    )
+    relationship_shifts: list[str] = Field(
+        default_factory=list, description="关系演变"
+    )
+    new_facts_count: int = Field(default=0, description="新增事实数")
+    foreshadow_advancements: list[str] = Field(
+        default_factory=list, description="伏笔推进或照应"
+    )
+    rule_violations: list[str] = Field(
+        default_factory=list, description="规则违规判定"
+    )
+
+
+class RolloutTransition(BaseModel):
+    """多步演化转移记录."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    from_snapshot: RolloutStateSnapshot
+    delta: RolloutDelta
+    to_snapshot: RolloutStateSnapshot
+    step_metrics: RolloutStep
+
+
 class RolloutEvaluation(BaseModel):
     """3-5 章短程状态 Rollout 综合评估."""
 
@@ -128,6 +182,15 @@ class RolloutEvaluation(BaseModel):
 
     proposal_id: str
     steps: list[RolloutStep] = Field(default_factory=list, description="3-5 章状态演化步")
+    transitions: list[RolloutTransition] = Field(
+        default_factory=list, description="各步状态转移记录 (包含快照与增量)"
+    )
+    initial_snapshot: Optional[RolloutStateSnapshot] = Field(
+        default=None, description="初始状态快照"
+    )
+    final_snapshot: Optional[RolloutStateSnapshot] = Field(
+        default=None, description="推演终止状态快照"
+    )
     overall_sustainability: float = Field(
         ge=0, le=1, description="3-5 章综合可持续性得分"
     )
@@ -203,4 +266,11 @@ class StructuralSearchResult(BaseModel):
     selection_rationale: str
     incomparable_candidates_preserved: list[str] = Field(
         default_factory=list, description="帕累托前沿中独立保留的其他非支配候选"
+    )
+    selection_underdetermined: bool = Field(
+        default=False, description="帕累托前沿存在多解且未经合法资格化作者模型仲裁"
+    )
+    tie_break_method: str = Field(
+        default="pareto_dominance",
+        description="选定依据: pareto_dominance | certified_author_prior | pareto_sustainability | unqualified_tie_break",
     )

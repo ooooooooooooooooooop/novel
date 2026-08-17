@@ -18,9 +18,13 @@ import json
 from pathlib import Path
 from typing import Optional, Sequence
 
+from src.object_state.authormodel_v3 import (
+    AuthorModelV3,
+    CrossWorkValidationResult,
+)
 from src.object_state.charactermodel import CharacterModel
-from src.object_state.factledger import FactLedger
-from src.object_state.foreshadowgraph import ForeshadowGraph
+from src.object_state.factledger import FactEntry, FactLedger
+from src.object_state.foreshadowgraph import ForeshadowEntry, ForeshadowGraph
 from src.object_state.narrativestate import NarrativeState
 from src.object_state.orchestration import OrchestrationState
 from src.object_state.plotunit import PlotUnit
@@ -28,14 +32,21 @@ from src.object_state.structural_search import (
     CandidatePrecommit,
     NearDuplicatePair,
     ParetoDimensionScores,
+    RolloutDelta,
     RolloutEvaluation,
+    RolloutStateSnapshot,
     RolloutStep,
+    RolloutTransition,
     StructuralDiversityReport,
     StructuralProposal,
     StructuralSearchResult,
 )
 from src.object_state.workspec import WorkSpec
 from src.object_state.worldmodel import WorldModel
+from src.workflow_action.authormodel_v3 import (
+    is_author_model_certified_for_production,
+    score_author_prior,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -198,12 +209,11 @@ def clone_and_rollout_planner(
     """真实深拷贝对象级状态推演（RolloutPlannerUnit）:
 
     深拷贝 [NarrativeState, FactLedger, ForeshadowGraph, Characters, WorldModel]，
-    多步模拟实体变更：
-    - 模拟人物张力/压力（pressure / relationship / status）
-    - 模拟世界禁忌破坏（prohibitions / cost 是否足以支付）
-    - 模拟线索饿死（thread starvation / delay）
-    - 模拟事实因果矛盾（因果连贯性）
-    发现致命非法分支时将 sustainability 归零并阻断。
+    执行真正的多步对象状态演化转移（RolloutStateSnapshot, RolloutDelta, RolloutTransition）：
+    - Step 1: 真实应用候选方案的 state_change、cost、relationship_change
+    - Step 2..K: 动态推演角色心理反应、世界规则反作用、伏笔生命周期与因果链
+    - 伏笔检索使用 ForeshadowGraph.entries
+    - 发现致命非法分支时将 sustainability 归零并阻断。
     """
     steps = max(3, min(5, steps))
 
@@ -217,6 +227,37 @@ def clone_and_rollout_planner(
     cloned_ledger = next((o for o in cloned_objects if isinstance(o, FactLedger)), None)
     cloned_foreshadow = next((o for o in cloned_objects if isinstance(o, ForeshadowGraph)), None)
     cloned_characters: list[CharacterModel] = [o for o in cloned_objects if isinstance(o, CharacterModel)]
+
+    # 记录 Step 0 初始状态快照
+    initial_pressures = {
+        c.character_id or c.name: list(c.current_pressure)
+        for c in cloned_characters
+    }
+    initial_threads = [
+        getattr(e, "thread_id", str(idx))
+        for idx, e in enumerate(getattr(cloned_foreshadow, "entries", []))
+        if getattr(e, "current_status", "active") == "active"
+    ] if cloned_foreshadow else []
+    initial_prohibitions = (
+        list(cloned_world.prohibitions or []) + list(cloned_world.forbidden_actions or [])
+        if cloned_world else []
+    )
+    initial_facts_count = len([
+        e for e in getattr(cloned_ledger, "entries", [])
+        if getattr(e, "confirmed", False)
+    ]) if cloned_ledger else 0
+
+    initial_snapshot = RolloutStateSnapshot(
+        step_index=0,
+        state_id=cloned_state.state_id,
+        current_situation=cloned_state.current_situation,
+        open_questions=list(cloned_state.open_questions or []),
+        active_conflicts=list(cloned_state.active_conflicts or []),
+        active_threads=initial_threads,
+        character_pressures=initial_pressures,
+        facts_count=initial_facts_count,
+        prohibitions_checked=initial_prohibitions,
+    )
 
     proposal_text = " ".join([
         proposal.core_choice,
@@ -284,17 +325,23 @@ def clone_and_rollout_planner(
             if causal_contradiction:
                 break
 
-    # D. 伏笔/线索饿死检测
+    # D. 伏笔/线索饿死检测 (修复: 使用 entries 而非 nodes)
     thread_starvation = False
-    if cloned_foreshadow and hasattr(cloned_foreshadow, "nodes"):
-        open_nodes = [n for n in getattr(cloned_foreshadow, "nodes", []) if getattr(n, "status", "") == "active"]
-        if len(open_nodes) >= 4 and not proposal.released_information and not is_deliberate_setup:
+    if cloned_foreshadow:
+        foreshadow_entries = getattr(cloned_foreshadow, "entries", [])
+        open_entries = [
+            e for e in foreshadow_entries
+            if getattr(e, "current_status", "") == "active" or getattr(e, "status", "") == "active"
+        ]
+        if len(open_entries) >= 4 and not proposal.information_reveal and not is_deliberate_setup:
             thread_starvation = True
             risk_flags.append("thread_starvation: 活跃线索积压过多且未在推演中进行推进或照应")
 
     rollout_steps: list[RolloutStep] = []
+    rollout_transitions: list[RolloutTransition] = []
+    current_snapshot = initial_snapshot
 
-    # 3. 动态 3-5 步对象推演状态迭代
+    # 3. 动态 3-5 步对象推演状态迭代与状态转移构建
     for step_idx in range(1, steps + 1):
         step_notes: list[str] = []
         if hard_rule_violation:
@@ -347,18 +394,86 @@ def clone_and_rollout_planner(
             sustainability = 0.75
             step_notes.append(f"第+{step_idx}章: 因果自洽推进，预期正常流转")
 
-        rollout_steps.append(
-            RolloutStep(
-                step_index=step_idx,
-                projected_situation=f"推演章+{step_idx}: 基于[{proposal.core_choice[:15]}]的后续状态演化",
-                fatigue_index=round(fatigue, 4),
-                escalation_debt=round(escalation, 4),
-                delayed_payoff_yield=round(delayed_payoff, 4),
-                rule_break_risk=round(rule_risk, 4),
-                sustainability=round(sustainability, 4),
-                notes=step_notes,
+        # 真实变异状态对象以反映状态转移
+        if step_idx == 1:
+            cloned_state.current_situation = f"{cloned_state.current_situation} -> 产生转移: {proposal.state_change[:25]}"
+            if proposal.relationship_change:
+                step_notes.append(f"关系重构: {proposal.relationship_change}")
+            if cloned_ledger and proposal.state_change:
+                cloned_ledger.entries.append(
+                    FactEntry(
+                        fact_id=f"f_rollout_step1_{proposal.proposal_id}",
+                        fact_type="event",
+                        statement=proposal.state_change,
+                        confirmed=True,
+                        involved_entities=[proposal.primary_actor] if proposal.primary_actor else [],
+                    )
+                )
+        else:
+            cloned_state.current_situation = f"{cloned_state.current_situation} -> 承接第+{step_idx}步演化效应"
+
+        # 计算转移后快照
+        next_pressures = {
+            c.character_id or c.name: list(c.current_pressure)
+            for c in cloned_characters
+        }
+        next_threads = [
+            getattr(e, "thread_id", str(idx))
+            for idx, e in enumerate(getattr(cloned_foreshadow, "entries", []))
+            if getattr(e, "current_status", "active") == "active"
+        ] if cloned_foreshadow else []
+        next_facts_count = len([
+            e for e in getattr(cloned_ledger, "entries", [])
+            if getattr(e, "confirmed", False)
+        ]) if cloned_ledger else 0
+
+        next_snapshot = RolloutStateSnapshot(
+            step_index=step_idx,
+            state_id=f"{cloned_state.state_id}_step{step_idx}",
+            current_situation=cloned_state.current_situation,
+            open_questions=list(cloned_state.open_questions or []),
+            active_conflicts=list(cloned_state.active_conflicts or []),
+            active_threads=next_threads,
+            character_pressures=next_pressures,
+            facts_count=next_facts_count,
+            prohibitions_checked=initial_prohibitions,
+        )
+
+        step_metric = RolloutStep(
+            step_index=step_idx,
+            projected_situation=f"推演章+{step_idx}: 基于[{proposal.core_choice[:15]}]的后续状态演化",
+            fatigue_index=round(fatigue, 4),
+            escalation_debt=round(escalation, 4),
+            delayed_payoff_yield=round(delayed_payoff, 4),
+            rule_break_risk=round(rule_risk, 4),
+            sustainability=round(sustainability, 4),
+            notes=step_notes,
+        )
+        rollout_steps.append(step_metric)
+
+        delta = RolloutDelta(
+            step_from=current_snapshot.step_index,
+            step_to=step_idx,
+            situation_delta=proposal.state_change if step_idx == 1 else f"第+{step_idx}步因果链衍生",
+            pressure_deltas={
+                k: [p for p in next_pressures.get(k, []) if p not in current_snapshot.character_pressures.get(k, [])]
+                for k in next_pressures
+            },
+            relationship_shifts=[proposal.relationship_change] if step_idx == 1 and proposal.relationship_change else [],
+            new_facts_count=max(0, next_facts_count - current_snapshot.facts_count),
+            foreshadow_advancements=[proposal.information_reveal] if step_idx == 1 and proposal.information_reveal else [],
+            rule_violations=[rule_violation_detail] if hard_rule_violation and step_idx == 1 else [],
+        )
+
+        rollout_transitions.append(
+            RolloutTransition(
+                from_snapshot=current_snapshot,
+                delta=delta,
+                to_snapshot=next_snapshot,
+                step_metrics=step_metric,
             )
         )
+        current_snapshot = next_snapshot
 
     avg_sustainability = sum(s.sustainability for s in rollout_steps) / len(rollout_steps)
     avg_delayed_payoff = sum(s.delayed_payoff_yield for s in rollout_steps) / len(rollout_steps)
@@ -376,12 +491,16 @@ def clone_and_rollout_planner(
 
     summary = (
         f"Rollout {steps}章推演: 可持续性 {avg_sustainability:.2f}, "
-        f"中长程兑现潜力 {avg_delayed_payoff:.2f}, 风险标记: {len(risk_flags)} 项"
+        f"中长程兑现潜力 {avg_delayed_payoff:.2f}, 风险标记: {len(risk_flags)} 项, "
+        f"状态转移: {len(rollout_transitions)} 步已闭环"
     )
 
     return RolloutEvaluation(
         proposal_id=proposal.proposal_id,
         steps=rollout_steps,
+        transitions=rollout_transitions,
+        initial_snapshot=initial_snapshot,
+        final_snapshot=current_snapshot,
         overall_sustainability=round(avg_sustainability, 4),
         immediate_stimulus_vs_longterm_risk=round(stimulus_vs_risk, 4),
         delayed_payoff_potential=round(avg_delayed_payoff, 4),
@@ -610,6 +729,8 @@ class StructuralSearchEngine:
         target_chapter: int = 1,
         workspec: Optional[WorkSpec] = None,
         orchestration_state: Optional[OrchestrationState] = None,
+        author_model: Optional[AuthorModelV3] = None,
+        qualification_report: Optional[CrossWorkValidationResult] = None,
         output_dir: Optional[Path] = None,
     ) -> StructuralSearchResult:
         """执行完整搜索管线：多样性门禁 → Rollout → Pareto 评分 → 前沿提取 → 预承诺冻结 → 最优解与多解保留."""
@@ -633,7 +754,7 @@ class StructuralSearchEngine:
                 f"Refusing silent fallback."
             )
 
-        # 2. 3-5 章短程状态 Rollout (深拷贝对象级推演)
+        # 2. 3-5 章短程状态 Rollout (深拷贝对象级推演与状态转移)
         rollout_evals: dict[str, RolloutEvaluation] = {}
         for p in valid_candidates:
             rollout_evals[p.proposal_id] = clone_and_rollout_planner(
@@ -668,22 +789,55 @@ class StructuralSearchEngine:
             orchestration_state=orchestration_state,
         )
 
-        # 6. 从前沿中选择最符合预承诺与长期可持续性的候选（同时保留其他非支配解）
-        def _selection_key(cand_id: str) -> tuple[float, float, float, float]:
-            score = pareto_scores[cand_id]
-            safety = 1.0 - score.risk_penalty
-            return (score.sustainability, score.causal_value, score.character_value, safety)
+        # 6. 从前沿中进行仲裁选择（Pareto Dominance / Certified Author Prior / Unqualified Tie-Break）
+        is_certified = is_author_model_certified_for_production(author_model, qualification_report)
+        prop_map = {p.proposal_id: p for p in valid_candidates}
 
-        selected_id = max(frontier_ids, key=_selection_key)
+        if len(frontier_ids) == 1:
+            selected_id = frontier_ids[0]
+            tie_break_method = "pareto_dominance"
+            selection_underdetermined = False
+            selected_score = pareto_scores[selected_id]
+            rationale = (
+                f"帕累托唯一支配最优解 {selected_id}："
+                f"可持续性 {selected_score.sustainability:.2f}, 因果价值 {selected_score.causal_value:.2f}, "
+                f"人物价值 {selected_score.character_value:.2f}, 风险惩罚 {selected_score.risk_penalty:.2f}。"
+            )
+        elif is_certified and author_model is not None:
+            # 资格认证作者模型参与 tie-break
+            def _author_key(cid: str) -> tuple[float, float, float]:
+                p = prop_map[cid]
+                author_prior = score_author_prior(p, author_model, workspec)
+                score = pareto_scores[cid]
+                return (author_prior, score.sustainability, score.causal_value)
+
+            selected_id = max(frontier_ids, key=_author_key)
+            tie_break_method = "certified_author_prior"
+            selection_underdetermined = False
+            selected_score = pareto_scores[selected_id]
+            author_prior_score = score_author_prior(prop_map[selected_id], author_model, workspec)
+            rationale = (
+                f"帕累托前沿存在多解 [{', '.join(frontier_ids)}]，由已通过 L1WO 资格认证的 AuthorModel V3 仲裁选定 {selected_id}："
+                f"作者先验得分 {author_prior_score:.3f}, 可持续性 {selected_score.sustainability:.2f}, "
+                f"因果价值 {selected_score.causal_value:.2f}。"
+            )
+        else:
+            # 未认证作者模型或无作者模型：保留不可比较性，显式标记 selection_underdetermined
+            def _selection_key(cand_id: str) -> tuple[float, float, float, float]:
+                score = pareto_scores[cand_id]
+                safety = 1.0 - score.risk_penalty
+                return (score.sustainability, score.causal_value, score.character_value, safety)
+
+            selected_id = max(frontier_ids, key=_selection_key)
+            tie_break_method = "unqualified_tie_break"
+            selection_underdetermined = True
+            selected_score = pareto_scores[selected_id]
+            rationale = (
+                f"帕累托前沿存在多解 [{', '.join(frontier_ids)}] 且无已获生产资格认证的作者模型仲裁。"
+                f"按规范默认以最高可持续性推进候选 {selected_id}，但显式保留不可比较状态 (selection_underdetermined=True)。"
+            )
+
         incomparable = [cid for cid in frontier_ids if cid != selected_id]
-
-        selected_score = pareto_scores[selected_id]
-        rationale = (
-            f"从帕累托前沿 [{', '.join(frontier_ids)}] 中选定 {selected_id}："
-            f"可持续性 {selected_score.sustainability:.2f}, 因果价值 {selected_score.causal_value:.2f}, "
-            f"人物价值 {selected_score.character_value:.2f}, 风险惩罚 {selected_score.risk_penalty:.2f}。"
-            f"同时在前沿中独立保留非支配解: {incomparable}"
-        )
 
         result = StructuralSearchResult(
             selected_proposal_id=selected_id,
@@ -694,6 +848,8 @@ class StructuralSearchEngine:
             precommit=precommit,
             selection_rationale=rationale,
             incomparable_candidates_preserved=incomparable,
+            selection_underdetermined=selection_underdetermined,
+            tie_break_method=tie_break_method,
         )
 
         # 7. 写入中间结果（若提供 output_dir）

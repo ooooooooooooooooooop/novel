@@ -227,15 +227,26 @@ class TestRemediationFullPipelineIntegration:
         assert gate_res_c.route == "pass"
 
         # 提交合规第二章
+        import hashlib
         ch2_file = chapters_dir / "chapter_002.json"
         ch2_file.write_text(
             json.dumps({"chapter_num": 2, "title": "青竹退敌", "content": "他记得那座古堡当年被烧毁的惨状"}, ensure_ascii=False),
             encoding="utf-8",
         )
         gate_report = {"gate": "pass", "route": "pass", "chapter_number": 2, "issues": []}
-        (output_dir / "reader_gate_report.json").write_text(
-            json.dumps(gate_report, ensure_ascii=False, indent=2), encoding="utf-8"
-        )
+        gate_file = output_dir / "reader_gate_report.json"
+        gate_file.write_text(json.dumps(gate_report, ensure_ascii=False, indent=2), encoding="utf-8")
+        gate_sha = hashlib.sha256(gate_file.read_bytes()).hexdigest()
+
+        manifest_data = {
+            "run_id": "run_test_ch2",
+            "status": "committed",
+            "chapter_ref": "chapter_2",
+            "artifacts": {
+                "reader_gate_report.json": gate_sha,
+            },
+        }
+        (output_dir / "run_manifest.json").write_text(json.dumps(manifest_data), encoding="utf-8")
 
         # -------------------------------------------------------------------
         # 4. Hindsight & AuthorModel V3: 原则沉淀与持久化

@@ -15,6 +15,7 @@
 """
 
 import datetime
+import json
 from pathlib import Path
 from typing import Optional
 
@@ -416,9 +417,15 @@ def run_author_selection(
     structural_search_result: Optional[StructuralSearchResult] = None
     if structural_search_on:
         from src.workflow_action.structural_search import StructuralSearchEngine
+        from src.workflow_action.authormodel_v3 import (
+            load_author_model_v3,
+            load_qualification_report,
+        )
         props = packages_to_structural_proposals(packages, orchestration_state=orchestration_state)
         curr_state = next((o for o in objects if isinstance(o, NarrativeState)), NarrativeState())
         workspec = next((o for o in objects if isinstance(o, WorkSpec)), None)
+        author_model_v3 = load_author_model_v3(output_dir)
+        qual_report = load_qualification_report(output_dir)
         engine = StructuralSearchEngine(rollout_steps=3)
         structural_search_result = engine.search_and_evaluate(
             props,
@@ -427,6 +434,8 @@ def run_author_selection(
             target_chapter=chapter_number or 1,
             workspec=workspec,
             orchestration_state=orchestration_state,
+            author_model=author_model_v3,
+            qualification_report=qual_report,
             output_dir=output_dir,
         )
         print(f"\n[P3 结构搜索] 帕累托前沿: {structural_search_result.pareto_frontier}，推荐候选: {structural_search_result.selected_proposal_id}")

@@ -30,6 +30,7 @@ runtime/
 .debug_*
 .calibrate_real.log
 .full_suite*.txt
+.agent-broker/
 # 具体小说信息（标题/正文/工作区/证据源）一律不入 GitHub——GitHub 仅保留工具框架与风格库积累
 novels/*/
 !novels/tier0-*-canary/

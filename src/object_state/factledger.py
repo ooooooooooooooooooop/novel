@@ -75,6 +75,9 @@ class FactEntry(BaseModel):
     chronological_order: Optional[str] = Field(
         default=None, description="时间顺序标记, 如'发生于令牌转移之前'"
     )
+    cost_rule_id: Optional[str] = Field(
+        default=None, description="绑定的因果/代价规则 ID (CausalRule.rule_id)"
+    )
 
     @field_validator("fact_id", "statement")
     @classmethod
@@ -101,11 +104,11 @@ class FactEntry(BaseModel):
             raise ValueError(f"{info.field_name} entries must be non-empty")
         return values
 
-    @field_validator("chronological_order")
+    @field_validator("chronological_order", "cost_rule_id")
     @classmethod
-    def _optional_chrono_must_be_non_blank(cls, value: Optional[str]) -> Optional[str]:
+    def _optional_chrono_or_rule_must_be_non_blank(cls, value: Optional[str]) -> Optional[str]:
         if value is not None and not value.strip():
-            raise ValueError("chronological_order must be non-empty when provided")
+            raise ValueError("Optional string field must be non-empty when provided")
         return value
 
     def to_prompt_line(self) -> str:
