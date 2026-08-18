@@ -19,7 +19,7 @@ Three-flow daily-production hardening completed on 2026-07-29 (planning: `docs/0
 - operator runbook for all three flows: `docs/00_project/35_operator_runbook.md`
 - one-command regression gate: `python scripts/tier0_canary_regression.py` (exit 0 ⇒ three-flow baseline not regressed)
 - production-readiness re-certified on 2026-08-06 under a new immutable checkpoint `v0.1.2-tier0` (hardening stays inside the Tier 0 boundary; no tier upgrade)
-- **canary regression** (2026-08-06 fix): extend/compose canary workspaces previously lacked the Phase 5 serialization-package requirement (`31fc12a`) — no `extend_rebuild_package.json` / `compose_state.json`, so `novel gate` reported `ContinueUnit requires a serialization package` and the regression script reported FAIL for extend/compose. Those packages were regenerated and force-added; all three flows now report `ok=true / route=pass / blocking=0` and `python scripts/tier0_canary_regression.py` reports **PASS for all three flows** (verified 2026-08-10).
+- **canary regression** (2026-08-18 re-verification): extend/compose canary workspaces contain the Phase 5 serialization packages (`extend_rebuild_package.json` / `compose_state.json`); all three flows report `ok=true / route=pass / blocking=0`, and `python scripts/tier0_canary_regression.py` reports **PASS for all three flows**. Full-test baseline: **2951 passed + 1 skipped (2952 collected)**.
 
 The current acceptable production use is internal operator-in-the-loop production:
 
@@ -38,7 +38,7 @@ Tier 0 is ready only when all of these are true:
 - the runtime is still `local staged CLI v0`
 - one operator controls response materialization
 - the release candidate has a clean full pytest run
-- the release candidate records `2952 tests passing`（本地测试声明，GitHub 无可见 CI）
+- the release candidate records `2951 passed + 1 skipped (2952 collected)`（本地测试声明，GitHub 无可见 CI）
 - `novel gate --require-approval` is an opt-in human-approval gate; the default `novel gate` contract is unchanged
 - a release tag or equivalent immutable checkpoint exists
 - known limitations are documented in this file and the current status page
@@ -64,7 +64,6 @@ The following must be documented alongside this checklist and `03_current_status
 - Tier 0 is not a public product surface
 - release record does not replace a release tag or immutable checkpoint
 - response files must be materialized by the operator or Codex; no automatic model call is performed
-- extend/compose canary serialization-package gap (previously `31fc12a` Phase 5 gate violation, `novel gate` FAIL for those two workspaces) was **resolved 2026-08-06**: `extend_rebuild_package.json` / `compose_state.json` regenerated and force-added; `python scripts/tier0_canary_regression.py` now reports PASS for all three flows (audit + extend + compose), verified 2026-08-10.
 
 ## Tier 1: DirectAPI Single-Provider Beta
 

@@ -79,7 +79,7 @@ The repository is currently **end_to_end_validated** and **Tier 0 production rea
 
 Tier 0 (local staged CLI v0, operator-in-the-loop) was validated on 2026-07-28:
 
-- full pytest baseline: 2952 tests passing（本地测试声明，GitHub 无可见 CI）
+- full pytest baseline: 2951 passed + 1 skipped (2952 collected)（本地测试声明，GitHub 无可见 CI）
 - audit canary (`tier0-canary`) passed `novel gate`: `ok=true`, `review_route=pass`, `next_workflow=ContinueUnit`, `blocking_pending_count=0`
 - canary evidence: `docs/00_project/releases/tier0-canary-evidence.json`
 - saved canary gate result: `docs/00_project/releases/tier0-canary-gate.json`
@@ -96,7 +96,7 @@ Three-flow daily-production hardening was completed on 2026-07-29 (see `docs/00_
 - canonical canary response sources now checked in under `canary_inputs/` so the three canary workspaces are reproducible
 - workspace hygiene: `.gitignore` ignores `.pytest-tmp-*/`; canary `output/` artifacts are force-added as immutable evidence (they are referenced by file sha256)
 - production-readiness re-certified on 2026-08-06 under a new immutable checkpoint: git tag `v0.1.2-tier0` (hardening stays inside the Tier 0 boundary; no tier upgrade is implied)
-- **canary regression** (2026-08-06 fix): extend/compose canary workspaces previously lacked the Phase 5 serialization package (`extend_rebuild_package.json` / `compose_state.json`), so `novel gate` reported `ContinueUnit requires a serialization package` and `python scripts/tier0_canary_regression.py` reported FAIL for extend/compose. Those packages were regenerated and force-added; the three flows now all report `ok=true / route=pass / blocking=0` and the regression script is **PASS for all three flows** (verified 2026-08-10).
+- **canary regression re-verification (2026-08-18)**: the extend/compose serialization packages (`extend_rebuild_package.json` / `compose_state.json`) are present; all three flows report `ok=true / route=pass / blocking=0`, and `python scripts/tier0_canary_regression.py` reports **PASS for all three flows**. Full-test baseline: **2951 passed + 1 skipped (2952 collected)**.
 
 It now has both:
 
@@ -214,7 +214,6 @@ Known limitations declared for Tier 0 (must hold for any future work that treats
 - Tier 0 is not a public product surface
 - release record does not replace a release tag or immutable checkpoint
 - response files must be materialized by the operator or Codex; no automatic model call is performed
-- extend/compose canary serialization-package gap (previously `31fc12a` Phase 5 gate violation, `novel gate` FAIL for those two workspaces) was **resolved 2026-08-06**: `extend_rebuild_package.json` / `compose_state.json` regenerated and force-added; `python scripts/tier0_canary_regression.py` now reports PASS for all three flows (audit + extend + compose), verified 2026-08-10.
 
 ---
 
