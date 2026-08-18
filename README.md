@@ -4,7 +4,7 @@ An automatic novel narrative system that parses narrative structure, maintains n
 
 一个自动小说叙事系统：解析叙事结构、维护叙事状态、规划故事推进、审查生成结果。
 
-> **Tier 0 production-ready** — local staged CLI, operator-in-the-loop · **2957 tests passing**（精确口径：**2956 passed + 1 skipped（收集 2957）**；本地测试声明，GitHub 无可见 CI）· checkpoint tag `v0.1.2-tier0`
+> **Tier 0 production-ready** — local staged CLI, operator-in-the-loop · **2961 tests passing**（精确口径：**2960 passed + 1 skipped（收集 2961）**；本地测试声明，GitHub 无可见 CI）· checkpoint tag `v0.1.2-tier0`
 
 ---
 
@@ -31,7 +31,7 @@ The repository is **Tier 0 production-ready — three-flow daily-production hard
 Tier 0 生产就绪判定（2026-07-28 宣布）：
 
 - production tier: `local staged CLI v0`（本地分阶段 CLI v0）
-- full pytest baseline: 2957 tests passing（精确口径：2956 passed + 1 skipped（收集 2957）；本地测试声明，GitHub 无可见 CI；k3 provider 承重墙后完整回归基线，原 2803）
+- full pytest baseline: 2961 tests passing（精确口径：2960 passed + 1 skipped（收集 2961）；本地测试声明，GitHub 无可见 CI；k3 provider 承重墙后完整回归基线，原 2803）
 - release record: `docs/00_project/releases/tier0-release.json`
 - immutable checkpoint: git tag `v0.1.2-tier0`
 - extend / compose canaries 均通过 `novel gate` 同四标准；聚合证据在 `docs/00_project/releases/tier0-three-flow-canary-aggregation.json`
@@ -75,6 +75,7 @@ Tier 0 边界仍然生效：
 - **信息凭证一致性**：六通道谱系（亲历/转述/书面/公开/推断/记忆）+ P1-P4 凭证约束；`iss_info_*` 弱信号（转述产亲历细节 / 转述时效 / 知识域翻转）
 - **事实时间有效性**：`FactEntry.validity_interval`，`to_prompt_line` 渲染 `(第三章~第五章)` 后缀；旧 state 可反序列化
 - **写作风格**：`novel style` 提炼 StyleProfile（量化分析 + LLM 质性提炼），compose/extend 注入续写 prompt；`--lint` 做 AI 味检查；风格库 `--name` 另存 / `--style` 跨小说引用
+- **作者类模型（研究性）**：`novel corpus-author-model` 对本地语料做确定性方法层统计，并通过 staged `[WAITING]` 响应提取带置信度与章节证据锚的选择模式；一作者一份 `author_models/<中性id>.json`，支持批量 API，多实例并存，不授予生产资格
 - **状态检索**：以当前 NarrativeState 为 query，从 FactLedger/ForeshadowGraph 检索 top-k 相关条目注入 Continue prompt；零依赖 TF-IDF/关键词；`--retrieval on|off`（默认 on，空语料/空 query 静默降级字节不变）
 - **时间域**：TimeBook 先验模型 + `novel time` 管理（--rebuild 锚提取 / --check 时间线报告 / --status）；FACTTRACK v2 检测时间回退 / 先知逾期 / 季节历法违反；Continue 以【时间上下文】段注入；时间锚首段 800 字符 + 全文相对时间兜底（TimeAnchor.relative）
 - **零成本契约**：无 TimeBook → 无注入、无检测、无产物，prompt 字节与旧版逐字节相同（回归测试锁死）
@@ -137,6 +138,18 @@ novel style 示例小说丙 --input 示例小说丙.txt --name 克制风       #
 novel style 示例小说丙 --style 克制风 --lint                  # 引用库档案做禁忌词 lint
 novel style 某作 --style-search "人物:衬托"                     # 检索风格库档案
 ```
+
+### Corpus Author 作者类模型（研究性、分阶段）
+
+```bash
+novel corpus-author-model --input <local-corpus-directory> \
+  --output-dir <local-working-directory> --author-id corpus-author-a
+```
+
+- 首次运行写入本地 prompt 并打印 `[WAITING]`；操作者/Codex 填写 `corpus_author_model_response.json` 后重跑
+- 确定性方法层统计与语料规模元数据写入 `author_models/<中性id>.json`；选择模式必须带 `[0,1]` 置信度和章节证据锚
+- 提取器 API 支持 N 个语料输入、每个输入生成一个 `Author` 实例；模型只保留聚合值、哈希和中性 ID，不保存正文样本、书名、作者名或本地路径
+- 这是研究性 prior/shadow 产物，不是生产门禁或自动终审；不得搬运原文表达或作身份营销，`author_models/` 已 gitignore
 
 ### Compliance 内容合规扫描
 
@@ -229,4 +242,4 @@ New to the repository? Read in this order:
 pytest tests/ -q
 ```
 
-Baseline: **2957 tests passing**（精确口径：**2956 passed + 1 skipped（收集 2957）**；Windows 下测试请带 `PYTHONIOENCODING=utf-8`，本地测试声明，GitHub 无可见 CI）。
+Baseline: **2961 tests passing**（精确口径：**2960 passed + 1 skipped（收集 2961）**；Windows 下测试请带 `PYTHONIOENCODING=utf-8`，本地测试声明，GitHub 无可见 CI）。

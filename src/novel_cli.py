@@ -75,6 +75,7 @@ from src.workflow_action.authortemplate import (
     load as load_author_template,
     save as save_author_template,
 )
+from src.workflow_action.corpus_author_model import run as run_corpus_author_model
 from src.boundary_control.serialization import SerializationBoundaryUnit
 
 
@@ -1021,6 +1022,15 @@ def _validate_author_template_json_payload(payload: object) -> None:
     """author-template JSON 输出必须是模板对象或模板对象列表。"""
     if not isinstance(payload, (dict, list)):
         raise ValueError("Invalid author-template JSON payload")
+
+
+def _validate_corpus_author_model_json_payload(payload: object) -> None:
+    """corpus-author-model 输出必须是结构化状态对象。"""
+    if not isinstance(payload, dict) or payload.get("status") not in {
+        "waiting",
+        "materialized",
+    }:
+        raise ValueError("Invalid corpus-author-model JSON payload")
 
 
 def _run_quality(args: argparse.Namespace) -> int:
@@ -2037,6 +2047,19 @@ def _run_respond(args: argparse.Namespace) -> int:
     return 0
 
 
+def _run_corpus_author_model(args: argparse.Namespace) -> int:
+    result = run_corpus_author_model(args.input, args.output_dir, args.author_id)
+    if result.get("status") == "waiting":
+        payload = result
+        _validate_corpus_author_model_json_payload(payload)
+        print("[WAITING] " + json.dumps(payload, ensure_ascii=False, sort_keys=True))
+    else:
+        payload = result
+        _validate_corpus_author_model_json_payload(payload)
+        print(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True))
+    return 0
+
+
 def _add_input_argument(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--input", help="原始文本路径；会复制到 novels/<小说名>/input.txt")
 
@@ -2188,6 +2211,14 @@ def build_parser(*, emit_json_errors: bool = False) -> argparse.ArgumentParser:
         required=True,
         parser_class=parser_factory,
     )
+
+    corpus_author_model = subparsers.add_parser(
+        "corpus-author-model", help="从本地元数据/章节文件元信息提取隐私安全作者模型"
+    )
+    corpus_author_model.add_argument("--input", required=True, help="元数据 JSON 或包含 chapters/*.txt 的目录")
+    corpus_author_model.add_argument("--output-dir", required=True, help="staged prompt/response 与模型输出目录")
+    corpus_author_model.add_argument("--author-id", default="corpus-author-a", help="中性作者实例 ID")
+    corpus_author_model.set_defaults(func=_run_corpus_author_model)
 
     audit = subparsers.add_parser("audit", help="审核已有小说")
     audit.add_argument("novel", help="小说名")

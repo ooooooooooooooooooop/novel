@@ -41,4 +41,6 @@ canary_inputs/*
 .private_backup/
 # 参考原文样章（版权文本/读者提供文本，用于 style 提炼等），一律不入 GitHub
 reference_texts/
+# Local reusable Author instances; contains corpus-derived evidence and stays private
+author_models/
 supervision/

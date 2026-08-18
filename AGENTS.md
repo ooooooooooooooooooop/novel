@@ -8,7 +8,7 @@ Automatic Novel Narrative System
 - 当前状态唯一权威入口：`docs/00_project/03_current_status.md` §0（能力边界 / G7 退役 / 五层评价）。
 - 大神级升级计划：`docs/00_project/52_mastery_upgrade_plan.md`（P0–P7）。
 - A1 自动调用与单章自动生产链已存在但**未获生产资格**；G7 自动审美资格失败、已退役为研究性子能力。
-- 测试基线：**2957 tests passing**（精确口径：**2956 passed + 1 skipped（收集 2957）**；**本地测试声明**，GitHub 无可见 CI；本地上次基线 2947 passed 为 2026-08-17 R0–R9 事迹）。
+- 测试基线：**2961 tests passing**（精确口径：**2960 passed + 1 skipped（收集 2961）**；**本地测试声明**，GitHub 无可见 CI；本地上次基线 2947 passed 为 2026-08-17 R0–R9 事迹）。
 
 ## Current Phase
 Tier 0 production ready — three-flow daily-production hardened (2026-07-29). End-to-end validated, Codex-native orchestration. All three slices (`audit_short_form`, `extend_short_form`, `compose_short_form`) are code-complete and validated, and each has a real staged Codex canary passing `novel gate`.
@@ -80,6 +80,7 @@ Completed at this stage:
    - `novel gate <name>` runs a read-only `OrchestrationGateUnit` check over `route_handoff.json`
    - Review `pass` / `rewrite` / `block` routes are packaged as structured `NextRoute` handoffs
 - per-novel workspaces live under `novels/<小说名>/`
+- `novel corpus-author-model` supports reusable neutral `Author` instances: deterministic method-layer metrics plus staged selection-pattern evidence; `author_models/` is local and gitignored, and this research artifact is not production authorization
 - 隐私纪律：所有具体小说信息（标题/正文/角色/工作区/作者笔名）一律不入 GitHub（见 CLAUDE.md）；写作风格综合积累统一放仓库根 `style_library/<name>.json`
 
 Next focus:
@@ -93,7 +94,7 @@ Do not optimize for:
 - full implementation (proceed slice by slice)
 - deployment before deployment shape is decided
 - long-form automatic completion
-- imitation of a specific living author
+- copying original expression, identity marketing, or publishing corpus-derived private identifiers
 - seamless continuation of arbitrary existing novels
 - publication-grade prose quality
 
@@ -113,7 +114,7 @@ Do not optimize for:
 - Slice 3 (`compose_short_form`): code complete, default WorkSpec validated, end-to-end PASS
 - LLM layer split: workflow units expose `build_prompt()` and `parse_response()`; scripts do not call LLMs internally
 - Long-form multi-arc stress test: PASS
-- No-regression tests: 2957 tests passing（精确口径：2956 passed + 1 skipped，收集 2957；本地测试声明，GitHub 无可见 CI）
+- No-regression tests: 2961 tests passing（精确口径：2960 passed + 1 skipped，收集 2961；本地测试声明，GitHub 无可见 CI）
 - End-to-end Audit / Extend / Compose validation: PASS
 
 If you are asked to write code, the existing infrastructure is:

@@ -19,7 +19,7 @@ Three-flow daily-production hardening completed on 2026-07-29 (planning: `docs/0
 - operator runbook for all three flows: `docs/00_project/35_operator_runbook.md`
 - one-command regression gate: `python scripts/tier0_canary_regression.py` (exit 0 ⇒ three-flow baseline not regressed)
 - production-readiness re-certified on 2026-08-06 under a new immutable checkpoint `v0.1.2-tier0` (hardening stays inside the Tier 0 boundary; no tier upgrade)
-- **canary regression** (2026-08-18 re-verification): extend/compose canary workspaces contain the Phase 5 serialization packages (`extend_rebuild_package.json` / `compose_state.json`); all three flows report `ok=true / route=pass / blocking=0`, and `python scripts/tier0_canary_regression.py` reports **PASS for all three flows**. Full-test baseline: **2956 passed + 1 skipped (2957 collected)**（本地测试声明，GitHub 无可见 CI）。
+- **canary regression** (2026-08-18 re-verification): extend/compose canary workspaces contain the Phase 5 serialization packages (`extend_rebuild_package.json` / `compose_state.json`); all three flows report `ok=true / route=pass / blocking=0`, and `python scripts/tier0_canary_regression.py` reports **PASS for all three flows**. Full-test baseline: **2960 passed + 1 skipped (2961 collected)**（本地测试声明，GitHub 无可见 CI）。
 
 The current acceptable production use is internal operator-in-the-loop production:
 
@@ -38,7 +38,7 @@ Tier 0 is ready only when all of these are true:
 - the runtime is still `local staged CLI v0`
 - one operator controls response materialization
 - the release candidate has a clean full pytest run
-- the release candidate records `2957 tests passing`（精确口径：`2956 passed + 1 skipped (2957 collected)`；本地测试声明，GitHub 无可见 CI）
+- the release candidate records `2961 tests passing`（精确口径：`2960 passed + 1 skipped (2961 collected)`；本地测试声明，GitHub 无可见 CI）
 - `novel gate --require-approval` is an opt-in human-approval gate; the default `novel gate` contract is unchanged
 - a release tag or equivalent immutable checkpoint exists
 - known limitations are documented in this file and the current status page

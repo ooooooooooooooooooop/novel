@@ -6,6 +6,7 @@ from .authortemplate import (
     TemplatePrinciple,
     TemplateRuntime,
 )
+from .corpusauthormodel import Author, AuthorRuntime, ChapterEvidence, SelectionPattern
 from .authorkernel import (
     VALUE_VOCAB,
     VALUE_VOCAB_CONTRA_KEYWORDS,
@@ -127,6 +128,10 @@ from .workspec import WorkSpec
 from .worldmodel import WorldModel
 
 __all__ = [
+    "Author",
+    "AuthorRuntime",
+    "ChapterEvidence",
+    "SelectionPattern",
     "AuthorTemplate",
     "EvidenceRef",
     "TemplatePrinciple",

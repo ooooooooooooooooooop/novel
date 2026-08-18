@@ -16,7 +16,7 @@ Update this file after each meaningful round of project-shaping work.
 ### 0.1 真实基线
 
 - 当前 commit：`b464a8a`（Working tree 干净）；**validated_parent=`157914ed`**（上一验证父提交，只作父声明，不是当前 commit）
-- pytest：`2956 passed + 1 skipped (collected 2957)`（**本地测试声明**：精确口径为 2956 passed + 1 skipped，收集 2957；合同测试 `EXPECTED_TEST_BASELINE="2957"` 锁收集数。**GitHub 无可见 CI**——该数字仅为本地 pytest 声明，非远端自动验证产物）
+- pytest：`2960 passed + 1 skipped (collected 2961)`（**本地测试声明**：精确口径为 2960 passed + 1 skipped，收集 2961；合同测试 `EXPECTED_TEST_BASELINE="2961"` 锁收集数。**GitHub 无可见 CI**——该数字仅为本地 pytest 声明，非远端自动验证产物）
 - Tier 0 三流 Canary：`python scripts/tier0_canary_regression.py` → **PASS**（audit/extend/compose `novel gate` 均 ok=True, route=pass, blocking=0）
 - 发布记录：`docs/00_project/releases/tier0-release.json`（2301 历史）、`q1-release.json`（v0.1.3-q1）——**不可变，不修改**
 - tags：`v0.1.1-tier0`、`v0.1.2-tier0`、`v0.1.3-q1`——**不可移动**
@@ -27,6 +27,7 @@ Update this file after each meaningful round of project-shaping work.
 - **Q1**：连续生产、Reader Gate、事务提交与崩溃恢复——**验证通过（v0.1.3-q1）**
 - **A1**：自动调用与单章自动生产链**已存在**，但 **G7 自动审美终端资格失败**、G8 无人 Canary 未授权——**未获得生产资格**（详见 §1.5 与 `48_a1_autonomous_production_handoff.md`）
 - **大神级系统**：**尚处建设阶段**——P0–P7 全链路架构已搭建，R0–R9 终审整改已彻底闭环。**不得声称已达大神级**；最终是否达大神级必须由系统外隐藏来源人类长期阅读实验验证。
+- **作者类模型（ADR-15，研究性）**：`Author` 支持一作者一份中性实例，确定性方法层统计与 staged 选择模式推断分离；`novel corpus-author-model` 支持 N 语料的批量提取 API，实例产物位于 gitignored `author_models/`，不具备生产门禁或自动终审资格。
 
 ### 0.3 G7 状态（已退役）
 
@@ -42,7 +43,7 @@ Update this file after each meaningful round of project-shaping work.
 
 1. **R0: 状态真源与测试基线彻底统一**
    - 当前 commit 真源为 `b464a8a`；`validated_parent=157914ed` 仅记录为验证父声明，**不得误写为当前 commit**。
-- 全量回归测试基线统一为 `2956 passed + 1 skipped (collected 2957)`（**本地测试声明**：精确口径为 2956 passed + 1 skipped，收集 2957；**GitHub 无可见 CI**，非远端自动验证产物）。
+- 全量回归测试基线统一为 `2960 passed + 1 skipped (collected 2961)`（**本地测试声明**：精确口径为 2960 passed + 1 skipped，收集 2961；**GitHub 无可见 CI**，非远端自动验证产物）。
 
 2. **R3: 状态驱动的多步动态推演引擎（真实 staged rollout）**
    - 现有确定性投影正式命名 `deterministic_scenario_projection`（保留为快速风险探测）。
@@ -79,7 +80,7 @@ The repository is currently **end_to_end_validated** and **Tier 0 production rea
 
 Tier 0 (local staged CLI v0, operator-in-the-loop) was validated on 2026-07-28:
 
-- full pytest baseline: 2957 tests passing（精确口径：2956 passed + 1 skipped (2957 collected)；本地测试声明，GitHub 无可见 CI）
+- full pytest baseline: 2961 tests passing（精确口径：2960 passed + 1 skipped (2961 collected)；本地测试声明，GitHub 无可见 CI）
 - audit canary (`tier0-canary`) passed `novel gate`: `ok=true`, `review_route=pass`, `next_workflow=ContinueUnit`, `blocking_pending_count=0`
 - canary evidence: `docs/00_project/releases/tier0-canary-evidence.json`
 - saved canary gate result: `docs/00_project/releases/tier0-canary-gate.json`
@@ -96,7 +97,7 @@ Three-flow daily-production hardening was completed on 2026-07-29 (see `docs/00_
 - canonical canary response sources now checked in under `canary_inputs/` so the three canary workspaces are reproducible
 - workspace hygiene: `.gitignore` ignores `.pytest-tmp-*/`; canary `output/` artifacts are force-added as immutable evidence (they are referenced by file sha256)
 - production-readiness re-certified on 2026-08-06 under a new immutable checkpoint: git tag `v0.1.2-tier0` (hardening stays inside the Tier 0 boundary; no tier upgrade is implied)
-- **canary regression re-verification (2026-08-18)**: the extend/compose serialization packages (`extend_rebuild_package.json` / `compose_state.json`) are present; all three flows report `ok=true / route=pass / blocking=0`, and `python scripts/tier0_canary_regression.py` reports **PASS for all three flows**. Full-test baseline: **2956 passed + 1 skipped (2957 collected)**（本地测试声明，GitHub 无可见 CI）。
+- **canary regression re-verification (2026-08-18)**: the extend/compose serialization packages (`extend_rebuild_package.json` / `compose_state.json`) are present; all three flows report `ok=true / route=pass / blocking=0`, and `python scripts/tier0_canary_regression.py` reports **PASS for all three flows**. Full-test baseline: **2960 passed + 1 skipped (2961 collected)**（本地测试声明，GitHub 无可见 CI）。
 
 It now has both:
 
@@ -302,7 +303,7 @@ The artifact set is complete and the first running slices are end-to-end validat
 
 Current baseline:
 
-- `pytest -q`: 2957 tests passing（精确口径：2956 passed + 1 skipped，收集 2957；本地测试声明，GitHub 无可见 CI）
+- `pytest -q`: 2961 tests passing（精确口径：2960 passed + 1 skipped，收集 2961；本地测试声明，GitHub 无可见 CI）
 - long-form multi-arc stress test: PASS
 - end-to-end Audit / Extend / Compose validation: PASS
 
@@ -402,7 +403,7 @@ Current next decision:
   - Track 3 CharacterModel evidence-leakback checks
   - generative_indicia detection checks
   - Review hard rules extension checks
-  - total validation baseline: 2957 tests passing（精确口径：2956 passed + 1 skipped，收集 2957；本地测试声明，GitHub 无可见 CI）
+  - total validation baseline: 2961 tests passing（精确口径：2960 passed + 1 skipped，收集 2961；本地测试声明，GitHub 无可见 CI）
 - **Slice L1: Long-form chapter-level infra** - Complete
   - `src/boundary_control/chunking.py` splits text by chapters
   - `src/boundary_control/report_formatter.py` formats audit reports
