@@ -8,7 +8,7 @@ Automatic Novel Narrative System
 - 当前状态唯一权威入口：`docs/00_project/03_current_status.md` §0（能力边界 / G7 退役 / 五层评价）。
 - 大神级升级计划：`docs/00_project/52_mastery_upgrade_plan.md`（P0–P7）。
 - A1 自动调用与单章自动生产链已存在但**未获生产资格**；G7 自动审美资格失败、已退役为研究性子能力。
-- 测试基线：**2951 passed + 1 skipped（收集 2952）**（**本地测试声明**，GitHub 无可见 CI；本地上次基线 2947 passed 为 2026-08-17 R0–R9 事迹）。
+- 测试基线：**2957 tests passing**（精确口径：**2956 passed + 1 skipped（收集 2957）**；**本地测试声明**，GitHub 无可见 CI；本地上次基线 2947 passed 为 2026-08-17 R0–R9 事迹）。
 
 ## Current Phase
 Tier 0 production ready — three-flow daily-production hardened (2026-07-29). End-to-end validated, Codex-native orchestration. All three slices (`audit_short_form`, `extend_short_form`, `compose_short_form`) are code-complete and validated, and each has a real staged Codex canary passing `novel gate`.
@@ -30,7 +30,6 @@ Three-flow hardening evidence (2026-07-29, re-certified under `v0.1.2-tier0` on 
 - three-flow aggregation evidence: `docs/00_project/releases/tier0-three-flow-canary-aggregation.json`
 - operator runbook: `docs/00_project/35_operator_runbook.md`; hardening plan: `docs/00_project/34_tier0_daily_production_hardening_plan.md`
 - regression gate: `python scripts/tier0_canary_regression.py` (exit 0 ⇒ three-flow baseline not regressed)
-- **evidence caveat (extend/compose)**: the extend/compose canary workspaces as committed lack `extend_rebuild_package.json` / `compose_state.json`, so `novel gate` on them reports `ContinueUnit requires a serialization package` and `python scripts/tier0_canary_regression.py` currently reports FAIL for extend/compose (audit canary passes). This predates the A-E hardening (`31fc12a` gate contract); regenerating that evidence is a pending operator task — see Known Limitations in `docs/00_project/30_production_readiness_checklist.md`.
 
 Tier 0 boundaries that remain in force:
 
@@ -114,7 +113,7 @@ Do not optimize for:
 - Slice 3 (`compose_short_form`): code complete, default WorkSpec validated, end-to-end PASS
 - LLM layer split: workflow units expose `build_prompt()` and `parse_response()`; scripts do not call LLMs internally
 - Long-form multi-arc stress test: PASS
-- No-regression tests: 2952 tests passing（本地测试声明，GitHub 无可见 CI）
+- No-regression tests: 2957 tests passing（精确口径：2956 passed + 1 skipped，收集 2957；本地测试声明，GitHub 无可见 CI）
 - End-to-end Audit / Extend / Compose validation: PASS
 
 If you are asked to write code, the existing infrastructure is:

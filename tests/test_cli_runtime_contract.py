@@ -67,8 +67,8 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 # → 2921 + 12 = 2933。
 # R0-R9 深度闭环（test_causal_defense.py结构化CausalRule与时间线未决降级,+2; test_human_eval.py严格提交验证与无run_manifest兜底,+4; test_mastery_canary_staged.py真实2章CLI Canary,+1）
 # → 2933 + 7 = 2940；R0 修复闭环 2947 collected；R3 真实状态驱动 rollout 新增验收测试 +1，
-# WP3 资格证据包验收测试 +4 → 2952 collected（本地测试声明，GitHub 无可见 CI）。
-EXPECTED_TEST_BASELINE = "2952"
+# WP3 资格证据包验收测试 +4，AuthorTemplate 证据模板验收测试 +5 → 2957 collected（本地测试声明，GitHub 无可见 CI）。
+EXPECTED_TEST_BASELINE = "2957"
 
 
 def run_script(*args: str) -> subprocess.CompletedProcess[str]:
@@ -701,7 +701,7 @@ def test_production_readiness_checklist_contract():
         "audit log",
         "release tag",
         "clean full pytest",
-        f"{EXPECTED_TEST_BASELINE} tests passing",
+        "2956 passed + 1 skipped (2957 collected)",
     ]
 
     for phrase in required_phrases:

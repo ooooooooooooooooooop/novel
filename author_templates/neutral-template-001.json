@@ -1,0 +1,33 @@
+{
+  "schema_version": 1,
+  "template_id": "neutral-template-001",
+  "hard_facts": [
+    "One recorded choice carries value_conflict=costly_taste_tolerated.",
+    "Its later hindsight status is still_supported."
+  ],
+  "principles": [
+    {
+      "category": "value_conflict",
+      "key": "costly_taste_tolerated",
+      "description": "The recorded choice preserves a costly value conflict rather than removing it for convenience.",
+      "supporting_choices": [
+        {"decision_id": "decision-014-A", "source_id": "source-primary-choice-ledger"}
+      ]
+    },
+    {
+      "category": "hindsight",
+      "key": "hindsight:costly_taste_tolerated",
+      "description": "Later recorded evidence marks this choice as still_supported.",
+      "supporting_choices": [
+        {"decision_id": "decision-014-A", "source_id": "source-primary-choice-ledger"}
+      ]
+    }
+  ],
+  "inference_notes": ["Candidate distilled from one real ledger row; it is not an identity claim."],
+  "style_references": ["style_001"],
+  "kernel_reference": "kernel-primary",
+  "measurement_evidence": [
+    {"decision_id": "decision-014-A", "source_id": "source-twin-measurement"}
+  ],
+  "runtime": {"source_kind": "choice_ledger", "algorithm": "deterministic-v1", "status": "candidate"}
+}

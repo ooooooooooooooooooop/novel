@@ -1,5 +1,11 @@
 """对象状态单元 — 叙事真相与状态形态的拥有者."""
 
+from .authortemplate import (
+    AuthorTemplate,
+    EvidenceRef,
+    TemplatePrinciple,
+    TemplateRuntime,
+)
 from .authorkernel import (
     VALUE_VOCAB,
     VALUE_VOCAB_CONTRA_KEYWORDS,
@@ -121,6 +127,10 @@ from .workspec import WorkSpec
 from .worldmodel import WorldModel
 
 __all__ = [
+    "AuthorTemplate",
+    "EvidenceRef",
+    "TemplatePrinciple",
+    "TemplateRuntime",
     "AuthorKernel",
     "AuthorModelV3",
     "AuthorModule",

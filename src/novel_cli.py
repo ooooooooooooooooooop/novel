@@ -69,6 +69,12 @@ from src.boundary_control.response_file import (
     STAGED_RESPONSE_RESULT_FORBIDDEN_CONTENT_FIELDS,
 )
 from src.object_state import WorkSpec
+from src.workflow_action.authortemplate import (
+    distill as distill_author_templates,
+    list_templates,
+    load as load_author_template,
+    save as save_author_template,
+)
 from src.boundary_control.serialization import SerializationBoundaryUnit
 
 
@@ -1009,6 +1015,12 @@ def _validate_quality_json_payload(payload: dict[str, object]) -> None:
 def _validate_human_eval_json_payload(payload: dict[str, object]) -> None:
     if not isinstance(payload, dict):
         raise ValueError("Invalid human eval JSON payload")
+
+
+def _validate_author_template_json_payload(payload: object) -> None:
+    """author-template JSON 输出必须是模板对象或模板对象列表。"""
+    if not isinstance(payload, (dict, list)):
+        raise ValueError("Invalid author-template JSON payload")
 
 
 def _run_quality(args: argparse.Namespace) -> int:
@@ -2117,6 +2129,50 @@ def _add_author_arguments(parser: argparse.ArgumentParser) -> None:
     )
 
 
+def _run_author_template(args: argparse.Namespace) -> int:
+    """Manage neutral evidence-backed templates; never reads novels/ content."""
+    directory = args.output_dir or None
+    if args.author_template_action == "list":
+        items = list_templates(directory)
+        if getattr(args, "query", ""):
+            from src.workflow_action.authortemplate import search as search_author_templates
+
+            items = search_author_templates(args.query, directory)
+        payload = [item.model_dump(mode="json") for item in items]
+        _validate_author_template_json_payload(payload)
+        print(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True))
+    elif args.author_template_action == "show":
+        payload = load_author_template(args.template_id, directory).model_dump(mode="json")
+        _validate_author_template_json_payload(payload)
+        print(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True))
+    else:
+        if not args.choice_ledger:
+            raise ValueError("--choice-ledger is required for author-template distill")
+        ledger_path = Path(args.choice_ledger)
+        if not ledger_path.is_file():
+            raise FileNotFoundError(args.choice_ledger)
+        payload = json.loads(ledger_path.read_text(encoding="utf-8"))
+
+        def optional_json(value: str | None) -> dict | None:
+            if not value:
+                return None
+            return json.loads(Path(value).read_text(encoding="utf-8"))
+
+        candidates = distill_author_templates(
+            payload,
+            source_id=ledger_path.name,
+            style=optional_json(args.style_profile),
+            twin=optional_json(args.twin_report),
+            kernel=optional_json(args.kernel),
+        )
+        for candidate in candidates:
+            save_author_template(candidate, directory)
+        payload = [candidate.model_dump(mode="json") for candidate in candidates]
+        _validate_author_template_json_payload(payload)
+        print(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True))
+    return 0
+
+
 def build_parser(*, emit_json_errors: bool = False) -> argparse.ArgumentParser:
     parser = NovelArgumentParser(
         description="统一小说工作流入口",
@@ -2530,6 +2586,36 @@ def build_parser(*, emit_json_errors: bool = False) -> argparse.ArgumentParser:
     respond.add_argument("--prompt-hash", help="expected pending prompt content hash")
     respond.add_argument("--json", action="store_true", help="emit machine-readable JSON")
     respond.set_defaults(func=_run_respond)
+
+    author_template = subparsers.add_parser(
+        "author-template",
+        help="证据驱动的中性 AuthorTemplate（仅 prior/shadow）",
+    )
+    author_template_sub = author_template.add_subparsers(
+        dest="author_template_action", required=True
+    )
+    at_list = author_template_sub.add_parser("list", help="列出模板")
+    at_list.add_argument("--output-dir", help="模板存储目录")
+    at_list.add_argument("--query", default="", help="按模板内容检索")
+    at_list.add_argument("--json", action="store_true", help="输出 JSON")
+    at_list.set_defaults(func=_run_author_template)
+
+    at_show = author_template_sub.add_parser("show", help="显示模板")
+    at_show.add_argument("template_id")
+    at_show.add_argument("--output-dir", help="模板存储目录")
+    at_show.add_argument("--json", action="store_true", help="输出 JSON")
+    at_show.set_defaults(func=_run_author_template)
+
+    at_distill = author_template_sub.add_parser(
+        "distill", help="从显式 ChoiceLedger 确定性蒸馏"
+    )
+    at_distill.add_argument("--choice-ledger", help="ChoiceLedger JSON 路径")
+    at_distill.add_argument("--style-profile", help="StyleProfile JSON 路径")
+    at_distill.add_argument("--twin-report", help="twin experiment report JSON 路径")
+    at_distill.add_argument("--kernel", help="AuthorKernel JSON 路径")
+    at_distill.add_argument("--output-dir", help="模板输出目录")
+    at_distill.add_argument("--json", action="store_true", help="输出 JSON")
+    at_distill.set_defaults(func=_run_author_template)
 
     gate = subparsers.add_parser("gate", help="verify route handoff gate")
     gate.add_argument("novel", help="novel name")

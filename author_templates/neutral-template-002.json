@@ -1,0 +1,41 @@
+{
+  "schema_version": 1,
+  "template_id": "neutral-template-002",
+  "hard_facts": [
+    "One recorded choice groups consequence_visible, attend_objects_in_time, character_realism_vs_density, and costly_taste_tolerated.",
+    "Its later hindsight status is still_supported."
+  ],
+  "principles": [
+    {
+      "category": "value_conflict",
+      "key": "consequence_visible",
+      "description": "The recorded choice keeps downstream consequence visible in the selected path.",
+      "supporting_choices": [
+        {"decision_id": "decision-015-A", "source_id": "source-primary-choice-ledger"}
+      ]
+    },
+    {
+      "category": "selection",
+      "key": "selection_observed",
+      "description": "A selected candidate is recorded alongside rejected alternatives and a later consequence.",
+      "supporting_choices": [
+        {"decision_id": "decision-015-A", "source_id": "source-primary-choice-ledger"}
+      ]
+    },
+    {
+      "category": "hindsight",
+      "key": "hindsight:consequence_visible",
+      "description": "Later recorded evidence marks the selected path as still_supported.",
+      "supporting_choices": [
+        {"decision_id": "decision-015-A", "source_id": "source-primary-choice-ledger"}
+      ]
+    }
+  ],
+  "inference_notes": ["Candidate distilled from one real ledger row; it is not an identity claim."],
+  "style_references": ["style_001"],
+  "kernel_reference": "kernel-primary",
+  "measurement_evidence": [
+    {"decision_id": "decision-015-A", "source_id": "source-twin-measurement"}
+  ],
+  "runtime": {"source_kind": "choice_ledger", "algorithm": "deterministic-v1", "status": "candidate"}
+}
