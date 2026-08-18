@@ -42,6 +42,7 @@ from src.workflow_action.structural_search import (
     heuristic_risk_probe,
     score_structural_pareto,
     simulate_rollout,
+    simulate_state_driven_rollout,
 )
 
 
@@ -239,6 +240,74 @@ class TestRolloutSimulation:
         eval_res = clone_and_rollout_planner(prop, state, objects, steps=3, workspec=workspec)
         assert eval_res.overall_sustainability == 0.0
         assert any("hard_rule_violation" in r for r in eval_res.risk_flags)
+
+    def test_state_driven_step1_result_changes_step2_decision(self):
+        # R3 硬口径：真实 staged 状态驱动 rollout 中，修改 Step 1 实际应用进状态的
+        # 结果，必须使 Step 2 重新读取新状态后产生不同 actor_decisions。
+        from src.object_state.charactermodel import CharacterModel
+        from src.object_state.foreshadowgraph import ForeshadowEntry, ForeshadowGraph
+
+        state, objects, workspec = _make_sample_state()
+        actor = CharacterModel(
+            character_id="c_lin",
+            name="林尘",
+            identity="被逐出宗门的少侠",
+            outer_goal="洗清嫌疑",
+            inner_need="证明自我价值",
+            fear="重蹈师父覆辙",
+            flaw="过于刚直",
+            strength="因果道心坚定",
+            stance="合作",
+            current_pressure=[],
+        )
+        foreshadow = ForeshadowGraph(
+            entries=[
+                ForeshadowEntry(
+                    thread_id="f1", setup_point="第3章", content="身世之谜",
+                    visibility_level="implicit", expected_payoff="揭晓身世",
+                    current_status="active",
+                ),
+                ForeshadowEntry(
+                    thread_id="f2", setup_point="第4章", content="宗门内鬼",
+                    visibility_level="implicit", expected_payoff="揪出内鬼",
+                    current_status="active",
+                ),
+            ]
+        )
+        objects = [state, workspec, actor, foreshadow]
+
+        # Proposal A：Step 1 结果在状态里留下高刺激信号，Step 2 应转向"收敛战力防透支"
+        prop_a = StructuralProposal(
+            proposal_id="p_a",
+            primary_actor="林尘",
+            core_choice="全力一搏战力全开",
+            resistance_source="强敌封锁",
+            cost="轻伤代价",
+            state_change="战力暴涨十倍全场震惊",
+            chapter_function="兑现",
+        )
+        # Proposal B：Step 1 结果无高刺激，面对活跃伏笔，Step 2 应转向"照应伏笔"
+        prop_b = StructuralProposal(
+            proposal_id="p_b",
+            primary_actor="林尘",
+            core_choice="暗中布局隐忍",
+            resistance_source="眼线遍布",
+            cost="轻伤代价",
+            state_change="暗线已悄然埋下",
+            chapter_function="蓄力",
+        )
+
+        ev_a = simulate_state_driven_rollout(prop_a, state, objects, steps=3, workspec=workspec)
+        ev_b = simulate_state_driven_rollout(prop_b, state, objects, steps=3, workspec=workspec)
+
+        # Step 1 实际应用进状态的结果不同
+        assert "暴涨十倍" in ev_a.transitions[0].delta.situation_delta
+        assert "暴涨十倍" not in ev_b.transitions[0].delta.situation_delta
+
+        # Step 2（index=1）重新读取新状态后，决策必须随之不同
+        assert ev_a.transitions[1].delta.situation_delta != ev_b.transitions[1].delta.situation_delta
+        assert "收敛" in ev_a.transitions[1].delta.situation_delta
+        assert "照应" in ev_b.transitions[1].delta.situation_delta
 
 
 class TestParetoTournament:
@@ -451,10 +520,11 @@ class TestStructuralSearchEngine:
             StructuralProposal(
                 proposal_id="p_causal",
                 primary_actor="林尘",
-                core_choice="坚守因果与宗门规则正面答辩",
+                core_choice="坚守因果与宗门规则正面答辩坚持本心",
                 resistance_source="执法堂长老",
                 cost="承受法器重击付出重伤代价",
                 state_change="洗清嫌疑赢得道义威信",
+                relationship_change="与护法长老建立秘密同盟",
                 chapter_function="蓄力",
                 summary="稳扎稳打坚守因果",
             ),
@@ -473,7 +543,7 @@ class TestStructuralSearchEngine:
 
         engine = StructuralSearchEngine(rollout_steps=3)
 
-        # 1. 未认证作者模型 -> unqualified_tie_break, selection_underdetermined=True
+        # 1. 未认证作者模型 -> 帕累托多解不自动仲裁，进入人工槽
         unauth_model = AuthorModelV3(author_id="unauth_01")
         res_unauth = engine.search_and_evaluate(
             proposals,
@@ -485,7 +555,8 @@ class TestStructuralSearchEngine:
         assert res_unauth.selection_underdetermined is True
         assert res_unauth.tie_break_method == "unqualified_tie_break"
 
-        # 2. 已通过 L1WO 资格认证的作者模型 -> certified_author_prior, selection_underdetermined=False
+        # 2. R5 硬口径：即使已通过 L1WO 资格认证，关键词代理 (certified_author_prior) 也
+        #    不得进行生产仲裁。帕累托多解一律锁定未决状态进入 structural_selection 人工槽。
         cert_model = AuthorModelV3(
             author_id="cert_01",
             principles=[
@@ -514,8 +585,9 @@ class TestStructuralSearchEngine:
             author_model=cert_model,
             qualification_report=cert_report,
         )
-        assert res_cert.selection_underdetermined is False
-        assert res_cert.tie_break_method == "certified_author_prior"
+        # 关键词代理正式仲裁已彻底移除：认证模型同样不得自动决胜，多解进入人工选择槽
+        assert res_cert.selection_underdetermined is True
+        assert res_cert.tie_break_method == "unqualified_tie_break"
 
     def test_fatal_terminal_fact_contradiction_detected(self):
         from src.object_state.factledger import FactEntry, FactLedger
@@ -556,10 +628,11 @@ class TestStructuralSearchEngine:
             StructuralProposal(
                 proposal_id="p_causal",
                 primary_actor="林尘",
-                core_choice="坚守因果与宗门规则正面答辩",
+                core_choice="坚守因果与宗门规则正面答辩坚持本心",
                 resistance_source="执法堂长老",
                 cost="承受法器重击付出重伤代价",
                 state_change="洗清嫌疑赢得道义威信",
+                relationship_change="与护法长老建立秘密同盟",
                 chapter_function="蓄力",
                 summary="稳扎稳打坚守因果",
             ),

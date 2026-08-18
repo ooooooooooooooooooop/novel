@@ -11,15 +11,19 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import random
 from pathlib import Path
 from typing import Optional
 
 from src.object_state.human_eval import (
+    QUALIFICATION_PRECONDITION_FILES,
+    QUALIFICATION_PROTOCOL_VERSION,
     BlindedChapterPacket,
     HumanEvaluationSubmission,
     LongHorizonAuthorizationVerdict,
     LongHorizonPreconditionStatus,
+    QualificationEvidencePackage,
 )
 
 
@@ -173,6 +177,14 @@ def evaluate_human_submissions(
             raise ValueError(f"Duplicate submission_id detected: {sub.submission_id}")
         seen_submissions.add(sub.submission_id)
 
+        # R6 硬口径：重复 reader_id 必须显式拒绝，而不是静默保留最后一份丢弃其余。
+        if sub.reader_id in seen_readers:
+            raise ValueError(
+                f"Duplicate reader_id detected: {sub.reader_id} "
+                f"(重复 reader/submission 必须拒绝，禁止刷票或重复计数)"
+            )
+        seen_readers.add(sub.reader_id)
+
         if sub.packet_id != packet.packet_id:
             raise ValueError(
                 f"Packet ID mismatch: submission {sub.submission_id} has packet_id '{sub.packet_id}' "
@@ -211,24 +223,21 @@ def evaluate_human_submissions(
                     f"Submission {sub.submission_id} missing abandonment evaluation for versions: {sorted(missing_aban)}"
                 )
 
-    # 读者去重（同一读者保留最新提交，防止刷票）
-    for sub in reversed(submissions):
-        if sub.reader_id not in seen_readers:
-            seen_readers.add(sub.reader_id)
-            # 判定长程资格有效性 (必须具备 100% 版本全覆盖)
-            missing_cont = (
-                required_versions - set(sub.continuation_willingness_by_version.keys())
-                if sub.continuation_willingness_by_version
-                else required_versions
-            )
-            missing_aban = (
-                required_versions - set(sub.abandonment_by_version.keys())
-                if sub.abandonment_by_version
-                else required_versions
-            )
-            sub.qualification_eligible = bool(len(missing_cont) == 0 and len(missing_aban) == 0 and sub.reader_id)
-            deduped_submissions.append(sub)
-    deduped_submissions.reverse()
+    # 读者 id 已在入口显式去重拒绝（R6 硬口径），此处直接对每份唯一提交判定长程资格有效性
+    deduped_submissions = list(submissions)
+    for sub in deduped_submissions:
+        # 判定长程资格有效性 (必须具备 100% 版本全覆盖)
+        missing_cont = (
+            required_versions - set(sub.continuation_willingness_by_version.keys())
+            if sub.continuation_willingness_by_version
+            else required_versions
+        )
+        missing_aban = (
+            required_versions - set(sub.abandonment_by_version.keys())
+            if sub.abandonment_by_version
+            else required_versions
+        )
+        sub.qualification_eligible = bool(len(missing_cont) == 0 and len(missing_aban) == 0 and sub.reader_id)
 
     total_submissions = len(deduped_submissions)
 
@@ -307,211 +316,465 @@ def _safe_load_json_file(path: Path) -> tuple[Optional[dict | list], Optional[st
         return None, str(exc)
 
 
+def _sha256_bytes(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
+
+
+def _resolve_evidence_path(workspace_dir: Path, rel: str) -> Optional[Path]:
+    """把资格包内声明的相对证据路径解析到 workspace 内的真实文件."""
+    cand = (Path(workspace_dir) / rel).resolve()
+    if cand.exists() and cand.is_file():
+        return cand
+    return None
+
+
+def _relative_to(workspace_dir: Path, path: Path) -> str:
+    return os.path.relpath(str(path.resolve()), str(Path(workspace_dir).resolve())).replace(os.sep, "/")
+
+
+def _qualification_payload_hash(observed_metrics: dict, evidence_hashes: dict[str, str]) -> str:
+    payload = json.dumps(
+        {"observed_metrics": observed_metrics, "evidence_hashes": evidence_hashes},
+        sort_keys=True, ensure_ascii=False,
+    )
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def write_qualification_package(
+    precondition_id: str,
+    *,
+    workspace_dir: Path,
+    source_commit: str,
+    evidence_paths: list[str],
+    thresholds: Optional[dict] = None,
+    observed_metrics: Optional[dict] = None,
+    verdict: str = "unqualified",
+    notes: str = "",
+) -> Path:
+    """R6/WP3 通用资格包构建器：对声明的证据做真实 SHA-256，并把载荷哈希写入 sample_manifest_hash.
+
+    任一证据文件缺失 → 抛 ValueError（资格包不可在证据缺失时声称 qualified）。
+    """
+    if precondition_id not in QUALIFICATION_PRECONDITION_FILES:
+        raise ValueError(f"Unknown precondition_id: {precondition_id}")
+    evidence_hashes: dict[str, str] = {}
+    for rel in evidence_paths:
+        p = _resolve_evidence_path(workspace_dir, rel)
+        if p is None:
+            raise ValueError(f"qualification evidence missing: {rel}")
+        evidence_hashes[rel] = _sha256_bytes(p.read_bytes())
+    pkg = QualificationEvidencePackage(
+        protocol_version=QUALIFICATION_PROTOCOL_VERSION,
+        precondition_id=precondition_id,
+        source_commit=source_commit,
+        sample_manifest_hash=_qualification_payload_hash(observed_metrics or {}, evidence_hashes),
+        evidence_hashes=evidence_hashes,
+        thresholds=thresholds or {},
+        observed_metrics=observed_metrics or {},
+        verdict=verdict,
+        notes=notes,
+    )
+    out = Path(workspace_dir) / QUALIFICATION_PRECONDITION_FILES[precondition_id]
+    out.write_text(pkg.model_dump_json(indent=2), encoding="utf-8")
+    return out
+
+
+def _load_and_validate_qualification(
+    workspace_dir: Path, precondition_id: str
+) -> Optional[QualificationEvidencePackage]:
+    """Inspector 唯一入口：严格校验资格证据包的 schema / 版本 / 哈希 / 交叉引用 / 判定.
+
+    任何一项不满足 → 返回 None（对应前置条件位保持 False，绝不凭猜测赋位）。
+    """
+    fname = QUALIFICATION_PRECONDITION_FILES.get(precondition_id)
+    if not fname:
+        return None
+    p = Path(workspace_dir) / fname
+    if not p.exists():
+        cands = list(Path(workspace_dir).glob(f"**/{fname}"))
+        if not cands:
+            return None
+        p = cands[0]
+    data, err = _safe_load_json_file(p)
+    if err is not None or not isinstance(data, dict):
+        return None
+    try:
+        pkg = QualificationEvidencePackage.model_validate(data)
+    except Exception:
+        return None
+    if pkg.protocol_version != QUALIFICATION_PROTOCOL_VERSION:
+        return None
+    if pkg.verdict != "qualified":
+        return None
+    # 哈希与交叉引用：每个证据必须能在 workspace 解析到真实文件且 SHA-256 严格一致
+    for rel, expected in pkg.evidence_hashes.items():
+        real = _resolve_evidence_path(workspace_dir, rel)
+        if real is None:
+            return None
+        if _sha256_bytes(real.read_bytes()) != expected:
+            return None
+    # 载荷绑定：sample_manifest_hash 必须与 observed_metrics + evidence_hashes 严格一致
+    recomputed = _qualification_payload_hash(pkg.observed_metrics, pkg.evidence_hashes)
+    if recomputed != pkg.sample_manifest_hash:
+        return None
+    return pkg
+
+
+def build_p1_qualification(workspace_dir: Path, *, source_commit: str) -> Path:
+    """P1 长程因果防线资格包（关闭『无 run_manifest 默认 True』与『相对路径 artifact key』伪造点）.
+
+    - run_manifest 缺失或未 committed → unqualified（绝不再默认 True）。
+    - 按 manifest.artifacts 中真实 key（可能是 ChapterCommitBoundary 的相对路径
+      如 output/compose/reader_gate_report.json）解析 gate 报告文件并哈希。
+    - route 非 pass 且无 axes_armed、存在 blocking/critical issue → unqualified。
+    """
+    manifest_p = Path(workspace_dir) / "run_manifest.json"
+    if not manifest_p.exists():
+        cands = list(Path(workspace_dir).glob("**/run_manifest.json"))
+        manifest_p = cands[0] if cands else None
+    if manifest_p is None:
+        return write_qualification_package(
+            "p1", workspace_dir=workspace_dir, source_commit=source_commit,
+            evidence_paths=[], observed_metrics={"manifest_present": False},
+            verdict="unqualified", notes="run_manifest 缺失，无法绑定因果防线证据",
+        )
+    m_data, m_err = _safe_load_json_file(manifest_p)
+    if m_err is not None or not isinstance(m_data, dict) or m_data.get("status") != "committed":
+        return write_qualification_package(
+            "p1", workspace_dir=workspace_dir, source_commit=source_commit,
+            evidence_paths=[_relative_to(workspace_dir, manifest_p)],
+            observed_metrics={"manifest_present": True, "manifest_status": m_data.get("status") if isinstance(m_data, dict) else None},
+            verdict="unqualified", notes="run_manifest 未 committed",
+        )
+    artifacts = m_data.get("artifacts", {}) or {}
+    gate_rel = next((k for k in artifacts if k.endswith("reader_gate_report.json")), None)
+    has_blocking = False
+    route = None
+    axes_armed = False
+    gate_exists = False
+    if gate_rel is not None:
+        gate_file = _resolve_evidence_path(workspace_dir, gate_rel)
+        gate_exists = gate_file is not None
+        if gate_file is not None:
+            g_data, g_err = _safe_load_json_file(gate_file)
+            if g_err is None and isinstance(g_data, dict):
+                route = g_data.get("route")
+                axes_armed = bool(g_data.get("axes_armed", {}))
+                has_blocking = bool([
+                    i for i in g_data.get("issues", [])
+                    if isinstance(i, dict) and i.get("severity") in ("blocking", "critical")
+                ])
+    evidence: list[str] = [_relative_to(workspace_dir, manifest_p)]
+    if gate_rel is not None:
+        evidence.append(gate_rel)
+    qualified = gate_rel is not None and gate_exists and (route == "pass" or axes_armed) and not has_blocking
+    return write_qualification_package(
+        "p1", workspace_dir=workspace_dir, source_commit=source_commit,
+        evidence_paths=evidence,
+        observed_metrics={
+            "manifest_present": True,
+            "manifest_status": "committed",
+            "gate_report_bound": gate_rel is not None and gate_exists,
+            "route": route,
+            "axes_armed": axes_armed,
+            "has_blocking_critical_issues": has_blocking,
+        },
+        verdict="qualified" if qualified else "unqualified",
+        notes="P1 因果防线证据已绑定" if qualified else "P1 因果防线证据未满足",
+    )
+
+
+def build_p2_qualification(workspace_dir: Path, *, source_commit: str) -> Path:
+    """P2 叙事编排器资格包：绑定 committed_orchestration_state 与 orchestration_history 真实证据."""
+    s_p = Path(workspace_dir) / "committed_orchestration_state.json"
+    if not s_p.exists():
+        cands = list(Path(workspace_dir).glob("**/committed_orchestration_state.json"))
+        s_p = cands[0] if cands else None
+    h_p = Path(workspace_dir) / "orchestration_history.json"
+    if not h_p.exists():
+        cands = list(Path(workspace_dir).glob("**/orchestration_history.json"))
+        h_p = cands[0] if cands else None
+    if s_p is None or h_p is None:
+        return write_qualification_package(
+            "p2", workspace_dir=workspace_dir, source_commit=source_commit,
+            evidence_paths=[], observed_metrics={"present": False},
+            verdict="unqualified", notes="编排状态或历史缺失",
+        )
+    s_data, s_err = _safe_load_json_file(s_p)
+    h_data, h_err = _safe_load_json_file(h_p)
+    last_ch = int(s_data.get("last_committed_chapter", 0)) if s_err is None and isinstance(s_data, dict) else 0
+    hist_len = len(h_data) if h_err is None and isinstance(h_data, list) else 0
+    qualified = last_ch >= 2 and hist_len >= 1
+    return write_qualification_package(
+        "p2", workspace_dir=workspace_dir, source_commit=source_commit,
+        evidence_paths=[_relative_to(workspace_dir, s_p), _relative_to(workspace_dir, h_p)],
+        observed_metrics={"last_committed_chapter": last_ch, "history_len": hist_len},
+        verdict="qualified" if qualified else "unqualified",
+        notes="P2 编排器已接入生产" if qualified else "P2 编排器未达生产证据",
+    )
+
+
+def build_p3_qualification(workspace_dir: Path, *, source_commit: str) -> Path:
+    """P3 结构搜索资格包：绑定真实 structural_search_record；respeaking 真实 frontier 与多样性而非自报."""
+    s_p = Path(workspace_dir) / "structural_search_record.json"
+    if not s_p.exists():
+        cands = (list(Path(workspace_dir).glob("**/structural_search_record.json"))
+                  + list(Path(workspace_dir).glob("**/author_selection_report.json")))
+        s_p = cands[0] if cands else None
+    if s_p is None:
+        return write_qualification_package(
+            "p3", workspace_dir=workspace_dir, source_commit=source_commit,
+            evidence_paths=[], observed_metrics={"search_active": False, "diversity_validated": False},
+            verdict="unqualified", notes="结构搜索记录缺失",
+        )
+    s_data, s_err = _safe_load_json_file(s_p)
+    if s_err is not None or not isinstance(s_data, dict):
+        return write_qualification_package(
+            "p3", workspace_dir=workspace_dir, source_commit=source_commit,
+            evidence_paths=[_relative_to(workspace_dir, s_p)],
+            observed_metrics={"search_active": False, "diversity_validated": False},
+            verdict="unqualified", notes="结构搜索记录不可解析",
+        )
+    frontier = s_data.get("pareto_frontier", [])
+    rollouts = s_data.get("rollout_evaluations", {})
+    search_active = isinstance(frontier, list) and len(frontier) >= 1 and (len(rollouts) >= 1 or "candidates_evaluated" in s_data)
+    div = s_data.get("diversity_report", {}) or {}
+    div_validated = bool(div.get("is_diverse")) or bool(s_data.get("diversity_validated"))
+    qualified = search_active and div_validated
+    return write_qualification_package(
+        "p3", workspace_dir=workspace_dir, source_commit=source_commit,
+        evidence_paths=[_relative_to(workspace_dir, s_p)],
+        observed_metrics={"search_active": search_active, "diversity_validated": div_validated,
+                          "frontier_size": len(frontier) if isinstance(frontier, list) else 0},
+        verdict="qualified" if qualified else "unqualified",
+        notes="P3 结构搜索已真实生效" if qualified else "P3 结构搜索证据不足",
+    )
+
+
+def build_blind_eval_qualification(workspace_dir: Path, *, source_commit: str) -> Path:
+    """P4 Blind Eval 资格包：从真实 ab_blind_eval_report 读取计数并校验严格算术守恒（非只查计数和）. """
+    b_p = Path(workspace_dir) / "ab_blind_eval_report.json"
+    if not b_p.exists():
+        cands = list(Path(workspace_dir).glob("**/ab_blind_eval_report.json"))
+        b_p = cands[0] if cands else None
+    if b_p is None:
+        return write_qualification_package(
+            "blind_eval", workspace_dir=workspace_dir, source_commit=source_commit,
+            evidence_paths=[], observed_metrics={"arithmetic_conservation_ok": False},
+            verdict="unqualified", notes="Blind Eval 报告缺失",
+        )
+    b_data, b_err = _safe_load_json_file(b_p)
+    if b_err is not None or not isinstance(b_data, dict):
+        return write_qualification_package(
+            "blind_eval", workspace_dir=workspace_dir, source_commit=source_commit,
+            evidence_paths=[_relative_to(workspace_dir, b_p)],
+            observed_metrics={"arithmetic_conservation_ok": False},
+            verdict="unqualified", notes="Blind Eval 报告不可解析",
+        )
+    tot = int(b_data.get("total_pairs_evaluated", 0))
+    b_cnt = int(b_data.get("better_count", 0))
+    w_cnt = int(b_data.get("worse_count", 0))
+    nd_cnt = int(b_data.get("no_difference_count", 0))
+    u_cnt = int(b_data.get("uncertain_count", 0))
+    conservation_ok = (b_cnt + w_cnt + nd_cnt + u_cnt) == tot
+    qualified = tot >= 10 and conservation_ok
+    return write_qualification_package(
+        "blind_eval", workspace_dir=workspace_dir, source_commit=source_commit,
+        evidence_paths=[_relative_to(workspace_dir, b_p)],
+        thresholds={"total_pairs_min": 10},
+        observed_metrics={"total_pairs_evaluated": tot, "arithmetic_conservation_ok": conservation_ok},
+        verdict="qualified" if qualified else "unqualified",
+        notes="Blind Eval 稳定" if qualified else "Blind Eval 未达样本/守恒",
+    )
+
+
+def build_pass_audit_qualification(workspace_dir: Path, *, source_commit: str) -> Path:
+    """P4 PASS Audit 资格包：从真实 pass_audit_report 读取样本与漏检率字段数（非只查 5 条+1 字段）. """
+    a_p = Path(workspace_dir) / "pass_audit_report.json"
+    if not a_p.exists():
+        cands = list(Path(workspace_dir).glob("**/pass_audit_report.json"))
+        a_p = cands[0] if cands else None
+    if a_p is None:
+        return write_qualification_package(
+            "pass_audit", workspace_dir=workspace_dir, source_commit=source_commit,
+            evidence_paths=[], observed_metrics={"frozen": False},
+            verdict="unqualified", notes="PASS Audit 报告缺失",
+        )
+    a_data, a_err = _safe_load_json_file(a_p)
+    if a_err is not None or not isinstance(a_data, dict):
+        return write_qualification_package(
+            "pass_audit", workspace_dir=workspace_dir, source_commit=source_commit,
+            evidence_paths=[_relative_to(workspace_dir, a_p)],
+            observed_metrics={"frozen": False},
+            verdict="unqualified", notes="PASS Audit 报告不可解析",
+        )
+    tot_aud = int(a_data.get("total_pass_chapters_audited", 0))
+    has_tmr = "true_miss_rate" in a_data
+    frozen = tot_aud >= 5 and has_tmr
+    return write_qualification_package(
+        "pass_audit", workspace_dir=workspace_dir, source_commit=source_commit,
+        evidence_paths=[_relative_to(workspace_dir, a_p)],
+        thresholds={"min_audited": 5},
+        observed_metrics={"total_pass_chapters_audited": tot_aud, "has_true_miss_rate": has_tmr, "frozen": frozen},
+        verdict="qualified" if frozen else "unqualified",
+        notes="PASS Audit 口径已冻结" if frozen else "PASS Audit 口径未冻结",
+    )
+
+
+def build_provider_qualification(workspace_dir: Path, *, source_commit: str) -> Path:
+    """Provider / 预算硬上限资格包：绑定真实 provider_profiles.json / canary_policy_*.json（存在性+内容）. """
+    pv_p = Path(workspace_dir) / "provider_profiles.json"
+    if not pv_p.exists():
+        cands = (list(Path(workspace_dir).glob("**/provider_profiles.json"))
+                 + list(Path(workspace_dir).glob("**/provider_profile_*.json"))
+                 + list(Path(workspace_dir).glob("**/canary_policy_*.json")))
+        pv_p = cands[0] if cands else None
+    if pv_p is None:
+        return write_qualification_package(
+            "provider", workspace_dir=workspace_dir, source_commit=source_commit,
+            evidence_paths=[], observed_metrics={"frozen": False},
+            verdict="unqualified", notes="Provider 档案缺失",
+        )
+    pv_data, pv_err = _safe_load_json_file(pv_p)
+    frozen = pv_err is None and isinstance(pv_data, dict) and len(pv_data) >= 1
+    return write_qualification_package(
+        "provider", workspace_dir=workspace_dir, source_commit=source_commit,
+        evidence_paths=[_relative_to(workspace_dir, pv_p)],
+        observed_metrics={"frozen": frozen, "profiles_count": len(pv_data) if isinstance(pv_data, dict) else 0},
+        verdict="qualified" if frozen else "unqualified",
+        notes="Provider 档案与预算已冻结" if frozen else "Provider 档案未冻结",
+    )
+
+
+def build_release_integrity_qualification(workspace_dir: Path, *, source_commit: str) -> Path:
+    """历史发布完整性资格包：绑定真实 release_record.json / *-release.json（tag+commit 真实性）. """
+    r_p = Path(workspace_dir) / "release_record.json"
+    if not r_p.exists():
+        cands = (list(Path(workspace_dir).glob("**/release_record.json"))
+                 + list(Path(workspace_dir).glob("**/*-release.json"))
+                 + list(Path(workspace_dir).glob("**/tier0-release.json"))
+                 + list(Path(workspace_dir).glob("**/q1-release.json")))
+        r_p = cands[0] if cands else None
+    if r_p is None:
+        return write_qualification_package(
+            "release_integrity", workspace_dir=workspace_dir, source_commit=source_commit,
+            evidence_paths=[], observed_metrics={"intact": False},
+            verdict="unqualified", notes="发布记录缺失",
+        )
+    r_data, r_err = _safe_load_json_file(r_p)
+    intact = (r_err is None and isinstance(r_data, dict)
+              and r_data.get("release_tag") and (r_data.get("git_commit") or r_data.get("commit")))
+    return write_qualification_package(
+        "release_integrity", workspace_dir=workspace_dir, source_commit=source_commit,
+        evidence_paths=[_relative_to(workspace_dir, r_p)],
+        observed_metrics={"intact": intact, "release_tag": r_data.get("release_tag") if isinstance(r_data, dict) else None},
+        verdict="qualified" if intact else "unqualified",
+        notes="历史发布记录完整" if intact else "历史发布记录不完整",
+    )
+
+
+def build_human_eval_qualification(
+    workspace_dir: Path,
+    *,
+    source_commit: str,
+    packet: BlindedChapterPacket,
+    submissions: list[HumanEvaluationSubmission],
+    secret_manifest: dict[str, str],
+) -> Path:
+    """P4 人类盲评资格包：必须实际调用 evaluate_human_submissions() 并读取 qualification_eligible.
+
+    关闭伪造点：Inspector 不再直接读原始 submissions.json 推断资格，而是要求该资格包由
+    evaluate_human_submissions 的 qualification_eligible 聚合而来（protocol_frozen +
+    qualified_reader_count）。重复 reader_id 已被 evaluate_human_submissions 显式拒绝。
+    """
+    result = evaluate_human_submissions(packet, submissions, secret_manifest)
+    protocol_frozen = bool(packet.seed_hash) and len(packet.secret_manifest_hash or "") == 64
+    qualified_count = sum(1 for s in submissions if getattr(s, "qualification_eligible", False))
+    # 证据绑定：写盘的真实盲评文件（blinded_packet 与 submissions 序列化）
+    packet_rel = "human_eval/blinded_packet.json"
+    subs_rel = "human_eval/submissions.json"
+    packet_file = Path(workspace_dir) / packet_rel
+    subs_file = Path(workspace_dir) / subs_rel
+    packet_file.parent.mkdir(parents=True, exist_ok=True)
+    packet_file.write_text(packet.model_dump_json(indent=2), encoding="utf-8")
+    subs_file.write_text(
+        json.dumps([s.model_dump(mode="json") for s in submissions], ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    qualified = protocol_frozen and qualified_count >= 10
+    return write_qualification_package(
+        "human_eval", workspace_dir=workspace_dir, source_commit=source_commit,
+        evidence_paths=[packet_rel, subs_rel],
+        thresholds={"qualified_readers_min": 10},
+        observed_metrics={
+            "protocol_frozen": protocol_frozen,
+            "total_readers": result.get("total_readers", 0),
+            "qualified_reader_count": qualified_count,
+        },
+        verdict="qualified" if qualified else "unqualified",
+        notes="人类盲评协议冻结且 ≥10 位合格真实读者" if qualified else "人类盲评协议/合格读者不足",
+    )
+
+
 def inspect_long_horizon_preconditions(
     workspace_dir: Optional[Path] = None,
 ) -> LongHorizonPreconditionStatus:
-    """从磁盘真实证据逐项推导 10 项前置条件（基于不可伪造资格证据、密码学哈希与数学守恒校验）."""
+    """R6/WP3 硬口径：只依据『专用资格证据包』逐项验证 10 项前置条件.
+
+    本 Inspector 不再从普通工作区文件自行推断资格，只读取每项前置条件对应的
+    资格文件（p1/p2/p3/blind_eval/pass_audit/human_eval/provider/release_integrity
+    _qualification.json），并仅验证其 schema、protocol_version、evidence_hashes
+    与真实文件的 SHA-256 交叉引用、sample_manifest_hash 载荷绑定与 verdict。
+    任何缺失 / schema 不符 / 哈希不符 / 未 qualified 的资格包，对应前置条件位
+    一律保持 False（绝不猜测赋位）。
+    """
     status = LongHorizonPreconditionStatus()
     if workspace_dir is None:
         return status
 
-    w_dir = Path(workspace_dir).resolve()
-    if not w_dir.exists():
-        return status
+    w = Path(workspace_dir).resolve()
 
-    # 1. P1 长程因果防线：检查 reader_gate_report.json 与 run_manifest 提交哈希绑定及 5 类因果防线
-    gate_p = w_dir / "reader_gate_report.json"
-    if not gate_p.exists():
-        candidates = list(w_dir.glob("**/reader_gate_report.json"))
-        if candidates:
-            gate_p = candidates[0]
-    manifest_p = w_dir / "run_manifest.json"
-    if not manifest_p.exists():
-        m_candidates = list(w_dir.glob("**/run_manifest.json"))
-        if m_candidates:
-            manifest_p = m_candidates[0]
-
-    if gate_p.exists():
-        data, err = _safe_load_json_file(gate_p)
-        if err is None and isinstance(data, dict):
-            axes = data.get("axes_armed", {})
-            issues = [
-                i for i in data.get("issues", [])
-                if isinstance(i, dict) and i.get("severity") in ("blocking", "critical")
-            ]
-            # 校验 RunManifest 绑定（若存在 manifest 则必须为 committed 且哈希一致）
-            manifest_ok = True
-            if manifest_p.exists():
-                m_data, m_err = _safe_load_json_file(manifest_p)
-                if m_err is None and isinstance(m_data, dict):
-                    if m_data.get("status") != "committed":
-                        manifest_ok = False
-                    artifacts = m_data.get("artifacts", {})
-                    gate_rel = "reader_gate_report.json"
-                    if gate_rel in artifacts:
-                        art_val = artifacts[gate_rel]
-                        expected_h = art_val.get("sha256") if isinstance(art_val, dict) else art_val
-                        actual_h = hashlib.sha256(gate_p.read_bytes()).hexdigest()
-                        if expected_h and expected_h != actual_h:
-                            manifest_ok = False
-                else:
-                    manifest_ok = False
-
-            if manifest_ok and (data.get("route") == "pass" or axes) and len(issues) == 0:
-                status.p1_causal_defense_complete = True
-
-    # 2. P2 叙事编排器：检查 committed_orchestration_state.json 与 orchestration_history.json
-    orch_state = w_dir / "committed_orchestration_state.json"
-    if not orch_state.exists():
-        candidates = list(w_dir.glob("**/committed_orchestration_state.json"))
-        if candidates:
-            orch_state = candidates[0]
-    orch_hist = w_dir / "orchestration_history.json"
-    if not orch_hist.exists():
-        candidates = list(w_dir.glob("**/orchestration_history.json"))
-        if candidates:
-            orch_hist = candidates[0]
-    if orch_state.exists() and orch_hist.exists():
-        s_data, s_err = _safe_load_json_file(orch_state)
-        h_data, h_err = _safe_load_json_file(orch_hist)
-        if s_err is None and h_err is None and isinstance(s_data, dict) and isinstance(h_data, list):
-            if int(s_data.get("last_committed_chapter", 0)) >= 2 and len(h_data) >= 1:
-                status.p2_orchestrator_in_production = True
-
-    # 3. P3 结构搜索：检查 structural_search_record.json / author_selection_report.json
-    search_report = w_dir / "structural_search_record.json"
-    if not search_report.exists():
-        candidates = list(w_dir.glob("**/structural_search_record.json")) + list(w_dir.glob("**/author_selection_report.json"))
-        if candidates:
-            search_report = candidates[0]
-    if search_report.exists():
-        s_data, s_err = _safe_load_json_file(search_report)
-        if s_err is None and isinstance(s_data, dict):
-            frontier = s_data.get("pareto_frontier", [])
-            rollouts = s_data.get("rollout_evaluations", {})
-            if (
-                isinstance(frontier, list)
-                and len(frontier) >= 1
-                and (len(rollouts) >= 1 or "candidates_evaluated" in s_data)
-            ):
-                status.p3_structural_search_active = True
-
-    # 4. P3 异质性门禁：检查 diversity_report.json 或 search_report 中的多样性状态
-    div_report = w_dir / "diversity_report.json"
-    if not div_report.exists():
-        candidates = list(w_dir.glob("**/diversity_report.json"))
-        if candidates:
-            div_report = candidates[0]
-    if div_report.exists():
-        d_data, d_err = _safe_load_json_file(div_report)
-        if d_err is None and isinstance(d_data, dict) and d_data.get("is_diverse", False):
-            if float(d_data.get("diversity_score", 0.0)) >= 0.3:
-                status.p3_diversity_validated = True
-    elif search_report.exists():
-        s_data, _ = _safe_load_json_file(search_report)
-        if isinstance(s_data, dict):
-            div_sub = s_data.get("diversity_report", {})
-            if isinstance(div_sub, dict) and div_sub.get("is_diverse"):
-                status.p3_diversity_validated = True
-            elif s_data.get("diversity_validated"):
-                status.p3_diversity_validated = True
-
-    # 5. P4 Blind Eval：检查 ab_blind_eval_report.json (要求样本 >= 10 且严格算术守恒)
-    blind_p = w_dir / "ab_blind_eval_report.json"
-    if not blind_p.exists():
-        candidates = list(w_dir.glob("**/ab_blind_eval_report.json"))
-        if candidates:
-            blind_p = candidates[0]
-    if blind_p.exists():
-        b_data, b_err = _safe_load_json_file(blind_p)
-        if b_err is None and isinstance(b_data, dict):
-            tot = int(b_data.get("total_pairs_evaluated", 0))
-            if tot >= 10:
-                b_cnt = int(b_data.get("better_count", 0))
-                w_cnt = int(b_data.get("worse_count", 0))
-                nd_cnt = int(b_data.get("no_difference_count", 0))
-                u_cnt = int(b_data.get("uncertain_count", 0))
-                # 算术守恒检查
-                if b_cnt + w_cnt + nd_cnt + u_cnt == tot:
-                    status.p4_blind_eval_stable = True
-
-    # 6. P4 PASS Audit：检查 pass_audit_report.json (要求抽检样本 >= 5 且冻结口径)
-    audit_p = w_dir / "pass_audit_report.json"
-    if not audit_p.exists():
-        candidates = list(w_dir.glob("**/pass_audit_report.json"))
-        if candidates:
-            audit_p = candidates[0]
-    if audit_p.exists():
-        a_data, a_err = _safe_load_json_file(audit_p)
-        if a_err is None and isinstance(a_data, dict):
-            tot_aud = int(a_data.get("total_pass_chapters_audited", 0))
-            if tot_aud >= 5 and "true_miss_rate" in a_data:
-                status.p4_pass_audit_frozen = True
-
-    # 7. P4 人类盲评协议：检查 blinded_packet.json (必须具备有效 seed_hash 与 64 位 SHA256 secret_manifest_hash)
-    packet_p = w_dir / "human_eval" / "blinded_packet.json"
-    if not packet_p.exists():
-        candidates = list(w_dir.glob("**/blinded_packet.json"))
-        if candidates:
-            packet_p = candidates[0]
-    if packet_p.exists():
-        p_data, p_err = _safe_load_json_file(packet_p)
-        if p_err is None and isinstance(p_data, dict):
-            seed_h = str(p_data.get("seed_hash", ""))
-            sec_h = str(p_data.get("secret_manifest_hash", ""))
-            if seed_h and len(sec_h) == 64:
-                status.p4_human_eval_protocol_frozen = True
-
-    # 8. 系统外真实人类连续阅读实验数据 (必须具备 >= 10 位具备全版本覆盖资格的独立读者提交)
-    sub_p = w_dir / "human_eval" / "submissions.json"
-    if not sub_p.exists():
-        candidates = list(w_dir.glob("**/submissions.json"))
-        if candidates:
-            sub_p = candidates[0]
-    if sub_p.exists():
-        s_data, s_err = _safe_load_json_file(sub_p)
-        if s_err is None and isinstance(s_data, list):
-            valid_qualified_readers: set[str] = set()
-            for item in s_data:
-                if isinstance(item, dict) and item.get("reader_id") and item.get("preferred_version"):
-                    cont_map = item.get("continuation_willingness_by_version", {})
-                    aban_map = item.get("abandonment_by_version", {})
-                    # 必须具备全版本覆盖结构 (至少包含 2 个版本的独立追读与弃读记录)
-                    if isinstance(cont_map, dict) and len(cont_map) >= 2 and isinstance(aban_map, dict) and len(aban_map) >= 2:
-                        valid_qualified_readers.add(item["reader_id"])
-            if len(valid_qualified_readers) >= 10:
-                status.real_human_continuous_reading_data_exists = True
-
-    # 9. Provider 档案与预算硬上限冻结（必须为真实 provider_profiles.json / canary_policy_*.json，杜绝 run_manifest 兜底）
-    prov_p = w_dir / "provider_profiles.json"
-    if not prov_p.exists():
-        candidates = (
-            list(w_dir.glob("**/provider_profiles.json"))
-            + list(w_dir.glob("**/provider_profile_*.json"))
-            + list(w_dir.glob("**/canary_policy_*.json"))
+    p1 = _load_and_validate_qualification(w, "p1")
+    if p1 is not None:
+        status.p1_causal_defense_complete = bool(
+            p1.observed_metrics.get("route") in ("pass", None)
+            and not p1.observed_metrics.get("has_blocking_critical_issues", False)
         )
-        if candidates:
-            prov_p = candidates[0]
-    if prov_p.exists():
-        pv_data, pv_err = _safe_load_json_file(prov_p)
-        if pv_err is None and isinstance(pv_data, dict) and len(pv_data) >= 1:
-            status.provider_profile_and_budget_frozen = True
 
-    # 10. 历史发布证据（必须为真实 release_record.json / *-release.json，杜绝 run_manifest 兜底）
-    rel_p = w_dir / "release_record.json"
-    if not rel_p.exists():
-        candidates = (
-            list(w_dir.glob("**/release_record.json"))
-            + list(w_dir.glob("**/*-release.json"))
-            + list(w_dir.glob("**/tier0-release.json"))
-            + list(w_dir.glob("**/q1-release.json"))
+    p2 = _load_and_validate_qualification(w, "p2")
+    if p2 is not None:
+        status.p2_orchestrator_in_production = bool(
+            p2.observed_metrics.get("last_committed_chapter", 0) >= 2
         )
-        if candidates:
-            rel_p = candidates[0]
-    if rel_p.exists():
-        r_data, r_err = _safe_load_json_file(rel_p)
-        if r_err is None and isinstance(r_data, dict) and r_data.get("release_tag") and (r_data.get("git_commit") or r_data.get("commit")):
-            status.historical_release_records_intact = True
+
+    p3 = _load_and_validate_qualification(w, "p3")
+    if p3 is not None:
+        status.p3_structural_search_active = bool(p3.observed_metrics.get("search_active", False))
+        status.p3_diversity_validated = bool(p3.observed_metrics.get("diversity_validated", False))
+
+    blind = _load_and_validate_qualification(w, "blind_eval")
+    if blind is not None:
+        status.p4_blind_eval_stable = bool(blind.observed_metrics.get("arithmetic_conservation_ok", False))
+
+    pa = _load_and_validate_qualification(w, "pass_audit")
+    if pa is not None:
+        status.p4_pass_audit_frozen = bool(pa.observed_metrics.get("frozen", False))
+
+    he = _load_and_validate_qualification(w, "human_eval")
+    if he is not None:
+        # 人类盲评协议冻结 + 系统外真实读者连续阅读数据（qualification_eligible 才计数）
+        status.p4_human_eval_protocol_frozen = bool(he.observed_metrics.get("protocol_frozen", False))
+        status.real_human_continuous_reading_data_exists = bool(
+            he.observed_metrics.get("qualified_reader_count", 0) >= 10
+        )
+
+    prov = _load_and_validate_qualification(w, "provider")
+    if prov is not None:
+        status.provider_profile_and_budget_frozen = bool(prov.observed_metrics.get("frozen", False))
+
+    rel = _load_and_validate_qualification(w, "release_integrity")
+    if rel is not None:
+        status.historical_release_records_intact = bool(rel.observed_metrics.get("intact", False))
 
     return status
 

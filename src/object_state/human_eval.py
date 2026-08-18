@@ -148,3 +148,53 @@ class LongHorizonAuthorizationVerdict(BaseModel):
             "必须诚实保持 long_run_not_authorized。"
         )
     )
+
+
+# R6/WP3 协议版本：资格证据包 schema 版本
+QUALIFICATION_PROTOCOL_VERSION = "1"
+
+# 各前置条件对应的专用资格文件 (R6 硬口径：Inspector 只验证资格文件，不再从普通工作区文件推断)
+QUALIFICATION_PRECONDITION_FILES: dict[str, str] = {
+    "p1": "p1_qualification.json",
+    "p2": "p2_qualification.json",
+    "p3": "p3_qualification.json",
+    "blind_eval": "blind_eval_qualification.json",
+    "pass_audit": "pass_audit_qualification.json",
+    "human_eval": "human_eval_qualification.json",
+    "provider": "provider_qualification.json",
+    "release_integrity": "release_integrity_qualification.json",
+}
+
+
+class QualificationEvidencePackage(BaseModel):
+    """单项前置条件的不可伪造资格证据包 (R6/WP3).
+
+    Inspector 只验证该包的 schema、哈希与交叉引用（evidence_hashes 必须与真实
+    证据文件严格 SHA-256 一致，sample_manifest_hash 必须与 observed_metrics +
+    evidence_hashes 载荷一致），不再从普通工作区文件自行推断资格。
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    protocol_version: str = Field(description="资格包协议版本（须等于 QUALIFICATION_PROTOCOL_VERSION）")
+    precondition_id: str = Field(
+        description="对应前置条件标识: p1/p2/p3/blind_eval/pass_audit/human_eval/provider/release_integrity"
+    )
+    source_commit: str = Field(description="生成该资格包时的源 commit")
+    sample_manifest_hash: str = Field(
+        pattern=r"^[0-9a-f]{64}$",
+        description="证据载荷 SHA256：sha256(sort_json({observed_metrics, evidence_hashes}))",
+    )
+    evidence_hashes: dict[str, str] = Field(
+        default_factory=dict,
+        description="证据文件相对路径 -> SHA256（须与真实文件严格一致）",
+    )
+    thresholds: dict[str, float] = Field(
+        default_factory=dict, description="判定阈值（如 total_pairs>=10, qualified_readers>=10）"
+    )
+    observed_metrics: dict = Field(
+        default_factory=dict, description="真实观测指标（由对真实证据文件的读取/评估得出，非自报）"
+    )
+    verdict: Literal["qualified", "unqualified"] = Field(description="资格判定")
+    notes: str = Field(default="", description="资格判定说明")
+

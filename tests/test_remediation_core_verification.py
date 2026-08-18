@@ -468,8 +468,8 @@ class TestHumanEvalProtocolHardening:
                 secret_output_dir=sub_dir,
             )
 
-    def test_reader_deduplication(self):
-        """同一读者多次提交时严格去重（保留最新记录）."""
+    def test_reader_duplicate_explicitly_rejected(self):
+        """R6 硬口径：同一 reader_id 多次提交必须显式拒绝，而不是静默保留最后一份."""
         mapping = {"cand_alpha": "v_sys", "cand_beta": "v_hum"}
         manifest_hash = hashlib.sha256(json.dumps(mapping, sort_keys=True).encode("utf-8")).hexdigest()
         packet = BlindedChapterPacket(
@@ -497,9 +497,9 @@ class TestHumanEvalProtocolHardening:
             ),
         ]
 
-        res = evaluate_human_submissions(packet, submissions, mapping)
-        assert res["total_readers"] == 1
-        assert res["preference_distribution"]["v_hum"] == 1.0
+        # 重复 reader_id 必须显式拒绝（不同 submission_id 但同一 reader 多次提交）
+        with pytest.raises(ValueError, match="Duplicate reader_id detected"):
+            evaluate_human_submissions(packet, submissions, mapping)
 
     def test_inspect_preconditions_strictly_reads_disk_artifacts_and_rejects_empty(self, tmp_path):
         """inspect_long_horizon_preconditions 绝无 import 作弊，无磁盘产物默认全为 False."""

@@ -359,6 +359,8 @@ def run_author_selection(
     consolidation_contested_ratio: Optional[float] = None,
     author_judge: Optional[object] = None,
     contract=None,
+    rollout_steps: int = 3,
+    author_model_v3: str = "off",
 ) -> dict:
     """跑完整作者感知选择链，落 ChoiceLedger / ShadowLedger / DriftReview 侧车.
 
@@ -433,9 +435,11 @@ def run_author_selection(
             ),
         )
         workspec = next((o for o in objects if isinstance(o, WorkSpec)), None)
-        author_model_v3 = load_author_model_v3(output_dir)
-        qual_report = load_qualification_report(output_dir)
-        engine = StructuralSearchEngine(rollout_steps=3)
+        # R8 参数闭环：真正消费 CLI 传入的 rollout_steps / author_model_v3
+        v3_on = author_model_v3 == "on"
+        v3_model = load_author_model_v3(output_dir) if v3_on else None
+        qual_report = load_qualification_report(output_dir) if v3_on else None
+        engine = StructuralSearchEngine(rollout_steps=rollout_steps if rollout_steps in (3, 4, 5) else 3)
         structural_search_result = engine.search_and_evaluate(
             props,
             curr_state,
@@ -443,7 +447,7 @@ def run_author_selection(
             target_chapter=chapter_number or 1,
             workspec=workspec,
             orchestration_state=orchestration_state,
-            author_model=author_model_v3,
+            author_model=v3_model,
             qualification_report=qual_report,
             output_dir=output_dir,
         )
@@ -490,7 +494,7 @@ def run_author_selection(
                     target_chapter=chapter_number or 1,
                     workspec=workspec,
                     orchestration_state=orchestration_state,
-                    author_model=author_model_v3,
+                    author_model=v3_model,
                     qualification_report=qual_report,
                     manual_selection=manual_choice,
                     output_dir=output_dir,

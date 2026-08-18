@@ -23,6 +23,14 @@ from src.object_state.human_eval import (
 )
 from src.workflow_action.human_eval import (
     build_blinded_human_eval_packet,
+    build_human_eval_qualification,
+    build_p1_qualification,
+    build_p2_qualification,
+    build_p3_qualification,
+    build_blind_eval_qualification,
+    build_pass_audit_qualification,
+    build_provider_qualification,
+    build_release_integrity_qualification,
     evaluate_human_submissions,
     evaluate_long_horizon_authorization,
     inspect_long_horizon_preconditions,
@@ -236,6 +244,29 @@ class TestHumanBlindEvalToolkit:
         with pytest.raises(ValueError, match="missing continuation evaluation for versions"):
             evaluate_human_submissions(packet, [sub_incomplete], secret_manifest)
 
+        # 6. 重复 reader_id（不同 submission_id 但同一 reader 多次提交）必须显式拒绝
+        reader_a_1 = HumanEvaluationSubmission(
+            submission_id="sub_r_a1",
+            packet_id="packet_test_valid",
+            reader_id="r_dup",
+            reader_group="veteran_reader",
+            preferred_version="cand_alpha",
+            continuation_willingness_by_version={"cand_alpha": True, "cand_beta": True},
+            abandonment_by_version={"cand_alpha": None, "cand_beta": None},
+        )
+        reader_a_2 = HumanEvaluationSubmission(
+            submission_id="sub_r_a2",
+            packet_id="packet_test_valid",
+            reader_id="r_dup",
+            reader_group="veteran_reader",
+            preferred_version="cand_beta",
+            continuation_willingness_by_version={"cand_alpha": True, "cand_beta": True},
+            abandonment_by_version={"cand_alpha": None, "cand_beta": None},
+        )
+        with pytest.raises(ValueError, match="Duplicate reader_id detected"):
+            evaluate_human_submissions(packet, [reader_a_1, reader_a_2], secret_manifest)
+
+
 
 class TestLongHorizonAuthorization:
     def test_default_status_strictly_rejects_authorization_due_to_missing_human_data(self):
@@ -300,3 +331,111 @@ class TestLongHorizonAuthorization:
         # P9 与 P10 绝不能因为存在 run_manifest.json 就被误判为 True
         assert status.provider_profile_and_budget_frozen is False
         assert status.historical_release_records_intact is False
+
+
+class TestQualificationEvidencePackages:
+    """R6/WP3：Inspector 只验证资格证据包，不再从普通工作区文件猜测资格."""
+
+    @staticmethod
+    def _write_json(base: Path, rel: str, data) -> Path:
+        p = base / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+        return p
+
+    def test_full_qualification_set_grants_bits(self, tmp_path):
+        w = tmp_path / "novel"
+        w.mkdir(parents=True, exist_ok=True)
+        # P1: committed run_manifest + gate report with ChapterCommitBoundary 相对路径 artifact key
+        gate = self._write_json(w, "output/compose/reader_gate_report.json",
+                                {"route": "pass", "axes_armed": {}, "issues": []})
+        self._write_json(w, "run_manifest.json", {
+            "status": "committed", "run_id": "r",
+            "artifacts": {"output/compose/reader_gate_report.json": hashlib.sha256(gate.read_bytes()).hexdigest()},
+        })
+        build_p1_qualification(w, source_commit="b464a8a")
+        self._write_json(w, "committed_orchestration_state.json", {"last_committed_chapter": 5})
+        self._write_json(w, "orchestration_history.json", [{"c": 1}, {"c": 2}])
+        build_p2_qualification(w, source_commit="b464a8a")
+        self._write_json(w, "structural_search_record.json", {
+            "pareto_frontier": ["p1", "p2"],
+            "rollout_evaluations": {"p1": {}},
+            "diversity_report": {"is_diverse": True},
+        })
+        build_p3_qualification(w, source_commit="b464a8a")
+        self._write_json(w, "ab_blind_eval_report.json", {
+            "total_pairs_evaluated": 12, "better_count": 6, "worse_count": 3,
+            "no_difference_count": 2, "uncertain_count": 1,
+        })
+        build_blind_eval_qualification(w, source_commit="b464a8a")
+        self._write_json(w, "pass_audit_report.json", {"total_pass_chapters_audited": 6, "true_miss_rate": 0.1})
+        build_pass_audit_qualification(w, source_commit="b464a8a")
+        self._write_json(w, "provider_profiles.json", {"k3": {"budget": 100}})
+        build_provider_qualification(w, source_commit="b464a8a")
+        self._write_json(w, "release_record.json", {"release_tag": "v0.1.3-q1", "git_commit": "abc123"})
+        build_release_integrity_qualification(w, source_commit="b464a8a")
+
+        status = inspect_long_horizon_preconditions(w)
+        assert status.p1_causal_defense_complete is True
+        assert status.p2_orchestrator_in_production is True
+        assert status.p3_structural_search_active is True
+        assert status.p3_diversity_validated is True
+        assert status.p4_blind_eval_stable is True
+        assert status.p4_pass_audit_frozen is True
+        assert status.provider_profile_and_budget_frozen is True
+        assert status.historical_release_records_intact is True
+
+    def test_p1_no_run_manifest_is_not_qualified(self, tmp_path):
+        # R6 防伪：无 run_manifest 时 P1 绝不能默认 True（旧逻辑 manifest_ok 默认 True 的漏洞）
+        self._write_json(tmp_path, "output/reader_gate_report.json", {"route": "pass", "issues": []})
+        build_p1_qualification(tmp_path, source_commit="b464a8a")  # 无 run_manifest -> unqualified
+        status = inspect_long_horizon_preconditions(tmp_path)
+        assert status.p1_causal_defense_complete is False
+
+    def test_tampered_evidence_fails_hash_cross_reference(self, tmp_path):
+        # 篡改证据文件 => Inspector 哈希交叉引用必须失败，资格位不得被赋位
+        manifest = {
+            "status": "committed", "run_id": "r",
+            "artifacts": {"output/compose/reader_gate_report.json": "0" * 64},
+        }
+        self._write_json(tmp_path, "run_manifest.json", manifest)
+        self._write_json(tmp_path, "output/compose/reader_gate_report.json", {"route": "pass", "issues": []})
+        build_p1_qualification(tmp_path, source_commit="b464a8a")
+        # 构建后篡改 gate 报告内容 => Inspector 校验 evidence_hashes 交叉引用失败
+        (tmp_path / "output/compose/reader_gate_report.json").write_text(
+            json.dumps({"route": "pass", "issues": [{"severity": "blocking"}]}, ensure_ascii=False), encoding="utf-8"
+        )
+        status = inspect_long_horizon_preconditions(tmp_path)
+        assert status.p1_causal_defense_complete is False
+
+    def test_human_eval_qualification_reads_qualification_eligible(self, tmp_path):
+        version_data = {
+            "v3_system": [{"chapter_num": 1, "content": "A"}],
+            "human_original": [{"chapter_num": 1, "content": "B"}],
+        }
+        pub = tmp_path / "public"
+        sec = tmp_path / "secret"
+        packet, secret_manifest = build_blinded_human_eval_packet(
+            "万物伏藏", version_data, chapter_range="1-1",
+            public_output_dir=pub, secret_output_dir=sec, random_seed=7,
+        )
+        # 10 位具备全版本覆盖的独立合格读者（每个 reader_id 唯一，重复必须拒绝）
+        subs = [
+            HumanEvaluationSubmission(
+                submission_id=f"sub_{i}",
+                packet_id=packet.packet_id,
+                reader_id=f"reader_{i}",
+                reader_group="veteran_reader",
+                preferred_version=next(iter(secret_manifest)),
+                continuation_willingness_by_version={k: True for k in secret_manifest},
+                abandonment_by_version={k: None for k in secret_manifest},
+            )
+            for i in range(10)
+        ]
+        build_human_eval_qualification(
+            tmp_path, source_commit="b464a8a", packet=packet,
+            submissions=subs, secret_manifest=secret_manifest,
+        )
+        status = inspect_long_horizon_preconditions(tmp_path)
+        assert status.p4_human_eval_protocol_frozen is True
+        assert status.real_human_continuous_reading_data_exists is True

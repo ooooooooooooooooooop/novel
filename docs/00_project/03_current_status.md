@@ -15,8 +15,8 @@ Update this file after each meaningful round of project-shaping work.
 
 ### 0.1 真实基线
 
-- commit：`157914ed`（基于 parent `f31bb2e`，Working tree 干净）
-- pytest：`2947 passed (collected 2947)`（实机 2947 passed，收集 2947；合同测试 `EXPECTED_TEST_BASELINE="2947"` 锁收集数）
+- 当前 commit：`b464a8a`（Working tree 干净）；**validated_parent=`157914ed`**（上一验证父提交，只作父声明，不是当前 commit）
+- pytest：`2951 passed + 1 skipped (collected 2952)`（**本地测试声明**：实机 2951 passed + 1 skipped，收集 2952；合同测试 `EXPECTED_TEST_BASELINE="2952"` 锁收集数。**GitHub 无可见 CI**——2951 passed + 1 skipped 仅为本地 pytest 实测，非远端自动验证产物）
 - Tier 0 三流 Canary：`python scripts/tier0_canary_regression.py` → **PASS**（audit/extend/compose `novel gate` 均 ok=True, route=pass, blocking=0）
 - 发布记录：`docs/00_project/releases/tier0-release.json`（2301 历史）、`q1-release.json`（v0.1.3-q1）——**不可变，不修改**
 - tags：`v0.1.1-tier0`、`v0.1.2-tier0`、`v0.1.3-q1`——**不可移动**
@@ -41,12 +41,13 @@ Update this file after each meaningful round of project-shaping work.
 本轮整改彻底消除了系统中的伪造漏洞、协议矛盾与未决回退逻辑，重点闭环 4 大整改包：
 
 1. **R0: 状态真源与测试基线彻底统一**
-   - 全量回归测试基线统一为 `2947 passed (collected 2947)`（实机 2947 passed，0 skipped，0 failed）。
-   - 验证最新父 commit `157914ed` / `f31bb2e`，所有文档、测试断言与实机运行结果 100% 吻合。
+   - 当前 commit 真源为 `b464a8a`；`validated_parent=157914ed` 仅记录为验证父声明，**不得误写为当前 commit**。
+   - 全量回归测试基线统一为 `2951 passed + 1 skipped (collected 2952)`（**本地测试声明**：实机 2951 passed + 1 skipped；**GitHub 无可见 CI**，非远端自动验证产物）。
 
-2. **R3: 状态驱动的多步动态推演引擎**
-   - 重构 `_rollout_single_step` 与 `simulate_dynamic_state_rollout`，实现真实状态驱动的多步前向推演（Dynamic State-Driven Rollout）。
-   - 彻底废除预计算静态指标代理，由实际事件、因果约束、状态更新与目标演化动态计算 step metrics、cumulative score 与 discount factor。
+2. **R3: 状态驱动的多步动态推演引擎（真实 staged rollout）**
+   - 现有确定性投影正式命名 `deterministic_scenario_projection`（保留为快速风险探测）。
+   - 生产搜索改用 `simulate_state_driven_rollout`：严格「当前 Snapshot → 生成 actor_decisions → 生成并验证 RolloutDelta → 应用到克隆状态 → 下一步重新读取新状态」，每步不读原 proposal 预写的 primary_risk / impact_next_3_to_5_chapters / reader_expectation_delta 作为未来答案；指标来自对后续状态的评价，不含按 step_index 固定增减的公式。
+   - 验收测试「修改 Step 1 实际结果 → Step 2 产生不同决策」已落地。
 
 3. **R5: AuthorModel V3 资格协议与生产仲裁一致性**
    - 生产环境 Pareto 多目标选择中彻底移除关键词代理平局决胜（keyword proxy tie-break）。
@@ -78,7 +79,7 @@ The repository is currently **end_to_end_validated** and **Tier 0 production rea
 
 Tier 0 (local staged CLI v0, operator-in-the-loop) was validated on 2026-07-28:
 
-- full pytest baseline: 2947 tests passing
+- full pytest baseline: 2952 tests passing（本地测试声明，GitHub 无可见 CI）
 - audit canary (`tier0-canary`) passed `novel gate`: `ok=true`, `review_route=pass`, `next_workflow=ContinueUnit`, `blocking_pending_count=0`
 - canary evidence: `docs/00_project/releases/tier0-canary-evidence.json`
 - saved canary gate result: `docs/00_project/releases/tier0-canary-gate.json`
@@ -302,7 +303,7 @@ The artifact set is complete and the first running slices are end-to-end validat
 
 Current baseline:
 
-- `pytest -q`: 2947 tests passing
+- `pytest -q`: 2952 tests passing（本地测试声明）
 - long-form multi-arc stress test: PASS
 - end-to-end Audit / Extend / Compose validation: PASS
 
@@ -402,7 +403,7 @@ Current next decision:
   - Track 3 CharacterModel evidence-leakback checks
   - generative_indicia detection checks
   - Review hard rules extension checks
-  - total validation baseline: 2947 tests passing
+  - total validation baseline: 2952 tests passing（本地测试声明）
 - **Slice L1: Long-form chapter-level infra** - Complete
   - `src/boundary_control/chunking.py` splits text by chapters
   - `src/boundary_control/report_formatter.py` formats audit reports

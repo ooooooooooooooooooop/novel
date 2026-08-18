@@ -290,6 +290,20 @@ def main() -> int:
         "产物落 output/structural_search_record.json）",
     )
     parser.add_argument(
+        "--rollout-steps",
+        type=int,
+        default=3,
+        choices=[3, 4, 5],
+        help="结构搜索 rollout 推演步数（R8 闭环：真正被 run_author_selection 消费）",
+    )
+    parser.add_argument(
+        "--author-model-v3",
+        default="off",
+        choices=["on", "off"],
+        help="是否加载 AuthorModel V3 并参与结构搜索（R8 闭环；off=影子关闭）。"
+        "正式仲裁已彻底剔除关键词代理，认证模型仅作影子不决胜",
+    )
+    parser.add_argument(
         "--no-prose",
         action="store_true",
         help="跳过章节正文落盘（只产出 PlotUnit 结构；默认自动成文落盘 chapters/）",
@@ -703,6 +717,8 @@ def main() -> int:
             consolidation_contested_ratio=args.consolidation_contested_ratio,
             author_judge=author_judge,
             contract=reader_contract,
+            rollout_steps=args.rollout_steps,
+            author_model_v3=args.author_model_v3,
         )
         selected_package = selection["selected"]
         plotunit = selected_package["plotunit"]
