@@ -73,7 +73,7 @@ class Author(BaseModel):
     selection_patterns: list[SelectionPattern] = Field(min_length=1)
     corpus_size: dict[str, int]
     source_digest: str
-    extraction_generation: Literal["deterministic-metadata-v1"] = "deterministic-metadata-v1"
+    extraction_generation: Literal["deterministic-metadata-v1", "deep-v2"] = "deterministic-metadata-v1"
     author_template_ref: str | None = None
     style_profile_ref: str | None = None
     runtime: AuthorRuntime = Field(default_factory=AuthorRuntime)

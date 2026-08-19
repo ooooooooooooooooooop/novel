@@ -109,9 +109,25 @@ def _metadata_files(root: Path) -> list[Path]:
     return sorted(root.rglob("*.json")) if root.is_dir() else []
 
 
-def inspect_corpus(input_path: str | Path) -> tuple[dict[str, int], dict[str, float], str, list[tuple[int, str]]]:
+def _sample_indexes(chapter_count: int, sample_chapters: int) -> list[int]:
+    if sample_chapters < 1:
+        raise ValueError("sample_chapters must be at least 1")
+    if chapter_count <= sample_chapters:
+        return list(range(chapter_count))
+    if sample_chapters == 1:
+        return [0]
+    last = chapter_count - 1
+    return sorted({round(index * last / (sample_chapters - 1)) for index in range(sample_chapters)})
+
+
+def inspect_corpus(
+    input_path: str | Path,
+    sample_chapters: int = 3,
+) -> tuple[dict[str, int], dict[str, float], str, list[tuple[int, str]]]:
     """Read local corpus text for metrics, returning only neutral aggregates."""
     root = Path(input_path).expanduser().resolve()
+    if sample_chapters < 1:
+        raise ValueError("sample_chapters must be at least 1")
     if not root.exists():
         raise FileNotFoundError(str(input_path))
     if not root.is_dir() and root.suffix.lower() != ".json":
@@ -141,7 +157,7 @@ def inspect_corpus(input_path: str | Path) -> tuple[dict[str, int], dict[str, fl
 
     samples: list[tuple[int, str]] = []
     if chapters:
-        indexes = sorted({0, len(chapters) // 2, len(chapters) - 1})
+        indexes = _sample_indexes(len(chapters), sample_chapters)
         samples = [(index + 1, chapters[index][:1600]) for index in indexes]
     size = {
         "chapter_files": len(chapters),
@@ -204,16 +220,42 @@ def extract_authors(inputs: list[str | Path], author_ids: list[str] | None = Non
     return results
 
 
-def run(input_path: str | Path, output_dir: str | Path, author_id: str = "corpus-author-a") -> dict[str, Any]:
-    size, stats, digest, samples = inspect_corpus(input_path)
+def run(
+    input_path: str | Path,
+    output_dir: str | Path,
+    author_id: str = "corpus-author-a",
+    sample_chapters: int = 3,
+) -> dict[str, Any]:
+    size, stats, digest, samples = inspect_corpus(input_path, sample_chapters=sample_chapters)
+    generation = "deep-v2" if sample_chapters > 3 else "deterministic-metadata-v1"
     output = Path(output_dir).expanduser().resolve()
     model_path = output / "author_models" / f"{author_id}.json"
+    history_path = output / "author_models" / f"{author_id}.generations.json"
     response_path = output / RESPONSE_NAME
     prompt_path = output / PROMPT_NAME
     if model_path.exists():
         existing = Author.model_validate_json(model_path.read_text(encoding="utf-8"))
-        if existing.source_digest == digest and existing.author_id == author_id:
+        existing_samples = existing.corpus_size.get("sampled_chapters", 0)
+        if (
+            existing.source_digest == digest
+            and existing.author_id == author_id
+            and existing.extraction_generation == generation
+            and existing_samples >= size["sampled_chapters"]
+        ):
             return {"status": "materialized", "path": str(model_path), "model": existing.model_dump(mode="json")}
+        if (
+            generation == "deep-v2"
+            and existing.source_digest == digest
+            and existing.author_id == author_id
+            and existing.extraction_generation != generation
+        ):
+            _atomic_json(
+                history_path,
+                {
+                    "schema_version": 1,
+                    "generations": [existing.model_dump(mode="json")],
+                },
+            )
     if not response_path.exists():
         _atomic_json(
             prompt_path.with_suffix(".txt"),
@@ -239,6 +281,7 @@ def run(input_path: str | Path, output_dir: str | Path, author_id: str = "corpus
         selection_patterns=patterns,
         corpus_size=size,
         source_digest=digest,
+        extraction_generation=generation,
         runtime=runtime,
     )
     _atomic_json(model_path, model.model_dump(mode="json"))

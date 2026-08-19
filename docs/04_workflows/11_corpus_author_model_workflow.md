@@ -12,8 +12,14 @@ below materializes one instance.
 novel corpus-author-model \
   --input <local-corpus-directory> \
   --output-dir <local-working-directory> \
-  --author-id corpus-author-a
+  --author-id corpus-author-a \
+  --sample-chapters 3
 ```
+
+`--sample-chapters N` selects N deterministic, evenly spaced chapters for the staged prompt;
+its default of `3` preserves the first/middle/last behavior. Use a larger value (for example
+`24`–`36`) for deep extraction across the full arc. Method-layer statistics still use the full
+local corpus, while only the selected samples enter the local prompt.
 
 1. The deterministic pass reads chapter text locally to compute aggregate method-layer proxy
    statistics (rhythm, hook signals, viewpoint markers, conflict/turning-point signals, dialogue
@@ -26,7 +32,8 @@ novel corpus-author-model \
    chapter-numbered aggregate evidence anchors. Do not copy sample wording into the response.
 4. Rerun the command. A validated `Author` is atomically written to
    `author_models/<neutral-id>.json`. Invalid or missing responses remain waiting; unchanged reruns
-   are byte/idempotent.
+   are byte/idempotent. When a larger sample is requested, the model uses generation `deep-v2` and
+   preserves the prior neutral model in `author_models/<neutral-id>.generations.json` before replacing it.
 
 ## Boundaries
 

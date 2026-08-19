@@ -75,6 +75,69 @@ def test_metadata_workflow_waits_then_materializes_without_persisting_samples(tm
     assert model_path.read_bytes() == before
 
 
+def test_deep_sampling_is_uniform_and_preserves_v1_generation(tmp_path: Path):
+    corpus = tmp_path / "corpus"
+    (corpus / "chapters").mkdir(parents=True)
+    for index in range(1, 11):
+        (corpus / "chapters" / f"chapter_{index:03d}.txt").write_text(
+            f"第{index}章。", encoding="utf-8"
+        )
+    output = tmp_path / "out"
+    run(corpus, output)
+    response = output / "corpus_author_model_response.json"
+    response.write_text(
+        json.dumps(
+            {
+                "selection_patterns": [
+                    {
+                        "pattern_id": "pattern-001",
+                        "statement": "sampled pacing changes across the arc",
+                        "confidence": 0.8,
+                        "chapter_evidence": [
+                            {"chapter_index": 1, "metric": "signal", "value": "sample"}
+                        ],
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    run(corpus, output)
+    response.unlink()
+
+    waiting = run(corpus, output, sample_chapters=5)
+    assert waiting["status"] == "waiting"
+    prompt_payload = json.loads((output / "corpus_author_model_prompt.txt").read_text(encoding="utf-8"))
+    prompt = prompt_payload["prompt"]
+    assert prompt.count("chapter evidence sample") == 5
+    assert '"sampled_chapters": 5' in prompt
+    history = output / "author_models" / "corpus-author-a.generations.json"
+    assert history.exists()
+    assert history.read_text(encoding="utf-8").count('"extraction_generation": "deterministic-metadata-v1"') == 1
+
+    response.write_text(
+        json.dumps(
+            {
+                "selection_patterns": [
+                    {
+                        "pattern_id": "pattern-001",
+                        "statement": "sampled pacing changes across the arc",
+                        "confidence": 0.8,
+                        "chapter_evidence": [
+                            {"chapter_index": 1, "metric": "signal", "value": "sample"},
+                            {"chapter_index": 10, "metric": "turn", "value": "sample"},
+                        ],
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    materialized = run(corpus, output, sample_chapters=5)
+    assert materialized["model"]["extraction_generation"] == "deep-v2"
+    assert materialized["model"]["corpus_size"]["sampled_chapters"] == 5
+
+
 def test_batch_extraction_supports_multiple_author_instances(tmp_path: Path):
     roots = []
     for index in range(2):

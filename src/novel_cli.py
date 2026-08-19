@@ -2048,7 +2048,7 @@ def _run_respond(args: argparse.Namespace) -> int:
 
 
 def _run_corpus_author_model(args: argparse.Namespace) -> int:
-    result = run_corpus_author_model(args.input, args.output_dir, args.author_id)
+    result = run_corpus_author_model(args.input, args.output_dir, args.author_id, args.sample_chapters)
     if result.get("status") == "waiting":
         payload = result
         _validate_corpus_author_model_json_payload(payload)
@@ -2218,6 +2218,13 @@ def build_parser(*, emit_json_errors: bool = False) -> argparse.ArgumentParser:
     corpus_author_model.add_argument("--input", required=True, help="元数据 JSON 或包含 chapters/*.txt 的目录")
     corpus_author_model.add_argument("--output-dir", required=True, help="staged prompt/response 与模型输出目录")
     corpus_author_model.add_argument("--author-id", default="corpus-author-a", help="中性作者实例 ID")
+    corpus_author_model.add_argument(
+        "--sample-chapters",
+        type=int,
+        default=3,
+        metavar="N",
+        help="均匀覆盖全书的 staged 章节样本数（默认 3，保留首/中/末兼容行为）",
+    )
     corpus_author_model.set_defaults(func=_run_corpus_author_model)
 
     audit = subparsers.add_parser("audit", help="审核已有小说")
