@@ -8,7 +8,7 @@ Automatic Novel Narrative System
 - 当前状态唯一权威入口：`docs/00_project/03_current_status.md` §0（能力边界 / G7 退役 / 五层评价）。
 - 大神级升级计划：`docs/00_project/52_mastery_upgrade_plan.md`（P0–P7）。
 - A1 自动调用与单章自动生产链已存在但**未获生产资格**；G7 自动审美资格失败、已退役为研究性子能力。
-- 测试基线：**2962 tests passing**（精确口径：**2961 passed + 1 skipped（收集 2962）**；**本地测试声明**，GitHub 无可见 CI；本地上次基线 2947 passed 为 2026-08-17 R0–R9 事迹）。
+- 测试基线：**2963 tests passing**（精确口径：**2962 passed + 1 skipped（收集 2963）**；**本地测试声明**，GitHub 无可见 CI；本地上次基线 2947 passed 为 2026-08-17 R0–R9 事迹）。
 
 ## Current Phase
 Tier 0 production ready — three-flow daily-production hardened (2026-07-29). End-to-end validated, Codex-native orchestration. All three slices (`audit_short_form`, `extend_short_form`, `compose_short_form`) are code-complete and validated, and each has a real staged Codex canary passing `novel gate`.
@@ -114,7 +114,7 @@ Do not optimize for:
 - Slice 3 (`compose_short_form`): code complete, default WorkSpec validated, end-to-end PASS
 - LLM layer split: workflow units expose `build_prompt()` and `parse_response()`; scripts do not call LLMs internally
 - Long-form multi-arc stress test: PASS
-- No-regression tests: 2962 tests passing（精确口径：2961 passed + 1 skipped，收集 2962；本地测试声明，GitHub 无可见 CI）
+- No-regression tests: 2963 tests passing（精确口径：2962 passed + 1 skipped，收集 2963；本地测试声明，GitHub 无可见 CI）
 - End-to-end Audit / Extend / Compose validation: PASS
 
 If you are asked to write code, the existing infrastructure is:
