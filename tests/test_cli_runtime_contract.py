@@ -71,8 +71,9 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 # → 2962 passed + 1 skipped（收集 2963，本地测试声明，GitHub 无可见 CI）。
 # 续写 offstage 修复（test_continuation_offstage.py,+1）与结构搜索 T3 阶段一
 # （test_structural_search_t3_phase1.py,+6）→ 2969 passed + 1 skipped（收集 2970，
-# 本地测试声明，GitHub 无可见 CI）。
-EXPECTED_TEST_BASELINE = "2970"
+# 本地测试声明，GitHub 无可见 CI）；作者语料采样粒度修复（test_corpus_author_model.py,+12）
+# → 2981 passed + 1 skipped（收集 2982，本地测试声明，GitHub 无可见 CI）。
+EXPECTED_TEST_BASELINE = "2982"
 
 
 def run_script(*args: str) -> subprocess.CompletedProcess[str]:
@@ -705,7 +706,7 @@ def test_production_readiness_checklist_contract():
         "audit log",
         "release tag",
         "clean full pytest",
-        "2969 passed + 1 skipped (2970 collected)",
+        "2981 passed + 1 skipped (2982 collected)",
     ]
 
     for phrase in required_phrases:

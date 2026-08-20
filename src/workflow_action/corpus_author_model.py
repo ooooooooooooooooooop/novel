@@ -10,9 +10,11 @@ import hashlib
 import json
 import os
 import re
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from src.boundary_control.chunking import split_by_chapters
 from src.object_state.corpusauthormodel import (
     Author,
     AuthorRuntime,
@@ -22,6 +24,25 @@ from src.object_state.corpusauthormodel import (
 
 PROMPT_NAME = "corpus_author_model_prompt.txt"
 RESPONSE_NAME = "corpus_author_model_response.json"
+
+
+@dataclass(frozen=True)
+class ChapterSample:
+    """Privacy-safe owned sample evidence rendered into the staged prompt.
+
+    For the legacy ``chapters/`` mode ``work_id`` and ``stage`` are ``None``
+    and ``_prompt`` renders the historical header format (``--- chapter
+    evidence sample {index} ---``).  For full-novel expansion mode they carry
+    a neutral per-source-work id (``work-001`` ...) and a within-work stage
+    label so the operator can see cross-work stage coverage without exposing
+    source file names.  The text is local-only and never serialized into
+    ``author_models``.
+    """
+
+    chapter_index: int  # global 1-based flat chapter evidence number
+    work_id: str | None = None  # None in legacy mode → old header format
+    stage: str | None = None    # early | middle | late
+    text: str = ""              # local-only sample text (first 1600 chars)
 
 _SENTENCE_RE = re.compile(r"[^。！？!?.!?]+[。！？!?.!?]?")
 _DIALOGUE_RE = re.compile(r"[“\"『「].*?[”\"』」]", re.S)
@@ -42,11 +63,17 @@ def _read_text(path: Path) -> str:
     raise ValueError(f"cannot decode chapter file: {path.name}")
 
 
-def _chapter_files(root: Path) -> list[Path]:
-    chapter_dir = root / "chapters"
-    if chapter_dir.is_dir():
-        return sorted(chapter_dir.glob("*.txt"))
-    return sorted(root.rglob("*.txt"))
+def _expand_chapter_texts(text: str) -> list[str]:
+    """Split one source file into chapter texts via ``split_by_chapters``.
+
+    When ``split_by_chapters`` yields a single chunk with ``chapter_title ==
+    "全文"``, keep the whole file as one corpus item.  Real chapter headings
+    expand into a chapter sequence, preserving the heading line in each chunk.
+    """
+    chunks = split_by_chapters(text)
+    if len(chunks) == 1 and chunks[0].chapter_title == "全文":
+        return [chunks[0].text]
+    return [chunk.text for chunk in chunks]
 
 
 def _numeric_keys(value: Any, prefix: str = "") -> list[str]:
@@ -120,10 +147,99 @@ def _sample_indexes(chapter_count: int, sample_chapters: int) -> list[int]:
     return sorted({round(index * last / (sample_chapters - 1)) for index in range(sample_chapters)})
 
 
+def _stratified_work_quotas(work_count: int, sample_chapters: int) -> list[int]:
+    """Deterministic per-source-work sample quotas.
+
+    ``sample_chapters >= work_count``: every work gets at least one sample and
+    the remainder is spread evenly over the first works (``divmod`` base plus
+    one extra for the first ``sample_chapters % work_count`` works).
+    ``sample_chapters < work_count``: evenly spaced works (via ``_sample_indexes``
+    over the work list) get exactly one representative sample each.
+    """
+    if work_count <= 0:
+        return []
+    if sample_chapters >= work_count:
+        base, remainder = divmod(sample_chapters, work_count)
+        return [base + (1 if index < remainder else 0) for index in range(work_count)]
+    selected = set(_sample_indexes(work_count, sample_chapters))
+    return [1 if index in selected else 0 for index in range(work_count)]
+
+
+def _bounded_work_quotas(counts: list[int], budget: int) -> list[int]:
+    """Per-work sample quotas capped by chapter count, with unused quota
+    deterministically redistributed to works that still have capacity.
+
+    Initial quotas come from ``_stratified_work_quotas``; each is capped to its
+    work's chapter count.  The surplus is then redistributed round-robin in
+    index order over works with remaining room until the total actual equals
+    ``min(budget, sum(counts))``.  Samples are never duplicated to pad a quota,
+    and every work keeps at least one sample whenever ``budget >= work_count``.
+    For the legacy all-counts-one mode this reproduces the previous global
+    uniform behavior exactly.
+    """
+    if not counts:
+        return []
+    quotas = _stratified_work_quotas(len(counts), budget)
+    actual = [min(quota, count) for quota, count in zip(quotas, counts)]
+    remaining = budget - sum(actual)
+    while remaining > 0:
+        any_room = False
+        for index in range(len(counts)):
+            if remaining <= 0:
+                break
+            if actual[index] < counts[index]:
+                actual[index] += 1
+                remaining -= 1
+                any_room = True
+        if not any_room:
+            break
+    return actual
+
+
+def _stage_label(local_index: int, chapter_count: int) -> str:
+    """early/middle/late bucket for a chapter position inside one work."""
+    if chapter_count <= 1:
+        return "early"
+    ratio = local_index / (chapter_count - 1)
+    if ratio < 1 / 3:
+        return "early"
+    if ratio > 2 / 3:
+        return "late"
+    return "middle"
+
+
+def _stratified_samples(
+    work_chapter_counts: list[int], sample_chapters: int
+) -> list[tuple[int, int, int]]:
+    """(global_index, work_index, local_index) samples in ascending global order.
+
+    Each work's quota is spread across its own chapters via ``_sample_indexes``,
+    so long books cannot crowd out short ones and every sampled work keeps
+    within-work stage coverage.  Global indexes remain the flat path+chapter
+    offset, so chapter evidence numbering is unchanged.  With every count == 1
+    (legacy ``chapters/`` mode) this provably degenerates to the previous global
+    uniform sampling.
+
+    Quotas are capped by each work's chapter count and any surplus is
+    redistributed (``_bounded_work_quotas``), so the total actual sample count
+    equals ``min(sample_chapters, total chapters)``; samples are never
+    duplicated to pad a quota.
+    """
+    quotas = _bounded_work_quotas(work_chapter_counts, sample_chapters)
+    result: list[tuple[int, int, int]] = []
+    offset = 0
+    for work_index, (count, quota) in enumerate(zip(work_chapter_counts, quotas)):
+        if quota > 0:
+            for local_index in _sample_indexes(count, quota):
+                result.append((offset + local_index, work_index, local_index))
+        offset += count
+    return result
+
+
 def inspect_corpus(
     input_path: str | Path,
     sample_chapters: int = 3,
-) -> tuple[dict[str, int], dict[str, float], str, list[tuple[int, str]]]:
+) -> tuple[dict[str, int], dict[str, float], str, list[ChapterSample]]:
     """Read local corpus text for metrics, returning only neutral aggregates."""
     root = Path(input_path).expanduser().resolve()
     if sample_chapters < 1:
@@ -134,14 +250,35 @@ def inspect_corpus(
         raise ValueError("--input must be a metadata JSON file or a corpus directory")
 
     metadata_files = _metadata_files(root)
-    chapter_paths = _chapter_files(root) if root.is_dir() else []
+    work_chapter_counts: list[int] = []
     chapters: list[str] = []
+    legacy_mode = root.is_dir() and (root / "chapters").is_dir()
     digest = hashlib.sha256()
-    for path in chapter_paths:
-        text = _read_text(path)
-        chapters.append(text)
-        digest.update(path.name.encode("utf-8"))
-        digest.update(text.encode("utf-8"))
+    if root.is_dir():
+        chapter_dir = root / "chapters"
+        if chapter_dir.is_dir():
+            # Legacy one-file-one-chapter: every file is one chapter and is
+            # never re-split, even when its body contains "第X章"-style strings.
+            # Digest keeps the historical basename-only key so existing staged
+            # models keep their source_digest.
+            for path in sorted(chapter_dir.glob("*.txt")):
+                text = _read_text(path)
+                digest.update(path.name.encode("utf-8"))
+                digest.update(text.encode("utf-8"))
+                chapters.append(text)
+                work_chapter_counts.append(1)
+        else:
+            # Full-novel sources: expand real chapter headings via
+            # ``split_by_chapters`` (a single "全文" chunk stays one item).
+            # Digest uses root-relative POSIX paths so same-named files in
+            # different subdirectories cannot collide.
+            for path in sorted(root.rglob("*.txt")):
+                text = _read_text(path)
+                digest.update(path.relative_to(root).as_posix().encode("utf-8"))
+                digest.update(text.encode("utf-8"))
+                expanded = _expand_chapter_texts(text)
+                chapters.extend(expanded)
+                work_chapter_counts.append(len(expanded))
     metric_keys: set[str] = set()
     numeric_count = 0
     for path in metadata_files:
@@ -155,10 +292,27 @@ def inspect_corpus(
         digest.update(path.name.encode("utf-8"))
         digest.update(path.read_bytes())
 
-    samples: list[tuple[int, str]] = []
+    samples: list[ChapterSample] = []
     if chapters:
-        indexes = _sample_indexes(len(chapters), sample_chapters)
-        samples = [(index + 1, chapters[index][:1600]) for index in indexes]
+        for global_index, work_index, local_index in _stratified_samples(
+            work_chapter_counts, sample_chapters
+        ):
+            if legacy_mode:
+                samples.append(
+                    ChapterSample(
+                        chapter_index=global_index + 1,
+                        text=chapters[global_index][:1600],
+                    )
+                )
+            else:
+                samples.append(
+                    ChapterSample(
+                        chapter_index=global_index + 1,
+                        work_id=f"work-{work_index + 1:03d}",
+                        stage=_stage_label(local_index, work_chapter_counts[work_index]),
+                        text=chapters[global_index][:1600],
+                    )
+                )
     size = {
         "chapter_files": len(chapters),
         "metadata_files": len(metadata_files),
@@ -179,10 +333,18 @@ def _neutralize_ref(value: str | None) -> str | None:
     return candidate
 
 
-def _prompt(size: dict[str, int], stats: dict[str, float], digest: str, samples: list[tuple[int, str]]) -> str:
-    sample_block = "\n\n".join(
-        f"--- chapter evidence sample {index} ---\n{text}" for index, text in samples
-    ) or "(no chapter samples available; use aggregate metrics only)"
+def _prompt(size: dict[str, int], stats: dict[str, float], digest: str, samples: list[ChapterSample]) -> str:
+    parts: list[str] = []
+    for sample in samples:
+        if sample.work_id is None:
+            header = f"--- chapter evidence sample {sample.chapter_index} ---"
+        else:
+            header = (
+                f"--- chapter evidence sample {sample.chapter_index} "
+                f"({sample.work_id}, {sample.stage}) ---"
+            )
+        parts.append(f"{header}\n{sample.text}")
+    sample_block = "\n\n".join(parts) or "(no chapter samples available; use aggregate metrics only)"
     return (
         "You are extracting reusable selection-pattern evidence for a neutral Author model.\n"
         "This is not an identity claim and not a production gate. Do not copy prose, names,\n"
