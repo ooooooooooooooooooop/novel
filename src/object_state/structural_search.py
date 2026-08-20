@@ -17,7 +17,7 @@ import hashlib
 import json
 from typing import Literal, Optional
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_serializer
 
 
 class StructuralProposal(BaseModel):
@@ -227,7 +227,7 @@ class CandidatePrecommit(BaseModel):
 
 
 class ParetoDimensionScores(BaseModel):
-    """独立多维 Pareto 评估分数（禁止加权单总分）."""
+    """独立多维 Pareto 评估分数（禁止加权单总分；T3 轴显式启用时才存在）."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -238,10 +238,33 @@ class ParetoDimensionScores(BaseModel):
     originality: float = Field(ge=0, le=1, description="原创性与结构分叉度：避开陈词滥调")
     sustainability: float = Field(ge=0, le=1, description="长期可持续性：来自 3-5 章 Rollout")
     risk_penalty: float = Field(ge=0, le=1, description="风险惩罚：破坏世界或战力崩塌风险（越低越安全）")
+    # T3 Phase 1 research axes. ``None`` keeps the legacy serialized shape when
+    # the opt-in path has no usable anchor context.
+    consequence_reward: Optional[float] = Field(
+        default=None,
+        ge=0,
+        le=1,
+        description="局内后果奖励：有效状态变化、承诺推进与后续选择空间",
+    )
+    anchor_distance: Optional[float] = Field(
+        default=None,
+        ge=0,
+        le=1,
+        description="与冻结结构锚的独立距离（越高越偏离锚，非审美总分）",
+    )
+
+    @model_serializer(mode="wrap")
+    def _serialize_without_disabled_axes(self, handler):
+        data = handler(self)
+        if self.consequence_reward is None:
+            data.pop("consequence_reward", None)
+        if self.anchor_distance is None:
+            data.pop("anchor_distance", None)
+        return data
 
     def to_dimension_dict(self) -> dict[str, float]:
         """转为多目标最大化字典（risk_penalty 转化为 safety_score = 1.0 - risk_penalty）."""
-        return {
+        dimensions = {
             "causal_value": self.causal_value,
             "character_value": self.character_value,
             "reader_momentum": self.reader_momentum,
@@ -250,6 +273,14 @@ class ParetoDimensionScores(BaseModel):
             "sustainability": self.sustainability,
             "safety": 1.0 - self.risk_penalty,
         }
+        # Optional research axes are absent, rather than zero-valued, when the
+        # feature is off or anchor data is unavailable. This preserves legacy
+        # Pareto ordering and makes the no-anchor path a true no-op.
+        if self.consequence_reward is not None:
+            dimensions["consequence_reward"] = self.consequence_reward
+        if self.anchor_distance is not None:
+            dimensions["anchor_distance"] = self.anchor_distance
+        return dimensions
 
 
 class StructuralSearchResult(BaseModel):

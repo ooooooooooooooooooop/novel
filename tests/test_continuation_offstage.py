@@ -95,3 +95,16 @@ def test_narrative_organization_requirement():
     prompt = _prompt(_state(active=["c1"]), [])
     assert "延续本作品的叙事组织方式" in prompt
     assert "若原作单线紧凑" in prompt
+
+
+def test_delegation_requirement_present():
+    """续写要求第 11 项：借力不出面（§14 边界修正，Step 4 单变量证伪实验支持）.
+
+    零成本：与第 8 项同属常驻需求条，无新注入段；条件式措辞（若原作…请保持），
+    不预设具体形态，不强制所有作品都借力。
+    """
+    prompt = _prompt(_state(active=["c1"]), [])
+    assert "11. 借力不出面" in prompt
+    assert "借力布局、委托他人出面处理事务" in prompt
+    assert "不要让主角因续写而事事亲为" in prompt
+    assert "若原作主角本就亲力亲为" in prompt  # 条件式，不预设

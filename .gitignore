@@ -44,3 +44,6 @@ reference_texts/
 # Local reusable Author instances; contains corpus-derived evidence and stays private
 author_models/
 supervision/
+
+# managed-executor sandbox transient junk (not evidence)
+.dsh-tmp/

@@ -69,7 +69,10 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 # → 2933 + 7 = 2940；R0 修复闭环 2947 collected；R3 真实状态驱动 rollout 新增验收测试 +1，
 # WP3 资格证据包验收测试 +4，AuthorTemplate 证据模板验收测试 +5，Author 实例化语料作者模型测试 +4
 # → 2962 passed + 1 skipped（收集 2963，本地测试声明，GitHub 无可见 CI）。
-EXPECTED_TEST_BASELINE = "2963"
+# 续写 offstage 修复（test_continuation_offstage.py,+1）与结构搜索 T3 阶段一
+# （test_structural_search_t3_phase1.py,+6）→ 2969 passed + 1 skipped（收集 2970，
+# 本地测试声明，GitHub 无可见 CI）。
+EXPECTED_TEST_BASELINE = "2970"
 
 
 def run_script(*args: str) -> subprocess.CompletedProcess[str]:
@@ -702,7 +705,7 @@ def test_production_readiness_checklist_contract():
         "audit log",
         "release tag",
         "clean full pytest",
-        "2962 passed + 1 skipped (2963 collected)",
+        "2969 passed + 1 skipped (2970 collected)",
     ]
 
     for phrase in required_phrases:

@@ -54,8 +54,8 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 # P7 人类盲评与长程授权（test_human_eval.py,+5）升至 2903。
 # R1-R9 大神级系统整改（taste_stack,+4; narrative_orchestrator,+2; structural_search,+3; causal_defense,+3; authormodel_v3,+2; human_eval,+3; test_remediation_integration.py,+1）升至 2921。
 # R0-R9 终审整改核心契约锁定（test_remediation_core_verification.py,+12）升至 2933。
-# R1-R9 真实状态Rollout、强绑定TasteStack、结构化因果防线、人类盲评防伪与真实2章Staged Canary（+7）升至 2940；R0 修复闭环 2947；R3 真实状态驱动 rollout +1、WP3 资格证据包 +4、AuthorTemplate 验收 +5、Author 实例化语料作者模型测试 +4、深采样参数回归测试 +1 → 2963 collected。
-EXPECTED_BASELINE = 2963
+# R1-R9 真实状态Rollout、强绑定TasteStack、结构化因果防线、人类盲评防伪与真实2章Staged Canary（+7）升至 2940；R0 修复闭环 2947；R3 真实状态驱动 rollout +1、WP3 资格证据包 +4、AuthorTemplate 验收 +5、Author 实例化语料作者模型测试 +4、深采样参数回归测试 +1 → 2963 collected；续写 offstage 修复（test_continuation_offstage.py,+1）与结构搜索 T3 阶段一（test_structural_search_t3_phase1.py,+6）→ 2970 collected。
+EXPECTED_BASELINE = 2970
 EXAMPLE_PATH = "docs/00_project/tier0_release_record.example.json"
 CANARY_EVIDENCE_EXAMPLE_PATH = "docs/00_project/tier0_canary_evidence.example.json"
 COMMITTED_RELEASE_RECORD_PATH = "docs/00_project/releases/tier0-release.json"

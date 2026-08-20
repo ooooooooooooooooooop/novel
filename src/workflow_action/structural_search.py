@@ -4,7 +4,7 @@
 1. 候选表示：主要行动者 / 核心选择 / 阻力来源 / 代价 / 状态变化 / 关系变化 / 信息揭示 / 读者预期变化 / 对未来 3-5 章影响 / 主要风险。
 2. 结构异质性硬门禁 (Diversity Gate)：近重复检测，全重复/伪装多样性时显式抛出 structural_diversity_failed，绝不静默兜底 proposals[:1]。
 3. 真实状态克隆 3-5 章 Rollout (RolloutPlannerUnit)：深拷贝当前世界与叙事对象，真实推演状态演化，规则破坏直接淘汰。
-4. 多维 Pareto 锦标赛：独立多维（因果/人物/读者/作品/原创/可持续/风险），禁止加权单总分。
+4. 多维 Pareto 锦标赛：独立多维（因果/人物/读者/作品/原创/可持续/风险），禁止加权单总分；T3 Phase 1 的局内后果与锚距离仅在显式启用时作为独立轴。
 5. Candidate Precommit 强绑定：生成正文前冻结本轮选择依据，选出结果成为生产唯一权威。
 6. 启发式重命名为 heuristic_risk_probe。
 """
@@ -16,7 +16,7 @@ import difflib
 import hashlib
 import json
 from pathlib import Path
-from typing import Optional, Sequence
+from typing import Mapping, Optional, Sequence
 
 from src.object_state.authormodel_v3 import (
     AuthorModelV3,
@@ -1178,6 +1178,160 @@ def simulate_rollout(
     )
 
 
+def _flatten_numeric_fingerprint(value: object, prefix: str = "") -> dict[str, float]:
+    """Flatten a neutral statistical fingerprint to deterministic numeric slots."""
+    if not isinstance(value, Mapping):
+        return {}
+    flattened: dict[str, float] = {}
+    for key, raw in value.items():
+        name = f"{prefix}.{key}" if prefix else str(key)
+        if isinstance(raw, Mapping):
+            flattened.update(_flatten_numeric_fingerprint(raw, name))
+        elif isinstance(raw, (int, float)) and not isinstance(raw, bool):
+            flattened[name] = float(raw)
+    return flattened
+
+
+def _proposal_fingerprint(proposal: StructuralProposal) -> dict[str, float]:
+    """Build a small neutral fingerprint when the caller supplies no candidate one."""
+    return {
+        "action_ratio": min(1.0, len(proposal.core_choice.strip()) / 100.0),
+        "information_release_interval": 0.0 if proposal.information_reveal else 1.0,
+        "consequence_lag": min(1.0, len(proposal.impact_next_3_to_5_chapters.strip()) / 100.0),
+        "stage_position": {
+            "蓄力": 0.2,
+            "推进": 0.4,
+            "危机": 0.6,
+            "兑现": 0.8,
+            "后果": 0.9,
+        }.get(proposal.chapter_function, 0.5),
+    }
+
+
+def _anchor_fingerprints(anchor_context: object) -> tuple[dict[str, float], ...]:
+    """Read only neutral aggregate fingerprints; never inspect anchor source text."""
+    if isinstance(anchor_context, Mapping):
+        raw_anchors = anchor_context.get("anchors")
+        if raw_anchors is None:
+            raw_anchors = anchor_context.get("anchor_fingerprints")
+        if raw_anchors is None and "statistical_fingerprint" in anchor_context:
+            raw_anchors = [anchor_context]
+    else:
+        raw_anchors = anchor_context
+
+    if isinstance(raw_anchors, Mapping):
+        raw_anchors = list(raw_anchors.values())
+    if not isinstance(raw_anchors, (list, tuple)):
+        return ()
+
+    result: list[dict[str, float]] = []
+    for raw_anchor in raw_anchors:
+        if not isinstance(raw_anchor, Mapping):
+            continue
+        fingerprint = raw_anchor.get("statistical_fingerprint", raw_anchor)
+        flattened = _flatten_numeric_fingerprint(fingerprint)
+        if flattened:
+            result.append(flattened)
+    return tuple(result)
+
+
+def _anchor_distance(
+    proposal: StructuralProposal,
+    anchor_context: object,
+) -> Optional[float]:
+    """Return mean distance to aggregate anchors, or None for unavailable data."""
+    if not anchor_context:
+        return None
+    anchors = _anchor_fingerprints(anchor_context)
+    if not anchors:
+        return None
+
+    candidate_payload: object = {}
+    if isinstance(anchor_context, Mapping):
+        candidate_payload = (
+            anchor_context.get("candidate_fingerprint")
+            or anchor_context.get("candidate")
+            or anchor_context.get("fingerprint")
+        )
+    candidate = _flatten_numeric_fingerprint(candidate_payload) or _proposal_fingerprint(proposal)
+    scales = (
+        anchor_context.get("scales", {})
+        if isinstance(anchor_context, Mapping)
+        else {}
+    )
+
+    distances: list[float] = []
+    for anchor in anchors:
+        common = sorted(set(candidate) & set(anchor))
+        if not common:
+            continue
+        slot_distances = []
+        for slot in common:
+            scale = scales.get(slot, max(abs(anchor[slot]), 1.0)) if isinstance(scales, Mapping) else max(abs(anchor[slot]), 1.0)
+            try:
+                scale = max(abs(float(scale)), 1e-9)
+            except (TypeError, ValueError):
+                scale = max(abs(anchor[slot]), 1.0)
+            slot_distances.append(min(1.0, abs(candidate[slot] - anchor[slot]) / scale))
+        distances.append(sum(slot_distances) / len(slot_distances))
+
+    return round(sum(distances) / len(distances), 4) if distances else None
+
+
+def _consequence_reward(rollout: RolloutEvaluation) -> float:
+    """Score state consequences without using prose or an LLM judge."""
+    transitions = rollout.transitions
+    if not transitions:
+        return 0.0
+
+    effective_steps = 0
+    promise_progress = 0
+    for transition in transitions:
+        delta = transition.delta
+        if (
+            delta.new_facts_count > 0
+            or delta.pressure_deltas
+            or delta.relationship_shifts
+            or delta.foreshadow_advancements
+            or transition.to_snapshot.current_situation != transition.from_snapshot.current_situation
+        ):
+            effective_steps += 1
+        promise_progress += len(delta.foreshadow_advancements)
+
+    initial_threads = len(rollout.initial_snapshot.active_threads) if rollout.initial_snapshot else 0
+    final_snapshot = rollout.final_snapshot
+    future_space = 0.0
+    if final_snapshot:
+        future_items = len(final_snapshot.open_questions) + len(final_snapshot.active_conflicts)
+        future_space = min(1.0, future_items / 4.0)
+    state_change = effective_steps / len(transitions)
+    promise_score = min(1.0, promise_progress / max(1, initial_threads))
+    reward = 0.45 * state_change + 0.35 * promise_score + 0.20 * future_space
+
+    severe_markers = (
+        "dead_end",
+        "dead end",
+        "死路",
+        "overdue",
+        "逾期",
+        "stale_promise",
+        "promise_overdue",
+        "承诺过期",
+        "contradiction",
+        "矛盾",
+        "hard_rule_violation",
+        "viability_stop",
+    )
+    penalty = 0.0
+    for flag in rollout.risk_flags:
+        lowered = flag.lower()
+        if any(marker in lowered for marker in severe_markers):
+            penalty += 0.5
+        else:
+            penalty += 0.1
+    return round(max(0.0, min(1.0, reward - min(1.0, penalty))), 4)
+
+
 # ---------------------------------------------------------------------------
 # 3. 独立多维 Pareto 评估与前沿计算
 # ---------------------------------------------------------------------------
@@ -1189,8 +1343,11 @@ def score_structural_pareto(
     objects: list,
     workspec: Optional[WorkSpec] = None,
     orchestration_state: Optional[OrchestrationState] = None,
+    *,
+    t3_phase1_enabled: bool = False,
+    anchor_context: Optional[Mapping[str, object]] = None,
 ) -> ParetoDimensionScores:
-    """计算候选在 7 个独立多目标维度上的得分（禁止单总分加权）."""
+    """计算候选在 7 个 legacy 轴及可选 T3 轴上的独立多目标得分（禁止单总分加权）."""
     # 1. 因果价值 (causal_value): 状态改变与代价是否实质
     has_cost = bool(proposal.cost and proposal.cost not in ("无", "暂无", "无代价"))
     has_state_change = bool(proposal.state_change and len(proposal.state_change) > 5)
@@ -1258,6 +1415,15 @@ def score_structural_pareto(
         risk_score += 0.2
     risk_score = max(0.0, min(1.0, risk_score))
 
+    score_kwargs = {}
+    # Signal 1 is rollout-only and remains usable without an anchor. Signal 3
+    # is added independently only when valid aggregate anchor data is present.
+    if t3_phase1_enabled:
+        score_kwargs["consequence_reward"] = _consequence_reward(rollout)
+        distance = _anchor_distance(proposal, anchor_context)
+        if distance is not None:
+            score_kwargs["anchor_distance"] = distance
+
     return ParetoDimensionScores(
         causal_value=round(causal_score, 4),
         character_value=round(char_score, 4),
@@ -1266,6 +1432,7 @@ def score_structural_pareto(
         originality=round(originality_score, 4),
         sustainability=round(sustainability_score, 4),
         risk_penalty=round(risk_score, 4),
+        **score_kwargs,
     )
 
 
@@ -1373,8 +1540,9 @@ def build_candidate_precommit(
 class StructuralSearchEngine:
     """章节级多尺度结构搜索执行器."""
 
-    def __init__(self, rollout_steps: int = 3):
+    def __init__(self, rollout_steps: int = 3, *, t3_phase1_enabled: bool = False):
         self.rollout_steps = rollout_steps
+        self.t3_phase1_enabled = t3_phase1_enabled
 
     def search_and_evaluate(
         self,
@@ -1389,6 +1557,8 @@ class StructuralSearchEngine:
         qualification_report: Optional[CrossWorkValidationResult] = None,
         manual_selection: Optional[str] = None,
         output_dir: Optional[Path] = None,
+        t3_phase1_enabled: Optional[bool] = None,
+        anchor_context: Optional[Mapping[str, object]] = None,
     ) -> StructuralSearchResult:
         """执行完整搜索管线：多样性门禁 → Rollout → Pareto 评分 → 前沿提取 → 预承诺冻结 → 最优解与多解保留."""
         if not proposals:
@@ -1414,6 +1584,7 @@ class StructuralSearchEngine:
         # 2. 3-5 章短程状态 Rollout（真实 staged 状态驱动：每步重新读取进化后状态）
         #    注：deterministic_scenario_projection（确定性多步情境投影）保留为快速风险探测，
         #    生产搜索使用真实状态驱动的 simulate_state_driven_rollout。
+        t3_enabled = self.t3_phase1_enabled if t3_phase1_enabled is None else t3_phase1_enabled
         rollout_evals: dict[str, RolloutEvaluation] = {}
         for p in valid_candidates:
             rollout_evals[p.proposal_id] = simulate_state_driven_rollout(
@@ -1430,6 +1601,8 @@ class StructuralSearchEngine:
                 objects,
                 workspec=workspec,
                 orchestration_state=orchestration_state,
+                t3_phase1_enabled=t3_enabled,
+                anchor_context=anchor_context,
             )
 
         # 4. 帕累托前沿计算
