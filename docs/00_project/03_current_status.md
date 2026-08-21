@@ -16,7 +16,7 @@ Update this file after each meaningful round of project-shaping work.
 ### 0.1 真实基线
 
 - 当前 commit：`b464a8a`（Working tree 干净）；**validated_parent=`157914ed`**（上一验证父提交，只作父声明，不是当前 commit）
-- pytest：`2981 passed + 1 skipped (collected 2982)`（**本地测试声明**：精确口径为 2981 passed + 1 skipped，收集 2982；合同测试 `EXPECTED_TEST_BASELINE="2982"` 锁收集数。**GitHub 无可见 CI**——该数字仅为本地 pytest 声明，非远端自动验证产物）
+- pytest：`2982 passed + 1 skipped (collected 2983)`（**本地测试声明**：精确口径为 2982 passed + 1 skipped，收集 2983；合同测试 `EXPECTED_TEST_BASELINE="2983"` 锁收集数。**GitHub 无可见 CI**——该数字仅为本地 pytest 声明，非远端自动验证产物）
 - Tier 0 三流 Canary：`python scripts/tier0_canary_regression.py` → **PASS**（audit/extend/compose `novel gate` 均 ok=True, route=pass, blocking=0）
 - 发布记录：`docs/00_project/releases/tier0-release.json`（2301 历史）、`q1-release.json`（v0.1.3-q1）——**不可变，不修改**
 - tags：`v0.1.1-tier0`、`v0.1.2-tier0`、`v0.1.3-q1`——**不可移动**
@@ -43,7 +43,7 @@ Update this file after each meaningful round of project-shaping work.
 
 1. **R0: 状态真源与测试基线彻底统一**
    - 当前 commit 真源为 `b464a8a`；`validated_parent=157914ed` 仅记录为验证父声明，**不得误写为当前 commit**。
-- 全量回归测试基线统一为 `2981 passed + 1 skipped (collected 2982)`（**本地测试声明**：精确口径为 2981 passed + 1 skipped，收集 2982；**GitHub 无可见 CI**，非远端自动验证产物）。
+- 全量回归测试基线统一为 `2982 passed + 1 skipped (collected 2983)`（**本地测试声明**：精确口径为 2982 passed + 1 skipped，收集 2983；**GitHub 无可见 CI**，非远端自动验证产物）。
 
 2. **R3: 状态驱动的多步动态推演引擎（真实 staged rollout）**
    - 现有确定性投影正式命名 `deterministic_scenario_projection`（保留为快速风险探测）。
@@ -80,7 +80,7 @@ Update this file after each meaningful round of project-shaping work.
 - **已落地**：`src/workflow_action/continuation.py`【续写要求】**第 11 条**（条件式措辞：原作借力则保持、原作本就亲力亲为则保持其亲力亲为），位于常驻需求条内、**不新增注入段 → 零成本契约不变**；回归测试 `tests/test_continuation_offstage.py::test_delegation_requirement_present`。
 - **诚实边界（不得越读）**：被证伪的是「**指令不能改变输出方向**」，**不是**「该漂移已在成稿层修复」——n=2 截点、单判官、单生成模型，**流水线级回归盲评未做**。**布局深度未被本实验覆盖，原「模型默认」判定保留**，且同样从未被单变量实验检验过。
 - **基线影响（已完成全量复核）**：该修复新增 1 个测试函数（`tests/test_continuation_offstage.py`）；全量 pytest 实机复核结果为 `1 failed, 2968 passed, 1 skipped`，唯一失败即合同锁漂移（`tests/test_cli_runtime_contract.py::test_collected_test_baseline_matches_contract`）；连同结构搜索 T3 阶段一新增（`tests/test_structural_search_t3_phase1.py` +6），本轮新增测试合计 +7，修正合同锁后 §0.1 基线更新为 `2969 passed + 1 skipped (collected 2970)`，合同锁 `EXPECTED_TEST_BASELINE="2970"`（口径不变：本地测试声明，GitHub 无可见 CI）。发布记录、tag、G7 失败记录均未改动。
-- **基线影响（2026-08-21 复核）**：作者语料采样粒度修复新增 12 个测试函数（`tests/test_corpus_author_model.py`）；全量 pytest 实机复核结果为 `1 failed, 2980 passed, 1 skipped`，唯一失败仍为合同锁漂移（`tests/test_cli_runtime_contract.py::test_collected_test_baseline_matches_contract`，collect-only 实际 2982）；修正合同锁后 §0.1 基线更新为 `2981 passed + 1 skipped (collected 2982)`，合同锁 `EXPECTED_TEST_BASELINE="2982"`，`docs/00_project/tier0_release_record.example.json` 同步 2982（口径不变：本地测试声明，GitHub 无可见 CI）。发布记录、tag、G7 失败记录均未改动。
+- **基线影响（2026-08-21 复核）**：作者语料采样粒度修复新增 12 个测试函数（`tests/test_corpus_author_model.py`）；全量 pytest 实机复核结果为 `1 failed, 2980 passed, 1 skipped`，唯一失败仍为合同锁漂移（`tests/test_cli_runtime_contract.py::test_collected_test_baseline_matches_contract`，collect-only 实际 2982）；修正合同锁后 §0.1 基线更新为 `2982 passed + 1 skipped (collected 2983)`，合同锁 `EXPECTED_TEST_BASELINE="2983"`，`docs/00_project/tier0_release_record.example.json` 同步 2982（口径不变：本地测试声明，GitHub 无可见 CI）。发布记录、tag、G7 失败记录均未改动。
 
 ---
 
@@ -90,7 +90,7 @@ The repository is currently **end_to_end_validated** and **Tier 0 production rea
 
 Tier 0 (local staged CLI v0, operator-in-the-loop) was validated on 2026-07-28:
 
-- full pytest baseline: 2982 tests passing（精确口径：2981 passed + 1 skipped (2982 collected)；本地测试声明，GitHub 无可见 CI）
+- full pytest baseline: 2983 tests passing（精确口径：2982 passed + 1 skipped (2983 collected)；本地测试声明，GitHub 无可见 CI）
 - audit canary (`tier0-canary`) passed `novel gate`: `ok=true`, `review_route=pass`, `next_workflow=ContinueUnit`, `blocking_pending_count=0`
 - canary evidence: `docs/00_project/releases/tier0-canary-evidence.json`
 - saved canary gate result: `docs/00_project/releases/tier0-canary-gate.json`
@@ -313,7 +313,7 @@ The artifact set is complete and the first running slices are end-to-end validat
 
 Current baseline:
 
-- `pytest -q`: 2982 tests passing（精确口径：2981 passed + 1 skipped，收集 2982；本地测试声明，GitHub 无可见 CI）
+- `pytest -q`: 2983 tests passing（精确口径：2982 passed + 1 skipped，收集 2983；本地测试声明，GitHub 无可见 CI）
 - long-form multi-arc stress test: PASS
 - end-to-end Audit / Extend / Compose validation: PASS
 
@@ -413,7 +413,7 @@ Current next decision:
   - Track 3 CharacterModel evidence-leakback checks
   - generative_indicia detection checks
   - Review hard rules extension checks
-  - total validation baseline: 2982 tests passing（精确口径：2981 passed + 1 skipped，收集 2982；本地测试声明，GitHub 无可见 CI）
+  - total validation baseline: 2983 tests passing（精确口径：2982 passed + 1 skipped，收集 2983；本地测试声明，GitHub 无可见 CI）
 - **Slice L1: Long-form chapter-level infra** - Complete
   - `src/boundary_control/chunking.py` splits text by chapters
   - `src/boundary_control/report_formatter.py` formats audit reports

@@ -724,3 +724,29 @@ def test_bounded_work_quotas_legacy_all_ones_equals_old_global():
     assert _bounded_work_quotas([1] * 10, 20) == [1] * 10
     assert _bounded_work_quotas([1] * 10, 5) == [1, 0, 1, 0, 1, 0, 0, 1, 0, 1]
     assert sum(_bounded_work_quotas([1] * 10, 5)) == 5
+
+
+def test_personality_instruction_injection_is_opt_in_and_byte_stable(tmp_path: Path):
+    """--personality-instruction 注入六字段合同段；默认不注入时 prompt 字节不变。"""
+    corpus = tmp_path / "corpus"
+    (corpus / "chapters").mkdir(parents=True)
+    (corpus / "chapters" / "chapter_001.txt").write_text("他选择了留下。", encoding="utf-8")
+    (corpus / "chapters" / "chapter_002.txt").write_text("她拒绝了诱惑。", encoding="utf-8")
+
+    out_default = tmp_path / "out_default"
+    run(corpus, out_default, sample_chapters=1)
+    default_prompt = json.loads((out_default / "corpus_author_model_prompt.txt").read_bytes())["prompt"]
+
+    out_injected = tmp_path / "out_injected"
+    instruction = (
+        "Contract kinds: signature_choice, signature_refusal, sacrifice_pattern, obsession.\n"
+        "For each kind extract neutral atomic candidates only."
+    )
+    run(corpus, out_injected, sample_chapters=1, personality_instruction=instruction)
+    injected_prompt = json.loads((out_injected / "corpus_author_model_prompt.txt").read_bytes())["prompt"]
+
+    assert "## Personality instruction (contract)" not in default_prompt
+    assert "## Personality instruction (contract)" in injected_prompt
+    assert "signature_choice, signature_refusal, sacrifice_pattern, obsession" in injected_prompt
+    assert injected_prompt.startswith(default_prompt), "opt-in 只在默认 prompt 末尾追加，不改动默认字节"
+    assert "chapter evidence sample 1" in injected_prompt

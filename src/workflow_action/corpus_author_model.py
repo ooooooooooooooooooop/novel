@@ -706,7 +706,7 @@ def _neutralize_ref(value: str | None) -> str | None:
     return candidate
 
 
-def _prompt(size: dict[str, int], stats: dict[str, float], digest: str, samples: list[ChapterSample]) -> str:
+def _prompt(size: dict[str, int], stats: dict[str, float], digest: str, samples: list[ChapterSample], personality_instruction: str = "") -> str:
     parts: list[str] = []
     for sample in samples:
         if sample.work_id is None:
@@ -718,6 +718,13 @@ def _prompt(size: dict[str, int], stats: dict[str, float], digest: str, samples:
             )
         parts.append(f"{header}\n{sample.text}")
     sample_block = "\n\n".join(parts) or "(no chapter samples available; use aggregate metrics only)"
+    instruction_section = ""
+    if personality_instruction.strip():
+        instruction_section = (
+            "\n\n"
+            "## Personality instruction (contract)\n"
+            f"{personality_instruction.strip()}\n"
+        )
     return (
         "You are extracting reusable selection-pattern evidence for a neutral Author model.\n"
         "This is not an identity claim and not a production gate. Do not copy prose, names,\n"
@@ -730,6 +737,7 @@ def _prompt(size: dict[str, int], stats: dict[str, float], digest: str, samples:
         f"Input digest: {digest[:16]} (reference only)\n\n"
         "Use the following local-only samples to ground the inference; never reproduce their wording:\n"
         f"{sample_block}\n"
+        f"{instruction_section}"
     )
 
 
@@ -764,6 +772,7 @@ def run(
     dilemma_retrieval: bool = False,
     dilemma_candidates: int = 3,
     balanced_dilemma_retrieval: bool = False,
+    personality_instruction: str = "",
 ) -> dict[str, Any]:
     size, stats, digest, samples = inspect_corpus(input_path, sample_chapters=sample_chapters)
     generation = "deep-v2" if sample_chapters > 3 else "deterministic-metadata-v1"
@@ -809,7 +818,7 @@ def run(
             dilemma_section = "\n" + _dilemma_section(candidates, dilemma_candidates, shortfall)
         _atomic_json(
             prompt_path.with_suffix(".txt"),
-            {"prompt": _prompt(size, stats, digest, samples) + dilemma_section},
+            {"prompt": _prompt(size, stats, digest, samples, personality_instruction) + dilemma_section},
         )
         return {"status": "waiting", "prompt": str(prompt_path.with_suffix(".txt")), "response": str(response_path), "source_digest": digest}
     try:

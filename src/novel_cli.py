@@ -2048,11 +2048,17 @@ def _run_respond(args: argparse.Namespace) -> int:
 
 
 def _run_corpus_author_model(args: argparse.Namespace) -> int:
+    personality_instruction = ""
+    instruction_path = getattr(args, "personality_instruction", None)
+    if instruction_path:
+        with open(instruction_path, "r", encoding="utf-8-sig") as instruction_file:
+            personality_instruction = instruction_file.read()
     result = run_corpus_author_model(
         args.input, args.output_dir, args.author_id, args.sample_chapters,
         dilemma_retrieval=getattr(args, "dilemma_retrieval", False),
         dilemma_candidates=getattr(args, "dilemma_candidates", 3),
         balanced_dilemma_retrieval=getattr(args, "balanced_dilemma_retrieval", False),
+        personality_instruction=personality_instruction,
     )
     if result.get("status") == "waiting":
         payload = result
@@ -2239,6 +2245,11 @@ def build_parser(*, emit_json_errors: bool = False) -> argparse.ArgumentParser:
     )
     corpus_author_model.add_argument("--dilemma-candidates", type=int, default=3, metavar="N",
                                      help="--dilemma-retrieval 时请求的额外候选数（默认 3）")
+    corpus_author_model.add_argument(
+        "--personality-instruction",
+        metavar="FILE",
+        help="opt-in 注入六字段个性合同提示词文件（signature_choice/refusal/sacrifice/obsession 等）；默认不注入零成本",
+    )
     corpus_author_model.set_defaults(func=_run_corpus_author_model)
 
     audit = subparsers.add_parser("audit", help="审核已有小说")

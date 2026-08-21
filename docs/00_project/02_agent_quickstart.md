@@ -43,7 +43,7 @@ Validation status:
 - transition-planning sufficiency: `pass`
 - implementation-planning sufficiency: `pass`
 - long-form multi-arc stress test: PASS
-- no-regression tests as code: 2982 tests passing（精确口径：2981 passed + 1 skipped，收集 2982；本地测试声明，GitHub 无可见 CI）
+- no-regression tests as code: 2983 tests passing（精确口径：2982 passed + 1 skipped，收集 2983；本地测试声明，GitHub 无可见 CI）
 - end-to-end Audit / Extend / Compose validation: PASS
 
 That means:

@@ -73,7 +73,9 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 # （test_structural_search_t3_phase1.py,+6）→ 2969 passed + 1 skipped（收集 2970，
 # 本地测试声明，GitHub 无可见 CI）；作者语料采样粒度修复（test_corpus_author_model.py,+12）
 # → 2981 passed + 1 skipped（收集 2982，本地测试声明，GitHub 无可见 CI）。
-EXPECTED_TEST_BASELINE = "2982"
+# 六字段个性合同注入（test_corpus_author_model.py,+1）→ 2982 passed + 1 skipped
+# （收集 2983，本地测试声明，GitHub 无可见 CI）。
+EXPECTED_TEST_BASELINE = "2983"
 
 
 def run_script(*args: str) -> subprocess.CompletedProcess[str]:
@@ -706,7 +708,7 @@ def test_production_readiness_checklist_contract():
         "audit log",
         "release tag",
         "clean full pytest",
-        "2981 passed + 1 skipped (2982 collected)",
+        "2982 passed + 1 skipped (2983 collected)",
     ]
 
     for phrase in required_phrases:
