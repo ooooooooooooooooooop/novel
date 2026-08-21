@@ -10,6 +10,7 @@ import hashlib
 import json
 import os
 import re
+from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -52,6 +53,14 @@ _TURN_RE = re.compile(r"突然|忽然|然而|却|竟然|原来|没想到|转身|
 _TAG_RE = re.compile(r"说道|说着|问道|答道|喊道|笑道|冷声道|开口")
 _FIRST_RE = re.compile(r"我|我们|咱们|自己")
 _THIRD_RE = re.compile(r"他|她|它|他们|她们|其")
+
+# Lexical discovery signals for opt-in dilemma candidate ranking (stdlib, deterministic).
+_DILEMMA_LEXICON: dict[str, re.Pattern] = {
+    "choice": re.compile(r"选择|抉择|决定|答应|同意|应允|妥协|让步|取舍"),
+    "refusal": re.compile(r"拒绝|回绝|不肯|不愿|不甘|断然|推辞"),
+    "cost": re.compile(r"代价|牺牲|付出|舍弃|失去|交换|偿还|赎"),
+    "fixation": re.compile(r"执念|执着|执迷|放不下|念念不忘|难以释怀|忘不了"),
+}
 
 
 def _read_text(path: Path) -> str:
@@ -389,6 +398,100 @@ def inspect_corpus(
     return size, stats, digest.hexdigest(), samples
 
 
+def retrieve_dilemma_candidates(
+    input_path: str | Path,
+    *,
+    selected: set[int],
+    requested: int,
+) -> tuple[list[ChapterSample], int]:
+    """Full-corpus lexical discovery candidates (opt-in only).
+
+    Extra read, performed only when enabled: every unselected chapter (0-based
+    global index not in ``selected``) with a positive deterministic lexical
+    score (``_DILEMMA_LEXICON``) is eligible; zero-hit chapters never fill the
+    request.  At most ``requested`` unique candidates are returned (bucket
+    rank by score desc then global index asc, plus round-robin cycling across
+    neutral ``(work_id, stage)`` buckets).  Candidates are hints only — no
+    PASS/confidence semantics.  Returns ``(candidates, shortfall)``.
+    """
+    root = Path(input_path).expanduser().resolve()
+    if requested < 0:
+        raise ValueError("dilemma_candidates must be non-negative")
+    if requested == 0:
+        return [], 0
+    chapters: list[str] = []
+    counts: list[int] = []
+    legacy = root.is_dir() and (root / "chapters").is_dir()
+    if root.is_dir():
+        if legacy:
+            for path in sorted((root / "chapters").glob("*.txt")):
+                chapters.append(_read_text(path))
+                counts.append(1)
+        else:
+            for path in sorted(root.rglob("*.txt")):
+                expanded = _expand_chapter_texts(_read_text(path))
+                chapters.extend(expanded)
+                counts.append(len(expanded))
+    if not chapters:
+        return [], requested
+
+    work_of = [(w, l) for w, n in enumerate(counts) for l in range(n)]
+    buckets: dict[tuple[str | None, str | None], list[tuple[int, int]]] = defaultdict(list)
+    for gi, (wi, li) in enumerate(work_of):
+        if gi in selected:
+            continue
+        score = sum(len(pattern.findall(chapters[gi])) for pattern in _DILEMMA_LEXICON.values())
+        if score <= 0:
+            continue
+        key = (None, None) if legacy else (f"work-{wi + 1:03d}", _stage_label(li, counts[wi]))
+        buckets[key].append((score, gi))
+    if not buckets:
+        return [], requested
+    for key in buckets:
+        buckets[key].sort(key=lambda item: (-item[0], item[1]))
+    order = sorted(buckets, key=lambda key: (-buckets[key][0][0], key))
+
+    candidates: list[ChapterSample] = []
+    while len(candidates) < requested:
+        progressed = False
+        for key in order:
+            if not buckets[key]:
+                continue
+            _, gi = buckets[key].pop(0)
+            if legacy:
+                candidates.append(ChapterSample(gi + 1, text=chapters[gi][:1600]))
+            else:
+                candidates.append(ChapterSample(gi + 1, key[0], key[1], chapters[gi][:1600]))
+            progressed = True
+            if len(candidates) >= requested:
+                break
+        if not progressed:
+            break
+    return candidates, max(0, requested - len(candidates))
+
+
+def _dilemma_section(candidates: list[ChapterSample], requested: int, shortfall: int) -> str:
+    """Opt-in prompt section: requested/retrieved/shortfall + neutral candidate headers."""
+    parts = []
+    for candidate in candidates:
+        if candidate.work_id is None:
+            header = f"--- dilemma discovery candidate {candidate.chapter_index} ---"
+        else:
+            header = (
+                f"--- dilemma discovery candidate {candidate.chapter_index} "
+                f"({candidate.work_id}, {candidate.stage}) ---"
+            )
+        parts.append(f"{header}\n{candidate.text}")
+    block = "\n\n".join(parts) or "(no candidates available)"
+    metadata = json.dumps({"requested": requested, "retrieved": len(candidates), "shortfall": shortfall}, sort_keys=True)
+    return (
+        "--- dilemma discovery candidates ---\n"
+        f"Candidate metadata: {metadata}\n"
+        "Candidates are lexical discovery hints only, with no judgment attached. "
+        "Do not copy their wording verbatim.\n\n"
+        f"{block}"
+    )
+
 def _neutralize_ref(value: str | None) -> str | None:
     if not value:
         return None
@@ -452,6 +555,9 @@ def run(
     output_dir: str | Path,
     author_id: str = "corpus-author-a",
     sample_chapters: int = 3,
+    *,
+    dilemma_retrieval: bool = False,
+    dilemma_candidates: int = 3,
 ) -> dict[str, Any]:
     size, stats, digest, samples = inspect_corpus(input_path, sample_chapters=sample_chapters)
     generation = "deep-v2" if sample_chapters > 3 else "deterministic-metadata-v1"
@@ -484,9 +590,15 @@ def run(
                 },
             )
     if not response_path.exists():
+        dilemma_section = ""
+        if dilemma_retrieval:
+            candidates, shortfall = retrieve_dilemma_candidates(
+                input_path, selected={s.chapter_index - 1 for s in samples}, requested=dilemma_candidates
+            )
+            dilemma_section = "\n" + _dilemma_section(candidates, dilemma_candidates, shortfall)
         _atomic_json(
             prompt_path.with_suffix(".txt"),
-            {"prompt": _prompt(size, stats, digest, samples)},
+            {"prompt": _prompt(size, stats, digest, samples) + dilemma_section},
         )
         return {"status": "waiting", "prompt": str(prompt_path.with_suffix(".txt")), "response": str(response_path), "source_digest": digest}
     try:

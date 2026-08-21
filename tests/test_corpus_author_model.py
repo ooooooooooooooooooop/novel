@@ -1,6 +1,7 @@
 from pathlib import Path
 import hashlib
 import json
+import re
 from copy import deepcopy
 
 import pytest
@@ -11,6 +12,7 @@ from src.workflow_action.corpus_author_model import (
     _stratified_work_quotas,
     extract_authors,
     inspect_corpus,
+    retrieve_dilemma_candidates,
     run,
 )
 from scripts.validate_author_personality_run import validate_personality_run
@@ -307,6 +309,37 @@ def test_directory_of_full_novels_expands_chapters_and_stratified_sampling(tmp_p
     assert "chapter evidence sample 4 (work-002, early)" in prompt
     assert "alpha_book" not in prompt
     assert "beta_book" not in prompt
+    # dilemma 候选检索（opt-in）：确定性 + 有界唯一 + 仅 score>0 + 中性 work/stage 轮转
+    def book(prefix, marks):
+        return "\n".join(
+            f"第{i}章 {prefix}{i}\n" + (f"{prefix}{i}。" if i not in marks else marks[i])
+            for i in range(1, 9)
+        )
+
+    marks_a = {4: "拒绝选择代价执念" * 10, 5: "拒绝选择代价执念" * 9}  # 得分 40 / 36
+    marks_b = {2: "乙二独有标记。" + "拒绝选择代价执念" * 8}  # 得分 32
+    (corpus / "alpha_book.txt").write_text(book("甲", marks_a), encoding="utf-8")
+    (corpus / "beta_book.txt").write_text(book("乙", marks_b), encoding="utf-8")
+    selected = {0, 7, 8, 15}  # 已抽样：alpha 第 1/8 章 + beta 第 1/8 章
+    a, sa = retrieve_dilemma_candidates(corpus, selected=selected, requested=2)
+    b, sb = retrieve_dilemma_candidates(corpus, selected=selected, requested=2)
+    assert (sa, sb) == (0, 0)
+    assert [(c.chapter_index, c.work_id, c.stage) for c in a] == [(c.chapter_index, c.work_id, c.stage) for c in b]
+    # 纯全局 top-2 会两票都给 work-001（40、36）；round-robin 把第二票给 work-002（32）
+    assert [(c.chapter_index, c.work_id, c.stage) for c in a] == [
+        (4, "work-001", "middle"),
+        (10, "work-002", "early"),
+    ]
+    # 有界 + 仅 score>0：eligible 只有 3 章，超预算也不零命中凑数
+    all_c, all_short = retrieve_dilemma_candidates(corpus, selected=selected, requested=100)
+    assert all_short == 97 and len(all_c) == 3
+    assert {c.chapter_index for c in all_c} == {4, 5, 10}
+    assert not ({c.chapter_index - 1 for c in all_c} & selected), "候选必须是未选章节"
+    from src.novel_cli import build_parser
+    args = build_parser().parse_args(
+        ["corpus-author-model", "--input", ".", "--output-dir", ".", "--dilemma-retrieval", "--dilemma-candidates", "4"]
+    )
+    assert args.dilemma_retrieval is True and args.dilemma_candidates == 4
 
 
 def test_stratified_sampling_covers_short_books_when_lengths_unequal(tmp_path: Path):
@@ -389,6 +422,21 @@ def test_prompt_uses_neutral_work_slots_without_source_names(tmp_path: Path):
     # 各自阶段证据文本在场
     assert "独有标记甲一" in prompt and "独有标记甲二" in prompt
     assert "独有标记乙一" in prompt and "独有标记乙二" in prompt
+    # opt-in dilemma 候选段同样隐私安全，且不携带任何语义判定词/字段（无 PASS/confidence）
+    hit_corpus = tmp_path / "hit_corpus"
+    hit_corpus.mkdir()
+    (hit_corpus / "secret_alpha.txt").write_text(
+        "第1章 一\n甲一。\n第2章 二\n拒绝选择代价执念。\n第3章 三\n甲三。\n",
+        encoding="utf-8",
+    )
+    out2 = tmp_path / "out2"
+    run(hit_corpus, out2, sample_chapters=1, dilemma_retrieval=True, dilemma_candidates=2)
+    prompt2 = json.loads((out2 / "corpus_author_model_prompt.txt").read_bytes())["prompt"]
+    assert "secret_alpha" not in prompt2
+    block = prompt2.split("--- dilemma discovery candidates ---", 1)[1]
+    assert "--- dilemma discovery candidate 2 (work-001, middle) ---" in block
+    assert re.search(r"\b(pass|confidence|verdict|score)\b", block, re.IGNORECASE) is None
+    assert '"pass"' not in block and '"confidence"' not in block
 
 
 def test_plain_file_without_chapter_headers_stays_one_corpus_item(tmp_path: Path):
@@ -474,6 +522,16 @@ def test_legacy_chapters_mode_preserves_digest_and_prompt_format(tmp_path: Path)
     assert "--- chapter evidence sample 2 ---" in prompt
     assert "--- chapter evidence sample 3 ---" in prompt
     assert "(work-" not in prompt
+    # 3) opt-in 零成本字节锁：禁用模式（含不同 candidate 数）下 prompt 文件 raw bytes
+    #    与 run 返回 dict 逐字节不变；启用时才追加（默认 prompt 是 opt-in 前缀）。
+    prompt_bytes = (output / "corpus_author_model_prompt.txt").read_bytes()
+    rerun = run(corpus, output, sample_chapters=3, dilemma_retrieval=False, dilemma_candidates=7)
+    assert rerun == waiting, "禁用模式 run 返回 dict 必须逐字节一致"
+    assert (output / "corpus_author_model_prompt.txt").read_bytes() == prompt_bytes
+    out_on = tmp_path / "out-on"
+    run(corpus, out_on, sample_chapters=3, dilemma_retrieval=True, dilemma_candidates=2)
+    on_prompt = json.loads((out_on / "corpus_author_model_prompt.txt").read_bytes())["prompt"]
+    assert on_prompt.startswith(prompt), "opt-in 只追加到未改动的默认 prompt"
 
 
 def test_sampled_chapters_is_actual_not_padded_when_quota_exceeds_chapter_count(tmp_path: Path):
@@ -492,6 +550,18 @@ def test_sampled_chapters_is_actual_not_padded_when_quota_exceeds_chapter_count(
     size, _, _, _ = inspect_corpus(corpus, sample_chapters=5)
     assert size["chapter_files"] == 4
     assert size["sampled_chapters"] == 4, "实际抽样数 4（总章数上限），不能复制样本凑到 5"
+    # dilemma 检索同样诚实：score>0 未选章节不足时 retrieved < requested，
+    # 完全无命中时 retrieved=0，段内 metadata 如实报告 shortfall。
+    corpus2 = tmp_path / "corpus2"
+    (corpus2 / "chapters").mkdir(parents=True)
+    (corpus2 / "chapters" / "chapter_001.txt").write_text("人物突然转身。", encoding="utf-8")
+    (corpus2 / "chapters" / "chapter_002.txt").write_text("夜色中，她终于走了。", encoding="utf-8")
+    assert retrieve_dilemma_candidates(corpus2, selected={0}, requested=3) == ([], 3)
+    out2 = tmp_path / "out2"
+    run(corpus2, out2, sample_chapters=1, dilemma_retrieval=True, dilemma_candidates=3)
+    prompt2 = json.loads((out2 / "corpus_author_model_prompt.txt").read_bytes())["prompt"]
+    assert 'Candidate metadata: {"requested": 3, "retrieved": 0, "shortfall": 3}' in prompt2
+    assert "(no candidates available)" in prompt2
 
 
 def test_bounded_work_quotas_redistributes_unused_quota():
