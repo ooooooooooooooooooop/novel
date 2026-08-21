@@ -208,6 +208,62 @@ def _stage_label(local_index: int, chapter_count: int) -> str:
     return "middle"
 
 
+def _ensure_global_stage_coverage(
+    per_work: list[list[int]], work_chapter_counts: list[int]
+) -> None:
+    """Fill available missing stages by an in-work deterministic replacement.
+
+    The replacement keeps every work's quota unchanged, never duplicates a
+    chapter, and never removes the sole globally sampled representative of a
+    stage.  This matters when many works receive quota two: independent uniform
+    sampling would otherwise select only each work's first and last chapters.
+    """
+    for missing_stage in ("early", "middle", "late"):
+        stage_counts: dict[str, int] = {}
+        for work_index, local_indexes in enumerate(per_work):
+            for local_index in local_indexes:
+                stage = _stage_label(local_index, work_chapter_counts[work_index])
+                stage_counts[stage] = stage_counts.get(stage, 0) + 1
+        if stage_counts.get(missing_stage, 0):
+            continue
+
+        for work_index, (chapter_count, local_indexes) in enumerate(
+            zip(work_chapter_counts, per_work)
+        ):
+            if len(local_indexes) < 2:
+                continue
+            sampled = set(local_indexes)
+            replacement = next(
+                (
+                    index
+                    for index in range(chapter_count)
+                    if index not in sampled
+                    and _stage_label(index, chapter_count) == missing_stage
+                ),
+                None,
+            )
+            if replacement is None:
+                continue
+            removable = [
+                index
+                for index in local_indexes
+                if stage_counts[_stage_label(index, chapter_count)] > 1
+            ]
+            if not removable:
+                continue
+            drop = max(
+                removable,
+                key=lambda index: (
+                    stage_counts[_stage_label(index, chapter_count)],
+                    -index,
+                ),
+            )
+            local_indexes.remove(drop)
+            local_indexes.append(replacement)
+            local_indexes.sort()
+            break
+
+
 def _stratified_samples(
     work_chapter_counts: list[int], sample_chapters: int
 ) -> list[tuple[int, int, int]]:
@@ -215,10 +271,12 @@ def _stratified_samples(
 
     Each work's quota is spread across its own chapters via ``_sample_indexes``,
     so long books cannot crowd out short ones and every sampled work keeps
-    within-work stage coverage.  Global indexes remain the flat path+chapter
-    offset, so chapter evidence numbering is unchanged.  With every count == 1
-    (legacy ``chapters/`` mode) this provably degenerates to the previous global
-    uniform sampling.
+    within-work stage coverage.  When the corpus contains all three stages, a
+    bounded in-work replacement also prevents low per-work quotas from erasing
+    one stage globally.  Global indexes remain the flat path+chapter offset, so
+    chapter evidence numbering is unchanged.  With every count == 1 (legacy
+    ``chapters/`` mode) this provably degenerates to the previous global uniform
+    sampling.
 
     Quotas are capped by each work's chapter count and any surplus is
     redistributed (``_bounded_work_quotas``), so the total actual sample count
@@ -226,12 +284,19 @@ def _stratified_samples(
     duplicated to pad a quota.
     """
     quotas = _bounded_work_quotas(work_chapter_counts, sample_chapters)
+    per_work = [
+        _sample_indexes(count, quota) if quota > 0 else []
+        for count, quota in zip(work_chapter_counts, quotas)
+    ]
+    _ensure_global_stage_coverage(per_work, work_chapter_counts)
+
     result: list[tuple[int, int, int]] = []
     offset = 0
-    for work_index, (count, quota) in enumerate(zip(work_chapter_counts, quotas)):
-        if quota > 0:
-            for local_index in _sample_indexes(count, quota):
-                result.append((offset + local_index, work_index, local_index))
+    for work_index, (count, local_indexes) in enumerate(
+        zip(work_chapter_counts, per_work)
+    ):
+        for local_index in local_indexes:
+            result.append((offset + local_index, work_index, local_index))
         offset += count
     return result
 

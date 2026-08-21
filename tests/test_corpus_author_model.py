@@ -190,14 +190,14 @@ def test_directory_of_full_novels_expands_chapters_and_stratified_sampling(tmp_p
     # 展开后总章数 = 2 本 × 3 章
     assert '"chapter_files": 6' in prompt
     assert '"sampled_chapters": 3' in prompt
-    # 第一本 quota 2：`_sample_indexes(3, 2)` = 第 1、3 章 → 首末阶段证据
-    assert "晨雾" in prompt, "第一本第 1 章必须被抽样"
+    # 第一本 quota 2 保持不变；全局补齐 middle 时以第 2 章替换重复 early。
+    assert "桅杆折断" in prompt, "语料具备 middle 时全局必须补齐该阶段"
     assert "灯台守夜人" in prompt, "第一本第 3 章必须被抽样"
     # 第二本 quota 1：代表样本 = 第 1 章
     assert "站台" in prompt, "第二本必须有样本"
     assert "旧剧场" not in prompt, "第二本 quota 1 只抽第 1 章"
     # 中性 work slot + 阶段 + 全局编号（隐私安全来源分组）
-    assert "chapter evidence sample 1 (work-001, early)" in prompt
+    assert "chapter evidence sample 2 (work-001, middle)" in prompt
     assert "chapter evidence sample 3 (work-001, late)" in prompt
     assert "chapter evidence sample 4 (work-002, early)" in prompt
     assert "alpha_book" not in prompt
@@ -226,14 +226,14 @@ def test_stratified_sampling_covers_short_books_when_lengths_unequal(tmp_path: P
     prompt = prompt_payload["prompt"]
     assert '"chapter_files": 22' in prompt
     assert '"sampled_chapters": 4' in prompt
-    # 长书 quota 2：首章与末章都有阶段证据
-    assert "长书独有标记1" in prompt, "长书第 1 章必须被抽样"
+    # 长书 quota 2 保持不变；全局补齐 middle 时替换重复 early。
+    assert "长书独有标记8" in prompt, "语料具备 middle 时全局必须补齐该阶段"
     assert "长书独有标记20" in prompt, "长书第 20 章必须被抽样"
     # 短书 quota 2：两章全被覆盖（短书全部章节都有代表）
     assert "短书独有标记1" in prompt, "短书第 1 章必须被抽样"
     assert "短书独有标记2" in prompt, "短书第 2 章必须被抽样"
     # 中性 work slot + 阶段 + 全局编号，且无源文件名
-    assert "chapter evidence sample 1 (work-001, early)" in prompt
+    assert "chapter evidence sample 8 (work-001, middle)" in prompt
     assert "chapter evidence sample 20 (work-001, late)" in prompt
     assert "chapter evidence sample 21 (work-002, early)" in prompt
     assert "chapter evidence sample 22 (work-002, late)" in prompt
