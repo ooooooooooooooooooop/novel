@@ -82,7 +82,14 @@ def _dilemma_excerpt(text: str) -> str:
 
 
 def _read_text(path: Path) -> str:
-    for encoding in ("utf-8-sig", "utf-8", "gb18030", "gbk"):
+    with path.open("rb") as binary_file:
+        prefix = binary_file.read(2)
+    encodings = (
+        ("utf-16",)
+        if prefix in (b"\xff\xfe", b"\xfe\xff")
+        else ("utf-8-sig", "utf-8", "gb18030", "gbk")
+    )
+    for encoding in encodings:
         try:
             return path.read_text(encoding=encoding)
         except UnicodeDecodeError:

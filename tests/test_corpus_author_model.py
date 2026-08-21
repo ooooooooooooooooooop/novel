@@ -507,6 +507,30 @@ def test_plain_file_without_chapter_headers_stays_one_corpus_item(tmp_path: Path
     assert size["sampled_chapters"] == 1
     assert stats["chapter_count"] == 1.0
 
+    # Explicitly keep the BOM-less UTF-8 path protected from UTF-16 detection.
+    _, _, _, utf8_samples = inspect_corpus(corpus, sample_chapters=1)
+    assert utf8_samples[0].text == (
+        "今天沿着河岸走了很久，风把纸页吹得哗哗作响。\n"
+        "没有章节标题的短篇，仍然应该作为单章处理。"
+    )
+
+    for encoding, bom, directory_name in (
+        ("utf-16-le", b"\xff\xfe", "utf16-le-corpus"),
+        ("utf-16-be", b"\xfe\xff", "utf16-be-corpus"),
+    ):
+        utf16_corpus = tmp_path / directory_name
+        utf16_corpus.mkdir()
+        text = f"{directory_name} 无章节标题，仍然作为单章处理。"
+        (utf16_corpus / "plain.txt").write_bytes(bom + text.encode(encoding))
+        utf16_size, utf16_stats, _, utf16_samples = inspect_corpus(
+            utf16_corpus, sample_chapters=1
+        )
+        assert utf16_size["chapter_files"] == 1
+        assert utf16_size["sampled_chapters"] == 1
+        assert utf16_stats["chapter_count"] == 1.0
+        assert utf16_stats["total_chars"] == float(len(text))
+        assert utf16_samples[0].text == text
+
 
 def test_chapters_directory_keeps_per_file_semantics_without_expansion(tmp_path: Path):
     """chapters/ 目录 = legacy one-file-one-chapter：文件正文即使出现多个
