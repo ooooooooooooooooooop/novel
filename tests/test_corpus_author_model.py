@@ -125,6 +125,16 @@ def test_author_requires_chapter_evidence(tmp_path: Path):
         mutated_sidecar = deepcopy(sidecar)
         mutated_sidecar["uniqueness"] = {"status": "measured", "transferable_author_count": 1}
         assert "uniqueness" in write_run(response, mutated_sidecar)
+        # D5: the same BOM response the validator accepts must also materialize through run().
+        corpus = tmp_path / "corpus"
+        (corpus / "chapters").mkdir(parents=True)
+        (corpus / "chapters" / "chapter_001.txt").write_text("人物突然转身。", encoding="utf-8")
+        materialized = tmp_path / "materialized"
+        assert run(corpus, materialized)["status"] == "waiting"
+        response_path = materialized / "corpus_author_model_response.json"
+        response_path.write_text(json.dumps(response), encoding="utf-8-sig")
+        assert response_path.read_bytes().startswith(b"\xef\xbb\xbf"), "utf-8-sig write must carry a real BOM"
+        assert run(corpus, materialized)["status"] == "materialized"
     finally:
         for path in run_dir.iterdir():
             path.unlink()

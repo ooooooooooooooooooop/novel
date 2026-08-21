@@ -602,7 +602,8 @@ def run(
         )
         return {"status": "waiting", "prompt": str(prompt_path.with_suffix(".txt")), "response": str(response_path), "source_digest": digest}
     try:
-        payload = json.loads(response_path.read_text(encoding="utf-8"))
+        # utf-8-sig mirrors the validator read: a BOM response it accepts materializes here too.
+        payload = json.loads(response_path.read_text(encoding="utf-8-sig"))
         raw_patterns = payload["selection_patterns"]
         if not isinstance(raw_patterns, list) or not raw_patterns:
             raise ValueError("selection_patterns must be a non-empty list")
