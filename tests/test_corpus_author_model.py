@@ -8,6 +8,7 @@ import pytest
 
 from src.object_state.corpusauthormodel import Author, SelectionPattern
 from src.workflow_action.corpus_author_model import (
+    _DILEMMA_LEXICON,
     _bounded_work_quotas,
     _stratified_work_quotas,
     extract_authors,
@@ -352,8 +353,13 @@ def test_directory_of_full_novels_expands_chapters_and_stratified_sampling(tmp_p
             for i in range(1, 9)
         )
 
-    marks_a = {4: "拒绝选择代价执念" * 10, 5: "拒绝选择代价执念" * 9}  # 得分 40 / 36
-    marks_b = {2: "乙二独有标记。" + "拒绝选择代价执念" * 8}  # 得分 32
+    late_phrase = "拒绝选择代价执念"
+    late_a = "前置内容。" * 400 + late_phrase * 10 + "。" * 20
+    late_b = "乙二独有标记。" + "前置内容。" * 400 + late_phrase * 8
+    assert late_a.index(late_phrase) > 1600 and late_b.index(late_phrase) > 1600
+    assert late_a.count(late_phrase) == 10
+    marks_a = {4: late_a, 5: "拒绝选择代价执念" * 9}  # 得分 40 / 36
+    marks_b = {2: late_b}  # 得分 32
     (corpus / "alpha_book.txt").write_text(book("甲", marks_a), encoding="utf-8")
     (corpus / "beta_book.txt").write_text(book("乙", marks_b), encoding="utf-8")
     selected = {0, 7, 8, 15}  # 已抽样：alpha 第 1/8 章 + beta 第 1/8 章
@@ -366,6 +372,13 @@ def test_directory_of_full_novels_expands_chapters_and_stratified_sampling(tmp_p
         (4, "work-001", "middle"),
         (10, "work-002", "early"),
     ]
+    assert all(len(candidate.text) <= 1600 for candidate in a)
+    assert all(
+        any(pattern.search(candidate.text) for pattern in _DILEMMA_LEXICON.values())
+        for candidate in a
+    )
+    assert "拒绝" in a[0].text and "选择" in a[0].text
+    assert "拒绝" in a[1].text and "选择" in a[1].text
     # 有界 + 仅 score>0：eligible 只有 3 章，超预算也不零命中凑数
     all_c, all_short = retrieve_dilemma_candidates(corpus, selected=selected, requested=100)
     assert all_short == 97 and len(all_c) == 3
@@ -462,7 +475,7 @@ def test_prompt_uses_neutral_work_slots_without_source_names(tmp_path: Path):
     hit_corpus = tmp_path / "hit_corpus"
     hit_corpus.mkdir()
     (hit_corpus / "secret_alpha.txt").write_text(
-        "第1章 一\n甲一。\n第2章 二\n拒绝选择代价执念。\n第3章 三\n甲三。\n",
+        "第1章 一\n甲一。\n第2章 二\n" + "前置内容。" * 400 + "拒绝选择代价执念。\n第3章 三\n甲三。\n",
         encoding="utf-8",
     )
     out2 = tmp_path / "out2"
@@ -470,7 +483,12 @@ def test_prompt_uses_neutral_work_slots_without_source_names(tmp_path: Path):
     prompt2 = json.loads((out2 / "corpus_author_model_prompt.txt").read_bytes())["prompt"]
     assert "secret_alpha" not in prompt2
     block = prompt2.split("--- dilemma discovery candidates ---", 1)[1]
-    assert "--- dilemma discovery candidate 2 (work-001, middle) ---" in block
+    candidate_header = "--- dilemma discovery candidate 2 (work-001, middle) ---"
+    assert candidate_header in block
+    assert "拒绝" in block and "选择" in block
+    candidate_text = block.split(candidate_header, 1)[1].split("\n\n---", 1)[0].lstrip("\n")
+    assert len(candidate_text) <= 1600
+    assert any(pattern.search(candidate_text) for pattern in _DILEMMA_LEXICON.values())
     assert re.search(r"\b(pass|confidence|verdict|score)\b", block, re.IGNORECASE) is None
     assert '"pass"' not in block and '"confidence"' not in block
 

@@ -63,6 +63,24 @@ _DILEMMA_LEXICON: dict[str, re.Pattern] = {
 }
 
 
+def _dilemma_excerpt(text: str) -> str:
+    """Return a bounded excerpt centered on the earliest dilemma lexicon hit."""
+    if len(text) <= 1600:
+        return text
+    matches = [
+        (match.start(), lexicon_index, match.end())
+        for lexicon_index, pattern in enumerate(_DILEMMA_LEXICON.values())
+        for match in pattern.finditer(text)
+    ]
+    if not matches:
+        return text[:1600]
+    hit_start, _, hit_end = min(matches)
+    hit_center = (hit_start + hit_end) // 2
+    max_start = len(text) - 1600
+    excerpt_start = max(0, min(max_start, hit_center - 800))
+    return text[excerpt_start:excerpt_start + 1600]
+
+
 def _read_text(path: Path) -> str:
     for encoding in ("utf-8-sig", "utf-8", "gb18030", "gbk"):
         try:
@@ -459,9 +477,9 @@ def retrieve_dilemma_candidates(
                 continue
             _, gi = buckets[key].pop(0)
             if legacy:
-                candidates.append(ChapterSample(gi + 1, text=chapters[gi][:1600]))
+                candidates.append(ChapterSample(gi + 1, text=_dilemma_excerpt(chapters[gi])))
             else:
-                candidates.append(ChapterSample(gi + 1, key[0], key[1], chapters[gi][:1600]))
+                candidates.append(ChapterSample(gi + 1, key[0], key[1], _dilemma_excerpt(chapters[gi])))
             progressed = True
             if len(candidates) >= requested:
                 break
