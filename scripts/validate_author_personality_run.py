@@ -11,7 +11,7 @@ from typing import Any
 
 
 _HEADER = re.compile(
-    r"--- chapter evidence sample (?P<chapter>\d+) "
+    r"--- (?:chapter evidence sample|dilemma discovery candidate) (?P<chapter>\d+) "
     r"\((?P<work>work-\d{3}), (?P<stage>early|middle|late)\) ---"
 )
 _KINDS = {"signature_choice", "signature_refusal", "sacrifice_pattern", "obsession"}

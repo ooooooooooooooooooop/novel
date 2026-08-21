@@ -36,7 +36,15 @@ def test_author_requires_chapter_evidence(tmp_path: Path):
             for i, chapter in enumerate(chapter_indexes, 1)
         )
         sample_text = "A sufficiently long neutral sample sentence for overlap checks."
-        prompt = {"prompt": headers + "\n" + sample_text}
+        candidate_chapter = 60
+        candidate_work = "work-003"
+        candidate_stage = "middle"
+        candidate_text = "A sufficiently long neutral discovery sample sentence for overlap checks."
+        candidate_header = (
+            f"--- dilemma discovery candidate {candidate_chapter} "
+            f"({candidate_work}, {candidate_stage}) ---"
+        )
+        prompt = {"prompt": headers + "\n" + sample_text + "\n" + candidate_header + "\n" + candidate_text}
         response = {
             "selection_patterns": [
                 {
@@ -81,6 +89,24 @@ def test_author_requires_chapter_evidence(tmp_path: Path):
             return validate_personality_run(run_dir, "subject-test", "run-test")
 
         assert write_run() == []
+        candidate_sidecar = deepcopy(sidecar)
+        candidate_sidecar["claims"][0]["supporting_evidence"].append(
+            {
+                "chapter_index": candidate_chapter,
+                "work_slot": candidate_work,
+                "stage": candidate_stage,
+                "metric": "signal",
+                "value": "stable",
+            }
+        )
+        assert write_run(response, candidate_sidecar) == []
+        wrong_candidate_sidecar = deepcopy(candidate_sidecar)
+        wrong_candidate_sidecar["claims"][0]["supporting_evidence"][-1]["work_slot"] = "work-004"
+        wrong_candidate_sidecar["claims"][0]["supporting_evidence"][-1]["stage"] = "late"
+        assert "supporting_evidence_anchor" in write_run(response, wrong_candidate_sidecar)
+        candidate_overlap_sidecar = deepcopy(candidate_sidecar)
+        candidate_overlap_sidecar["claims"][0]["statement"] = candidate_text
+        assert "verbatim_sample_overlap" in write_run(response, candidate_overlap_sidecar)
         mutated_response = deepcopy(response)
         mutated_response["selection_patterns"][0]["extra"] = True
         assert "pattern_keys" in write_run(mutated_response)
