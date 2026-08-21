@@ -1,6 +1,7 @@
 from pathlib import Path
 import hashlib
 import json
+from copy import deepcopy
 
 import pytest
 
@@ -12,9 +13,10 @@ from src.workflow_action.corpus_author_model import (
     inspect_corpus,
     run,
 )
+from scripts.validate_author_personality_run import validate_personality_run
 
 
-def test_author_requires_chapter_evidence():
+def test_author_requires_chapter_evidence(tmp_path: Path):
     with pytest.raises(ValueError):
         SelectionPattern(
             pattern_id="p1",
@@ -22,6 +24,109 @@ def test_author_requires_chapter_evidence():
             confidence=0.5,
             chapter_evidence=[],
         )
+
+    run_dir = tmp_path / "synthetic_personality_run"
+    run_dir.mkdir()
+    try:
+        chapter_indexes = [10, 20, 35, 50]
+        headers = "\n".join(
+            f"--- chapter evidence sample {chapter} (work-{i:03d}, {'early' if i % 2 else 'late'}) ---"
+            for i, chapter in enumerate(chapter_indexes, 1)
+        )
+        sample_text = "A sufficiently long neutral sample sentence for overlap checks."
+        prompt = {"prompt": headers + "\n" + sample_text}
+        response = {
+            "selection_patterns": [
+                {
+                    "pattern_id": f"pattern-{i:03d}",
+                    "statement": "neutral pattern",
+                    "confidence": 0.9,
+                    "chapter_evidence": [{"chapter_index": i, "metric": "signal", "value": "stable"}],
+                }
+                for i in range(1, 5)
+            ]
+        }
+        kinds = ["signature_choice", "signature_refusal", "sacrifice_pattern", "obsession"]
+        sidecar = {
+            "schema_version": "1",
+            "author_id": "subject-test",
+            "run_id": "run-test",
+            "source_generation": "synthetic",
+            "claims": [
+                {
+                    "claim_id": f"claim-{i:03d}",
+                    "kind": kind,
+                    "statement": "neutral claim",
+                    "status": "candidate",
+                    "scope": "author_global",
+                    "confidence": 0.9,
+                    "supporting_evidence": [
+                        {"chapter_index": 10, "work_slot": "work-001", "stage": "early", "metric": "signal", "value": "stable"},
+                        {"chapter_index": 20, "work_slot": "work-002", "stage": "late", "metric": "signal", "value": "stable"},
+                    ],
+                    "counterevidence": ["neutral counterevidence"],
+                }
+                for i, kind in enumerate(kinds, 1)
+            ],
+            "counterfactual_pairs": [],
+            "uniqueness": {"status": "not_run", "transferable_author_count": None},
+        }
+
+        def write_run(current_response=response, current_sidecar=sidecar):
+            (run_dir / "corpus_author_model_prompt.txt").write_text(json.dumps(prompt), encoding="utf-8")
+            (run_dir / "corpus_author_model_response.json").write_text(json.dumps(current_response), encoding="utf-8-sig")
+            (run_dir / "personality_sidecar.json").write_text(json.dumps(current_sidecar), encoding="utf-8")
+            return validate_personality_run(run_dir, "subject-test", "run-test")
+
+        assert write_run() == []
+        mutated_response = deepcopy(response)
+        mutated_response["selection_patterns"][0]["extra"] = True
+        assert "pattern_keys" in write_run(mutated_response)
+        mutated_response = deepcopy(response)
+        mutated_response["selection_patterns"][0]["chapter_evidence"][0]["extra"] = True
+        assert "evidence_keys" in write_run(mutated_response)
+        mutated_response = deepcopy(response)
+        mutated_response["selection_patterns"][0]["chapter_evidence"] = []
+        assert "evidence_shape" in write_run(mutated_response)
+        mutated_response = deepcopy(response)
+        mutated_response["selection_patterns"][1]["pattern_id"] = mutated_response["selection_patterns"][0]["pattern_id"]
+        assert "pattern_id_unique" in write_run(mutated_response)
+        mutated_response = deepcopy(response)
+        mutated_response["selection_patterns"][0]["statement"] = "neutral author"
+        assert "forbidden_response_token" in write_run(mutated_response)
+        mutated_sidecar = deepcopy(sidecar)
+        mutated_sidecar["claims"][0]["statement"] = "neutral author"
+        assert "forbidden_sidecar_token" in write_run(response, mutated_sidecar)
+        mutated_response = deepcopy(response)
+        mutated_response["selection_patterns"][0]["statement"] = sample_text
+        assert "verbatim_sample_overlap" in write_run(mutated_response)
+        mutated_sidecar = deepcopy(sidecar)
+        mutated_sidecar["claims"][0]["kind"] = "other"
+        assert "claim_kinds" in write_run(response, mutated_sidecar)
+        mutated_sidecar = deepcopy(sidecar)
+        mutated_sidecar["claims"][0]["confidence"] = 0.84
+        assert "claim_confidence" in write_run(response, mutated_sidecar)
+        mutated_sidecar = deepcopy(sidecar)
+        mutated_sidecar["claims"][0]["supporting_evidence"][0]["stage"] = "late"
+        assert "supporting_evidence_anchor" in write_run(response, mutated_sidecar)
+        mutated_sidecar = deepcopy(sidecar)
+        mutated_sidecar["claims"][0]["supporting_evidence"] = [
+            {"chapter_index": 10, "work_slot": "work-001", "stage": "early", "metric": "signal", "value": "stable"},
+            {"chapter_index": 35, "work_slot": "work-001", "stage": "early", "metric": "signal", "value": "stable"},
+        ]
+        assert {"supporting_evidence_works", "supporting_evidence_stages"}.issubset(
+            write_run(response, mutated_sidecar)
+        )
+        mutated_sidecar = deepcopy(sidecar)
+        mutated_sidecar["claims"][0]["status"] = "confirmed"
+        assert "claim_status" in write_run(response, mutated_sidecar)
+        mutated_sidecar = deepcopy(sidecar)
+        mutated_sidecar["uniqueness"] = {"status": "measured", "transferable_author_count": 1}
+        assert "uniqueness" in write_run(response, mutated_sidecar)
+    finally:
+        for path in run_dir.iterdir():
+            path.unlink()
+        run_dir.rmdir()
 
 
 def test_author_schema_forbids_identity_and_extra_fields():
