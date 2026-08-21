@@ -9,10 +9,12 @@ import pytest
 from src.object_state.corpusauthormodel import Author, SelectionPattern
 from src.workflow_action.corpus_author_model import (
     _DILEMMA_LEXICON,
+    _balanced_ranked_pool,
     _bounded_work_quotas,
     _stratified_work_quotas,
     extract_authors,
     inspect_corpus,
+    retrieve_balanced_dilemma_candidates,
     retrieve_dilemma_candidates,
     run,
 )
@@ -386,9 +388,72 @@ def test_directory_of_full_novels_expands_chapters_and_stratified_sampling(tmp_p
     assert not ({c.chapter_index - 1 for c in all_c} & selected), "候选必须是未选章节"
     from src.novel_cli import build_parser
     args = build_parser().parse_args(
-        ["corpus-author-model", "--input", ".", "--output-dir", ".", "--dilemma-retrieval", "--dilemma-candidates", "4"]
+        [
+            "corpus-author-model", "--input", ".", "--output-dir", ".",
+            "--dilemma-retrieval", "--balanced-dilemma-retrieval",
+            "--dilemma-candidates", "4",
+        ]
     )
     assert args.dilemma_retrieval is True and args.dilemma_candidates == 4
+    assert args.balanced_dilemma_retrieval is True
+    ranked = _balanced_ranked_pool([
+        (20, 1, 1, ("work-001", "middle")),
+        (10, 1, 1, ("work-001", "early")),
+        (11, 1, 1, ("work-002", "early")),
+    ])
+    assert [item[0] for item in ranked] == [10, 11, 20]
+
+    # balanced 模式独立于旧 aggregate 路径：稀缺类别先认领、多标签全局去重，
+    # 且围绕被指派类别命中截取，而不是被更早的其他类别命中抢走窗口。
+    balanced = tmp_path / "balanced"
+    balanced.mkdir()
+    late_fixation = "选择。" + "前置内容。" * 400 + "执念。"
+    balanced_texts = [
+        "选择。", "选择。", "拒绝。", "代价。", late_fixation,
+    ]
+    (balanced / "work.txt").write_text(
+        "".join(
+            f"第{index}章 合成{index}\n{text}\n"
+            for index, text in enumerate(balanced_texts, 1)
+        ),
+        encoding="utf-8",
+    )
+    one, one_meta = retrieve_balanced_dilemma_candidates(
+        balanced, selected=set(), requested=1
+    )
+    assert [candidate.discovery_category for candidate in one] == ["refusal"]
+    assert one_meta["categories"]["refusal"]["target"] == 1
+    two, _ = retrieve_balanced_dilemma_candidates(balanced, selected=set(), requested=2)
+    assert {candidate.discovery_category for candidate in two} == {"refusal", "cost"}
+    three, _ = retrieve_balanced_dilemma_candidates(balanced, selected=set(), requested=3)
+    assert {candidate.discovery_category for candidate in three} == {
+        "refusal", "cost", "fixation"
+    }
+    four, four_meta = retrieve_balanced_dilemma_candidates(
+        balanced, selected=set(), requested=4
+    )
+    assert len(four) == len({candidate.chapter_index for candidate in four}) == 4
+    assert {candidate.discovery_category for candidate in four} == set(_DILEMMA_LEXICON)
+    assert all(four_meta["categories"][kind]["target"] == 1 for kind in _DILEMMA_LEXICON)
+    assert [candidate.work_id for candidate in four] == ["work-001"] * 4
+    fixation = next(candidate for candidate in four if candidate.discovery_category == "fixation")
+    assert "执念" in fixation.text and len(fixation.text) <= 1600
+    out_balanced = tmp_path / "out-balanced"
+    run(
+        balanced,
+        out_balanced,
+        sample_chapters=1,
+        dilemma_retrieval=True,
+        dilemma_candidates=4,
+        balanced_dilemma_retrieval=True,
+    )
+    balanced_prompt = json.loads(
+        (out_balanced / "corpus_author_model_prompt.txt").read_bytes()
+    )["prompt"]
+    balanced_block = balanced_prompt.split("--- dilemma discovery candidates ---", 1)[1]
+    assert '"mode": "balanced"' in balanced_block
+    assert balanced_block.count("Discovery category:") == 4
+    assert re.search(r"\b(pass|confidence|verdict|score)\b", balanced_block, re.I) is None
 
 
 def test_stratified_sampling_covers_short_books_when_lengths_unequal(tmp_path: Path):

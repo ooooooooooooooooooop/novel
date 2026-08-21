@@ -2052,6 +2052,7 @@ def _run_corpus_author_model(args: argparse.Namespace) -> int:
         args.input, args.output_dir, args.author_id, args.sample_chapters,
         dilemma_retrieval=getattr(args, "dilemma_retrieval", False),
         dilemma_candidates=getattr(args, "dilemma_candidates", 3),
+        balanced_dilemma_retrieval=getattr(args, "balanced_dilemma_retrieval", False),
     )
     if result.get("status") == "waiting":
         payload = result
@@ -2231,6 +2232,11 @@ def build_parser(*, emit_json_errors: bool = False) -> argparse.ArgumentParser:
     )
     corpus_author_model.add_argument("--dilemma-retrieval", action="store_true",
                                      help="opt-in 全语料 dilemma 发现候选检索（默认 off 零成本）")
+    corpus_author_model.add_argument(
+        "--balanced-dilemma-retrieval",
+        action="store_true",
+        help="opt-in 四类平衡 dilemma 发现检索；与普通模式同时启用时优先",
+    )
     corpus_author_model.add_argument("--dilemma-candidates", type=int, default=3, metavar="N",
                                      help="--dilemma-retrieval 时请求的额外候选数（默认 3）")
     corpus_author_model.set_defaults(func=_run_corpus_author_model)

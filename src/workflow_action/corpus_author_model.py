@@ -44,6 +44,7 @@ class ChapterSample:
     work_id: str | None = None  # None in legacy mode → old header format
     stage: str | None = None    # early | middle | late
     text: str = ""              # local-only sample text (first 1600 chars)
+    discovery_category: str | None = None
 
 _SENTENCE_RE = re.compile(r"[^。！？!?.!?]+[。！？!?.!?]?")
 _DIALOGUE_RE = re.compile(r"[“\"『「].*?[”\"』」]", re.S)
@@ -495,6 +496,185 @@ def retrieve_dilemma_candidates(
     return candidates, max(0, requested - len(candidates))
 
 
+def _dilemma_chapters(input_path: str | Path) -> tuple[list[str], list[int], bool]:
+    root = Path(input_path).expanduser().resolve()
+    chapters: list[str] = []
+    counts: list[int] = []
+    legacy = root.is_dir() and (root / "chapters").is_dir()
+    if root.is_dir():
+        if legacy:
+            for path in sorted((root / "chapters").glob("*.txt")):
+                chapters.append(_read_text(path))
+                counts.append(1)
+        else:
+            for path in sorted(root.rglob("*.txt")):
+                expanded = _expand_chapter_texts(_read_text(path))
+                chapters.extend(expanded)
+                counts.append(len(expanded))
+    return chapters, counts, legacy
+
+
+def _balanced_excerpt(text: str, category: str) -> str:
+    if len(text) <= 1600:
+        return text
+    pattern = _DILEMMA_LEXICON[category]
+    match = next(pattern.finditer(text), None)
+    if match is None:
+        return text[:1600]
+    max_start = len(text) - 1600
+    center = (match.start() + match.end()) // 2
+    start = max(0, min(max_start, center - 800))
+    return text[start:start + 1600]
+
+
+def _balanced_category_order(
+    pools: list[list[tuple[int, int, int, tuple[str | None, str | None]]]],
+) -> list[int]:
+    positive = [index for index, pool in enumerate(pools) if pool]
+    return sorted(positive, key=lambda index: (len(pools[index]), index)) + [
+        index for index in range(len(pools)) if not pools[index]
+    ]
+
+
+def _balanced_ranked_pool(
+    pool: list[tuple[int, int, int, tuple[str | None, str | None]]],
+) -> list[tuple[int, int, int, tuple[str | None, str | None]]]:
+    buckets: dict[tuple[str | None, str | None], list[tuple[int, int, int, tuple[str | None, str | None]]]] = defaultdict(list)
+    for item in pool:
+        buckets[item[3]].append(item)
+    for bucket in buckets.values():
+        bucket.sort(key=lambda item: (-item[1], -item[2], item[0]))
+    works = sorted({key[0] for key in buckets}, key=lambda value: value or "")
+    stages = [stage for stage in (None, "early", "middle", "late") if any(key[1] == stage for key in buckets)]
+    work_orders = {}
+    for work_index, work in enumerate(works):
+        rotated = stages[work_index % len(stages):] + stages[:work_index % len(stages)]
+        work_orders[work] = [(work, stage) for stage in rotated if (work, stage) in buckets]
+    order = []
+    while any(work_orders.values()):
+        for work in works:
+            if work_orders[work]:
+                order.append(work_orders[work].pop(0))
+    ranked: list[tuple[int, int, int, tuple[str | None, str | None]]] = []
+    while True:
+        progressed = False
+        for key in order:
+            if buckets[key]:
+                ranked.append(buckets[key].pop(0))
+                progressed = True
+        if not progressed:
+            return ranked
+
+
+def retrieve_balanced_dilemma_candidates(
+    input_path: str | Path,
+    *,
+    selected: set[int],
+    requested: int,
+) -> tuple[list[ChapterSample], dict[str, Any]]:
+    """Discover lexical dilemma candidates with deterministic category balance."""
+    if requested < 0:
+        raise ValueError("dilemma_candidates must be non-negative")
+    category_names = list(_DILEMMA_LEXICON)
+    chapters, counts, legacy = _dilemma_chapters(input_path)
+    work_of = [(work, local) for work, count in enumerate(counts) for local in range(count)]
+    pools: list[list[tuple[int, int, int, tuple[str | None, str | None]]]] = [
+        [] for _ in category_names
+    ]
+    for global_index, (work, local) in enumerate(work_of):
+        if global_index in selected:
+            continue
+        bucket = (None, None) if legacy else (f"work-{work + 1:03d}", _stage_label(local, counts[work]))
+        total = sum(len(pattern.findall(chapters[global_index])) for pattern in _DILEMMA_LEXICON.values())
+        for category_index, pattern in enumerate(_DILEMMA_LEXICON.values()):
+            category_hits = len(pattern.findall(chapters[global_index]))
+            if category_hits:
+                pools[category_index].append((global_index, category_hits, total, bucket))
+    order = _balanced_category_order(pools)
+    targets = [requested // len(category_names) for _ in category_names]
+    for category_index in order[: requested % len(category_names)]:
+        targets[category_index] += 1
+    ranked = [_balanced_ranked_pool(pool) for pool in pools]
+    positions = [0] * len(category_names)
+    assigned: set[int] = set()
+    candidates: list[ChapterSample] = []
+    retrieved = [0] * len(category_names)
+
+    def claim(category_index: int) -> bool:
+        while positions[category_index] < len(ranked[category_index]):
+            global_index, _, _, bucket = ranked[category_index][positions[category_index]]
+            positions[category_index] += 1
+            if global_index in assigned:
+                continue
+            assigned.add(global_index)
+            work_id, stage = bucket
+            candidates.append(
+                ChapterSample(
+                    global_index + 1,
+                    work_id,
+                    stage,
+                    _balanced_excerpt(chapters[global_index], category_names[category_index]),
+                    category_names[category_index],
+                )
+            )
+            retrieved[category_index] += 1
+            return True
+        return False
+
+    for category_index in order:
+        for _ in range(targets[category_index]):
+            if len(candidates) >= requested or not claim(category_index):
+                break
+    while len(candidates) < requested:
+        progressed = False
+        for category_index in order:
+            if len(candidates) >= requested:
+                break
+            progressed = claim(category_index) or progressed
+        if not progressed:
+            break
+    accounting = {
+        "mode": "balanced",
+        "requested": requested,
+        "retrieved": len(candidates),
+        "shortfall": max(0, requested - len(candidates)),
+        "categories": {
+            category: {
+                "target": targets[index],
+                "retrieved": retrieved[index],
+                "shortfall": max(0, targets[index] - retrieved[index]),
+                "overflow": max(0, retrieved[index] - targets[index]),
+            }
+            for index, category in enumerate(category_names)
+        },
+    }
+    return candidates, accounting
+
+
+def _balanced_dilemma_section(
+    candidates: list[ChapterSample], accounting: dict[str, Any]
+) -> str:
+    parts = []
+    for candidate in candidates:
+        if candidate.work_id is None:
+            header = f"--- dilemma discovery candidate {candidate.chapter_index} ---"
+        else:
+            header = (
+                f"--- dilemma discovery candidate {candidate.chapter_index} "
+                f"({candidate.work_id}, {candidate.stage}) ---"
+            )
+        parts.append(f"{header}\nDiscovery category: {candidate.discovery_category}\n{candidate.text}")
+    block = "\n\n".join(parts) or "(no candidates available)"
+    metadata = json.dumps(accounting, sort_keys=True)
+    return (
+        "--- dilemma discovery candidates ---\n"
+        f"Candidate metadata: {metadata}\n"
+        "Candidates are lexical discovery hints only, with no judgment attached. "
+        "Do not copy their wording verbatim.\n\n"
+        f"{block}"
+    )
+
+
 def _dilemma_section(candidates: list[ChapterSample], requested: int, shortfall: int) -> str:
     """Opt-in prompt section: requested/retrieved/shortfall + neutral candidate headers."""
     parts = []
@@ -583,6 +763,7 @@ def run(
     *,
     dilemma_retrieval: bool = False,
     dilemma_candidates: int = 3,
+    balanced_dilemma_retrieval: bool = False,
 ) -> dict[str, Any]:
     size, stats, digest, samples = inspect_corpus(input_path, sample_chapters=sample_chapters)
     generation = "deep-v2" if sample_chapters > 3 else "deterministic-metadata-v1"
@@ -616,7 +797,12 @@ def run(
             )
     if not response_path.exists():
         dilemma_section = ""
-        if dilemma_retrieval:
+        if balanced_dilemma_retrieval:
+            candidates, accounting = retrieve_balanced_dilemma_candidates(
+                input_path, selected={s.chapter_index - 1 for s in samples}, requested=dilemma_candidates
+            )
+            dilemma_section = "\n" + _balanced_dilemma_section(candidates, accounting)
+        elif dilemma_retrieval:
             candidates, shortfall = retrieve_dilemma_candidates(
                 input_path, selected={s.chapter_index - 1 for s in samples}, requested=dilemma_candidates
             )
