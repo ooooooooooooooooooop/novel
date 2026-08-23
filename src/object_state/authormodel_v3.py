@@ -157,3 +157,104 @@ class CrossWorkValidationResult(BaseModel):
     is_valid_author_prior: bool = Field(
         default=False, description="是否通过作者跨作品先验资格认定"
     )
+
+
+class DecisionEventV2(BaseModel):
+    """已发表文本中的结构化作者选择事件（研究性代理）。
+
+    该对象只描述冻结后的真实候选集合与实际选择，不描述生成意图，
+    也不把角色轨道或文本风格当成作者选择策略。为便于离线审计，
+    情境维度保留为无损标量/标签；具体编码由调用方预注册并保持一致。
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    author_id: str = Field(description="中性作者 ID")
+    work_slot: str = Field(description="预注册作品槽位")
+    stage: str = Field(description="叙事阶段标签")
+    topic_tag: str = Field(description="受控题材标签")
+    actor_role: str = Field(description="归一化功能角色")
+    event_id: Optional[str] = Field(default=None, description="可选事件行标识")
+    family_id: Optional[str] = Field(default=None, description="可选六维情境族标识")
+    power_gap: object = Field(description="权力差情境维度")
+    reversibility: object = Field(description="可逆性情境维度")
+    threat: object = Field(description="威胁情境维度")
+    dependence: object = Field(description="依赖情境维度")
+    info_uncertainty: object = Field(description="信息不确定性情境维度")
+    loyalty_conflict: object = Field(description="忠诚冲突情境维度")
+    candidates: list[str] = Field(default_factory=list, description="真实可选动作全集")
+    selected: str = Field(default="", description="实际选择")
+    rejected: list[str] = Field(default_factory=list, description="明确拒绝的动作")
+    cost_label: str = Field(default="", description="实际代价标签")
+    protected_value_key: str = Field(default="", description="受限价值词汇表键")
+    evidence_anchor: object = Field(default="", description="原始证据锚")
+    confidence: float = Field(default=0.0, ge=0.0, le=1.0, description="提取置信度")
+
+
+class ProxySignatureV2Result(BaseModel):
+    """Published-Text Behavioral Signature Proxy v2 离线验证报告。
+
+    ``PASS`` 只表示出版文本代理预测资格，不表示生产认证、开书或
+    AuthorKernel 写回。数值字段在无效输入时使用 0，不使用旧版的 0.5
+    中性回退，以便调用方不能把无数据误读为随机准确率。
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    version: str = Field(default="published_text_behavioral_signature_v2")
+    state: Literal["INVALID", "FAIL", "PARTIAL", "PASS"] = Field(default="INVALID")
+    # v8 双平面：state 保留 v2 兼容语义；以下字段均为可选扩展。
+    statistical_state: Optional[Literal["INVALID", "FAIL", "PARTIAL", "PASS"]] = None
+    full_coverage_deployment_state: Optional[Literal["PASS", "FAIL"]] = None
+    coverage: Optional[float] = Field(default=None, ge=0.0, le=1.0)
+    selective_risk: Optional[float] = Field(default=None, ge=0.0, le=1.0)
+    aurc: Optional[float] = Field(default=None, ge=0.0, le=1.0)
+    c_at_1: Optional[float] = Field(default=None, ge=0.0, le=1.0)
+    f_half_u: Optional[float] = Field(default=None, ge=0.0, le=1.0)
+    backoff_used: Optional[Literal["none", "family", "partial_pool"]] = None
+    backoff_events: Optional[int] = Field(default=None, ge=0)
+    operating_coverage: Optional[float] = Field(default=None, ge=0.0, le=1.0)
+    per_fold: list[dict[str, object]] = Field(default_factory=list, description="每个 L1WO 折报告")
+    baselines: dict[str, float] = Field(default_factory=dict, description="pooled/class-balanced 基线")
+    author_accuracy: float = Field(default=0.0, description="作者策略宏平均准确率")
+    hard_negative_accuracy: float = Field(default=0.0, description="同题材困难负样本准确率")
+    author_advantage: float = Field(default=0.0, description="相对较强通用基线的优势")
+    hard_negative_advantage: float = Field(default=0.0, description="相对同题材其他作者的优势")
+    confidence_interval: list[float] = Field(default_factory=lambda: [0.0, 0.0], description="优势置信区间")
+    permutation_p_value: Optional[float] = Field(default=None, description="确定性配对置换 p 值")
+    invalid_reasons: list[str] = Field(default_factory=list, description="结构或门禁违规原因")
+    warnings: list[str] = Field(default_factory=list, description="合法但不足以 PASS 的原因")
+    evaluated_event_count: int = Field(default=0, ge=0)
+    fold_count: int = Field(default=0, ge=0)
+    expected_fold_count: int = Field(default=0, ge=0)
+    abstention_count: int = Field(default=0, ge=0)
+    fallback_prediction_count: int = Field(default=0, ge=0)
+    holdout_leakage_detected: bool = Field(default=False)
+    topic_alias_detected: bool = Field(default=False)
+    candidate_order_bias_detected: bool = Field(default=False)
+    macro_by_topic_role: dict[str, dict[str, float]] = Field(default_factory=dict)
+
+    @property
+    def per_fold_results(self) -> list[dict[str, object]]:
+        """兼容更明确的调用方命名。"""
+        return self.per_fold
+
+    @property
+    def pooled_majority_baseline(self) -> float:
+        """返回 pooled-majority 基线；无数据时仍为 0。"""
+        return self.baselines.get("pooled_majority", 0.0)
+
+    @property
+    def class_balanced_baseline(self) -> float:
+        """返回 class-balanced 基线；无数据时仍为 0。"""
+        return self.baselines.get("class_balanced", 0.0)
+
+    @property
+    def confidence_interval_lower(self) -> float:
+        """优势置信区间下界。"""
+        return self.confidence_interval[0] if self.confidence_interval else 0.0
+
+    @property
+    def confidence_interval_upper(self) -> float:
+        """优势置信区间上界。"""
+        return self.confidence_interval[1] if len(self.confidence_interval) > 1 else 0.0

@@ -14,6 +14,7 @@ from src.object_state.authormodel_v3 import (
     AuthorPrincipleV3,
     CounterexampleSample,
     CrossWorkValidationResult,
+    DecisionEventV2,
     SupportingSample,
 )
 from src.object_state.choicerecord import (
@@ -26,6 +27,7 @@ from src.workflow_action.authormodel_v3 import (
     score_author_prior,
     update_author_model_from_hindsight,
     validate_cross_work_separation,
+    validate_decision_signature_v2,
 )
 
 
@@ -267,4 +269,230 @@ class TestCrossWorkSeparation:
         q_loaded = load_qualification_report(tmp_path)
         assert q_loaded is not None
         assert q_loaded.is_valid_author_prior is True
+
+
+# ---------------------------------------------------------------------------
+# Decision Signature v2 对抗性门禁测试
+# ---------------------------------------------------------------------------
+
+
+def _v2_event(author, work, topic, stage, selected="a", *, anchor=None, candidates=None):
+    """构造最小结构化出版文本决策事件；只使用中性测试标识。"""
+    candidates = candidates or ["a", "b"]
+    return DecisionEventV2(
+        author_id=author,
+        work_slot=work,
+        stage=stage,
+        topic_tag=topic,
+        actor_role="protagonist",
+        power_gap=1,
+        reversibility=0,
+        threat=1,
+        dependence=0,
+        info_uncertainty=1,
+        loyalty_conflict=0,
+        candidates=candidates,
+        selected=selected,
+        rejected=[candidate for candidate in candidates if candidate != selected],
+        cost_label="cost",
+        protected_value_key="character_causality_over_plot_convenience",
+        evidence_anchor=anchor or f"anchor-{author}-{work}-{stage}",
+        confidence=0.95,
+    )
+
+
+def _v2_minimal_events():
+    """构造两个交叉题材、两个作者、每作者三个作品槽位的合法小样本。"""
+    events = []
+    for author, action in (("author-a", "a"), ("author-b", "b")):
+        for work_index in range(3):
+            work = f"work-{author[-1]}-{work_index}"
+            for topic in ("topic-1", "topic-2"):
+                for stage in ("setup", "payoff"):
+                    events.append(
+                        _v2_event(
+                            author,
+                            work,
+                            topic,
+                            stage,
+                            selected=action,
+                            anchor=f"{author}-{work}-{topic}-{stage}",
+                        )
+                    )
+    return events
+
+
+def test_v2_holdout_leakage_is_not_pass():
+    events = _v2_minimal_events()
+    events[-1].evidence_anchor = "training_stats:pooled"
+    result = validate_decision_signature_v2(events)
+    assert result.state != "PASS"
+    assert result.holdout_leakage_detected is True
+
+
+def test_v2_topic_alias_is_not_pass():
+    events = []
+    for author in ("author-a", "author-b"):
+        for index in range(3):
+            for stage in ("setup", "payoff"):
+                events.append(_v2_event(author, f"work-{author}-{index}", author, stage, anchor=f"{author}-{index}-{stage}"))
+    result = validate_decision_signature_v2(events)
+    assert result.state != "PASS"
+    assert result.topic_alias_detected is True
+
+
+def test_v2_candidate_first_bias_is_not_pass():
+    events = _v2_minimal_events()
+    for index, event in enumerate(events):
+        if index % 2 == 0:
+            event.candidates = ["a", "b"]
+        else:
+            event.candidates = ["b", "a"]
+        event.selected = event.candidates[0]
+        event.rejected = [event.candidates[1]]
+    result = validate_decision_signature_v2(events)
+    assert result.state != "PASS"
+
+
+def test_v2_no_author_advantage_is_not_pass():
+    events = _v2_minimal_events()
+    for event in events:
+        event.selected = "a"
+        event.rejected = ["b"]
+    result = validate_decision_signature_v2(events)
+    assert result.state != "PASS"
+    assert result.author_advantage <= 0
+
+
+def test_v2_empty_or_invalid_input_never_returns_neutral_half():
+    empty = validate_decision_signature_v2([])
+    invalid = validate_decision_signature_v2([{"author_id": "author-a"}])
+    assert empty.state == "INVALID"
+    assert invalid.state == "INVALID"
+    assert empty.author_accuracy != 0.5
+    assert empty.baselines == {}
+
+
+def test_v2_missing_hard_negative_is_degraded():
+    events = [_v2_event("author-a", f"work-a-{i}", "topic-a", "setup", anchor=f"a-{i}") for i in range(3)]
+    events.extend(_v2_event("author-b", f"work-b-{i}", "topic-b", "payoff", selected="b", anchor=f"b-{i}") for i in range(3))
+    result = validate_decision_signature_v2(events)
+    assert result.state != "PASS"
+    assert any("题材" in warning or "困难" in warning for warning in result.invalid_reasons + result.warnings)
+
+
+def test_v2_silent_fold_drop_is_reported():
+    events = _v2_minimal_events()
+    events.append(_v2_event("author-a", "work-a-extra", "topic-1", "setup", anchor="extra-a"))
+    result = validate_decision_signature_v2(events)
+    assert result.state != "PASS"
+    assert result.fold_count == result.expected_fold_count or result.invalid_reasons
+
+
+def test_v2_low_confidence_is_invalid():
+    events = _v2_minimal_events()
+    events[0].confidence = 0.84
+    result = validate_decision_signature_v2(events)
+    assert result.state == "INVALID"
+    assert any("置信度" in reason for reason in result.invalid_reasons)
+
+
+def test_v2_legal_small_sample_passes():
+    result = validate_decision_signature_v2(_v2_minimal_events())
+    assert result.state == "PASS", result.invalid_reasons + result.warnings
+    assert result.author_advantage > 0
+    assert result.hard_negative_advantage > 0
+    assert result.confidence_interval_lower > 0
+
+
+# ---------------------------------------------------------------------------
+# Decision Signature v8 双平面与选择性覆盖测试
+# ---------------------------------------------------------------------------
+
+
+def _v8_events_with_unseen_holdouts():
+    events = []
+    for author, action in (("author-a", "a"), ("author-b", "b")):
+        for work_index in range(3):
+            work = f"collection20-{author[-1]}{work_index:03d}"
+            for topic in ("topic-urban", "topic-fantasy"):
+                for stage in ("setup", "payoff"):
+                    event = _v2_event(
+                        author, work, topic, stage, selected=action,
+                        anchor=f"{author}-{work}-{topic}-{stage}",
+                    )
+                    if work_index == 2 and stage == "payoff":
+                        event.stage = "unseen-stage"
+                    events.append(event)
+    return events
+
+
+def test_v8_dual_plane_statistical_pass_full_coverage_fail():
+    result = validate_decision_signature_v2(_v8_events_with_unseen_holdouts())
+    assert result.statistical_state in {"PASS", "PARTIAL"}
+    assert result.statistical_state != "INVALID"
+    assert result.full_coverage_deployment_state == "FAIL"
+    assert result.coverage < 1.0
+
+
+def test_v8_full_coverage_pass_requires_zero_abstention():
+    result = validate_decision_signature_v2(_v8_events_with_unseen_holdouts())
+    assert result.abstention_count > 0
+    assert result.full_coverage_deployment_state == "FAIL"
+
+
+def test_v8_backoff_family_reduces_abstention():
+    events = _v8_events_with_unseen_holdouts()
+    none_result = validate_decision_signature_v2(events, backoff="none")
+    family_result = validate_decision_signature_v2(events, backoff="family")
+    assert family_result.abstention_count < none_result.abstention_count
+    assert family_result.backoff_used == "family"
+
+
+def test_v8_backoff_partial_pool_further_reduces():
+    events = _v8_events_with_unseen_holdouts()
+    family_result = validate_decision_signature_v2(events, backoff="family")
+    pooled_result = validate_decision_signature_v2(events, backoff="partial_pool")
+    assert pooled_result.abstention_count <= family_result.abstention_count
+    assert pooled_result.backoff_used == "partial_pool"
+
+
+def test_v8_backoff_never_reads_holdout():
+    events = _v8_events_with_unseen_holdouts()
+    holdout_labels = {event.selected for event in events if event.stage == "unseen-stage"}
+    result = validate_decision_signature_v2(events, backoff="partial_pool")
+    assert result.holdout_leakage_detected is False
+    assert holdout_labels == {"a", "b"}
+    assert not any("holdout" in reason.lower() for reason in result.invalid_reasons)
+
+
+def test_v8_coverage_and_selective_risk_reported():
+    events = _v8_events_with_unseen_holdouts()
+    result = validate_decision_signature_v2(events, backoff="none")
+    answered = result.evaluated_event_count - result.abstention_count
+    assert result.coverage == pytest.approx(answered / result.evaluated_event_count)
+    assert result.selective_risk is not None
+    assert 0.0 <= result.selective_risk <= 1.0
+    assert result.aurc is not None
+
+
+def test_v8_c_at_1_formula():
+    result = validate_decision_signature_v2(_v8_events_with_unseen_holdouts(), backoff="none")
+    n = result.evaluated_event_count
+    u = result.abstention_count
+    correct = round((1.0 - (result.selective_risk or 0.0)) * (n - u))
+    expected = (correct + u * correct / n) / n
+    assert result.c_at_1 == pytest.approx(expected)
+    assert result.f_half_u is not None
+
+
+def test_v8_operating_coverage_enforced():
+    result = validate_decision_signature_v2(
+        _v8_events_with_unseen_holdouts(),
+        backoff="none",
+        operating_coverage=1.0,
+    )
+    assert result.operating_coverage == 1.0
+    assert result.coverage < result.operating_coverage
+    assert result.statistical_state in {"FAIL", "PARTIAL"}
 

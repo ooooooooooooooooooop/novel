@@ -47,3 +47,8 @@ supervision/
 
 # managed-executor sandbox transient junk (not evidence)
 .dsh-tmp/
+# 真实语料工作区（正文/书名/作者/URL/机器路径）——仅存本机，严禁入 Git
+.workspace_local/
+real_corpus_manifest.local.json
+observed_events_full_traceable.json
+arbitration_A3.json

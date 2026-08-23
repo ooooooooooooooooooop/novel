@@ -75,7 +75,15 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 # → 2981 passed + 1 skipped（收集 2982，本地测试声明，GitHub 无可见 CI）。
 # 六字段个性合同注入（test_corpus_author_model.py,+1）→ 2982 passed + 1 skipped
 # （收集 2983，本地测试声明，GitHub 无可见 CI）。
-EXPECTED_TEST_BASELINE = "2983"
+# v2 出版文本代理验证器对抗性测试（test_authormodel_v3.py,+9：holdout泄漏/topic别名/
+# 候选首项/无优势/空输入不回落0.5/缺困难负样本/静默丢折/低置信度INVALID/合法小样本PASS）
+# → 2983 + 9 = 2992（2991 passed + 1 skipped，收集 2992，本地测试声明，GitHub 无可见 CI）。
+# v8 双平面裁决测试（test_authormodel_v3.py,+8：双平面/backoff/泄漏隔离/覆盖率/选择性风险/
+# c@1/operating coverage）→ 2992 + 8 = 3000（2999 passed + 1 skipped，收集 3000，本地测试声明，GitHub 无可见 CI）。
+# observed-decision-author-signature-v1 机制测试（test_observed_author_signature.py, +18：结构门禁/
+# 可靠性门禁/α/功效/产率/inner-CV/置换一致性/负控消融/边界场景）
+# → 3000 + 18 = 3018（3017 passed + 1 skipped，收集 3018，本地测试声明，GitHub 无可见 CI）。
+EXPECTED_TEST_BASELINE = "3018"
 
 
 def run_script(*args: str) -> subprocess.CompletedProcess[str]:
@@ -708,7 +716,7 @@ def test_production_readiness_checklist_contract():
         "audit log",
         "release tag",
         "clean full pytest",
-        "2982 passed + 1 skipped (2983 collected)",
+        f"{int(EXPECTED_TEST_BASELINE) - 1} passed + 1 skipped ({EXPECTED_TEST_BASELINE} collected)",
     ]
 
     for phrase in required_phrases:

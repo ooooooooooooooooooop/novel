@@ -1,0 +1,14 @@
+{
+  "seed": 20260823,
+  "min_alpha": 0.667,
+  "min_present_events": 100,
+  "min_authors_per_topic": 2,
+  "min_support_works": 2,
+  "min_holdout_works": 1,
+  "min_events_per_author_support": 2,
+  "operating_coverage": 0.8,
+  "mde": 0.05,
+  "permutation_reps": 500,
+  "bootstrap_reps": 200,
+  "alpha_smoothing": 0.5
+}
