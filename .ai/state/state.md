@@ -1,7 +1,7 @@
 # novel-main — Project State（canonical · 随代码版本演进 · decisions 只增不改）
 
 > 接手协议：新 agent 只读本文件 + Context Package，**禁止读聊天历史**。
-> 更新：里程碑时由主 agent 更新；初始化 2026-08-28（来源：README、docs/00_project/releases/、broker topic s6-s7-cpa）。
+> 更新：里程碑时由主 agent 更新；初始化 2026-08-28（来源：README、docs/00_project/releases/、运营侧工作记录）。
 
 ## goal
 
