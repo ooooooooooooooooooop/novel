@@ -14,7 +14,7 @@ Automatic Novel Narrative System：解析叙事结构、维护叙事状态、规
 - checkpoint tag：`v0.1.2-tier0`；release record：`docs/00_project/releases/tier0-release.json`
 - 三条流水线代码完成并端到端验证：`audit_short_form` / `extend_short_form` / `compose_short_form`
 - 一键回归门：`python scripts/tier0_canary_regression.py`
-- **当前停机**：`paused_external_auth`（2026-08-26 起）——CPA Antigravity/Gemini 授权池空（503 auth_unavailable），非代码故障
+- **当前停机**：`paused_external_auth`（2026-08-26 起）——外部模型服务授权失效（HTTP 503），非代码故障；细节属运营侧私有信息，见个人状态库
 
 ## architecture
 
@@ -31,7 +31,7 @@ Automatic Novel Narrative System：解析叙事结构、维护叙事状态、规
 ## constraints
 
 - 本地分阶段 CLI；操作员在环；无云端 CI
-- CPA 网关外部授权是 production 跑批的前置条件
+- 外部模型网关的可用授权是 production 跑批的前置条件
 - 机器睡眠会冻结在途请求 → 醒后 HTTPError（已知运行风险）
 
 ## completed_work
@@ -41,7 +41,7 @@ Automatic Novel Narrative System：解析叙事结构、维护叙事状态、规
 
 ## unresolved
 
-- **CPA Antigravity/Gemini 授权池为空** → offdom S6/S7 停在 ch17（16/30）
+- **外部模型服务授权失效** → offdom S6/S7 停在 ch17（16/30）
 - 恢复后需先做真实 chat completion probe（HTTP 200）再重启 driver
 
 ## experiments
@@ -50,6 +50,6 @@ Automatic Novel Narrative System：解析叙事结构、维护叙事状态、规
 
 ## next_actions
 
-1. 恢复 CPA Antigravity/Gemini 授权
-2. 真实 POST /v1/chat probe 返回 200
+1. 恢复外部模型服务授权
+2. 真实 chat completion probe 返回 HTTP 200
 3. 从 offdom ch17 重启 driver 续跑 S6/S7
