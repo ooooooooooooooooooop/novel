@@ -43,5 +43,7 @@ def test_injection_content_is_principle_driven() -> None:
 
 def test_injection_has_no_corpus_privacy_leak() -> None:
     text = verify_effect()["on_text"]
-    for forbidden in ("alpha_book", "beta_book", "碑下", "chapters"):
+    # 合成标记做结构性泄漏守卫；真实作品名一律不入仓库（含测试签名），真名防护
+    # 依赖"真名根本不进仓库文件"这一纪律本身。
+    for forbidden in ("alpha_book", "beta_book", "chapters"):
         assert forbidden not in text, f"注入段不得泄漏语料来源（含 {forbidden}）"
