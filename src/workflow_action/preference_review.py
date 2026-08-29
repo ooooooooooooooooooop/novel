@@ -28,6 +28,7 @@ run_preference_judge / measure_position_consistency，不改它们的接口。
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 
@@ -82,8 +83,13 @@ from src.workflow_action.json_repair import (  # noqa: E402  (循环依赖规避
 def _locate_excerpt(response: str, excerpt: str) -> tuple[int, int] | None:
     """在 response 中定位 excerpt（compact 后子串匹配），返回真实 [start, end).
 
-    excerpt 必须逐字来自 response（只允许空白/标点/引号/强调排版记号差异）；否则返回 None。
+    excerpt 必须逐字来自 response（只允许空白/标点/引号/强调排版记号差异）；
+    否则尝试模糊匹配（最长公共子串 ≥ 80% excerpt 长度，且 excerpt ≤ 60 字符），
+    仍找不到才返回 None。模糊匹配仅用于对齐改写/压缩型 excerpt，绝不接受
+    低相似度（<80%）的捏造引文。
     """
+    import difflib
+
     def _fold(text: str) -> str:
         return _QUOTE_GLYPH_RE.sub("", compact_text(text))
 
@@ -92,7 +98,29 @@ def _locate_excerpt(response: str, excerpt: str) -> tuple[int, int] | None:
     if not needle or len(needle) < _MIN_EXCERPT_LEN:
         return None
     if needle not in hay:
-        return None
+        # 逐字失败 → 模糊匹配：仅当 excerpt 较短（≤60）且 LCS ≥ 80% 才接受。
+        # 长 excerpt 的部分匹配风险高（正文常有共享片段），不降级。
+        if len(needle) > 60:
+            return None
+        matcher = difflib.SequenceMatcher(None, needle, hay)
+        lcs_len = 0
+        lcs_start_hay = 0
+        for block in matcher.get_matching_blocks():
+            if block.size > lcs_len:
+                lcs_len = block.size
+                lcs_start_hay = block.b
+        if lcs_len < _MIN_EXCERPT_LEN or lcs_len < 0.8 * len(needle):
+            return None
+        # 用 LCS 在原始 response 中定位（允许间隙字符）
+        lcs_text = needle[:lcs_len]
+        gap = f"[{_COMPACT_CLASS}{_IGNORED_GLYPH_CHARS}]*"
+        pattern = re.escape(lcs_text[0]) + "".join(
+            gap + re.escape(c) for c in lcs_text[1:]
+        )
+        match = re.search(pattern, response)
+        if match is None:
+            return None
+        return match.start(), match.end()
     # compact 抹掉了位置，需在原始文本里按「允许间隙字符」重定位。
     gap = f"[{_COMPACT_CLASS}{_IGNORED_GLYPH_CHARS}]*"
     pattern = re.escape(needle[0]) + "".join(
@@ -373,12 +401,20 @@ def _render_claims(review: SingleCandidateReview) -> str:
         return f"（该候选弃权：{review.abstain_reason or '无理由'}）"
     lines: list[str] = []
     for claim in review.claims:
-        anchor_text = "；".join(a.excerpt for a in claim.anchors)
+        anchor_text = "；".join(
+            f"[{content_anchor_id(a.excerpt)}] {a.excerpt}" for a in claim.anchors
+        )
         lines.append(
             f"- {claim.axis} / {claim.verdict} / {claim.severity} (conf {claim.confidence}): "
-            f"{claim.rationale} | 锚点原文: {anchor_text}"
+            f"{claim.rationale} | 已验证锚点: {anchor_text}"
         )
     return "\n".join(lines) if lines else "（无判断）"
+
+
+def content_anchor_id(excerpt: str) -> str:
+    """已验证正文锚点的稳定内容地址；不含候选槽位或身份。"""
+    normalized = "".join(excerpt.split())
+    return "anc_" + hashlib.sha256(normalized.encode("utf-8")).hexdigest()[:16]
 
 
 def build_anchored_arbitration_prompt(
@@ -390,13 +426,12 @@ def build_anchored_arbitration_prompt(
 ) -> str:
     """证据锚定仲裁 prompt：只给两份单候选评审证据（摘要 + 判断 + 锚点），不给全文。
 
-    decisive_anchor 必须从被选候选**自己的正文**引用（仲裁所见锚点原文即来自正文，
-    程序随后映射到实际包含它的候选）。
+    仲裁只能选择系统展示的已验证 anchor ID；程序按内容地址映射到实际候选。
     """
     axis = _ROLE_AXIS_GUIDE.get(role, _ROLE_AXIS_GUIDE["reader_judge"])
     return f"""【证据锚定仲裁】（{role}）
 两个候选都做了独立单候选评审，评审证据未能直接分出高下。请你比较下面两份**评审证据**
-（内容摘要 + 逐条判断 + 原文锚点），并引用你裁定所依据的**决定性原文片段**来仲裁。
+（内容摘要 + 逐条判断 + 已验证锚点），并选择一个**决定性 anchor ID**来仲裁。
 
 {axis}
 
@@ -414,23 +449,16 @@ def build_anchored_arbitration_prompt(
 {_render_claims(review_b)}
 
 【裁定要求】
-1. preferred ∈ "A" / "B" / "no_difference"：哪个候选更满足写作要求。
-2. decisive_anchor：从你选中的候选**自己的正文**中引用一段决定性证据——你裁定所依据的
-   关键原文片段（excerpt 必须逐字来自该候选正文；char_start/char_end 只作辅助，不必精确）。
-   **excerpt 必须是一段连续原文**：禁止用省略号（……）拼接多个不连续片段，禁止改写/
-   压缩/重排，**禁止在片段前后加任何标签/说明词（如『题记：』『原文：』『引用：』）**。
-   找不到连续原文支撑的裁定时，返回 "no_difference"。
-   只有 preferred 为 "no_difference" 时才允许 decisive_anchor 为 null。
-3. rationale：一句话理由。**不要逐字数算 [char_start, char_end) 偏移**——excerpt 就是
-   校验依据，系统会按“去空白/标点后逐字一致”自动定位并映射到实际包含它的候选；
-   你只要原样复制一段连续正文作 excerpt，偏移给出大致估计即可。禁止捏造锚点。
-4. **JSON 字符串值内的引号**：正文里的中文引语一律用全角引号（“ ” 或 「 」），严禁在
-   JSON 字符串值内写未转义的英文双引号 "（会破坏 JSON 语法）。
+1. decision 只能是 "anchor" 或 "no_difference"。
+2. decision="anchor" 时，decisive_anchor_id 必须逐字复制上方一个方括号中的 anchor ID；
+   禁止自造 ID、禁止重新引用正文、禁止按候选甲/乙槽位猜测。
+3. 找不到唯一决定性已验证锚点时返回 no_difference，此时 decisive_anchor_id=null。
+4. rationale：一句话说明为什么该锚点构成决定性证据。
 
 【输出格式】严格 JSON（只输出 JSON，不要 Markdown 代码块）：
 {{
-  "preferred": "A",
-  "decisive_anchor": {{"excerpt": "…", "char_start": 0, "char_end": 40}},
+  "decision": "anchor",
+  "decisive_anchor_id": "anc_0123456789abcdef",
   "rationale": "…"
 }}
 """
@@ -440,59 +468,49 @@ def parse_anchored_arbitration(
     text: str,
     *,
     pair_id: str,
-    response_a: str,
-    response_b: str,
+    anchor_ids_a: set[str],
+    anchor_ids_b: set[str],
 ) -> str:
-    """解析仲裁 → "A" / "B" / "no_difference". decisive_anchor 由程序映射到实际包含
-    它的候选（内容优先于槽位名）：锚点在甲 → "A"，只在乙 → "B"，两处都有 →
-    no_difference（非区分性证据），都不在 → 捏造，raise."""
+    """解析内容寻址仲裁；anchor ID 的候选归属优先于槽位命名。"""
     try:
         data = _parse_json(text)
     except (json.JSONDecodeError, TypeError) as exc:
         raise ValueError(f"arbitration response is not JSON ({pair_id})") from exc
     if not isinstance(data, dict):
         raise ValueError(f"arbitration response must be a JSON object ({pair_id})")
-    required = {"preferred", "decisive_anchor", "rationale"}
+    required = {"decision", "decisive_anchor_id", "rationale"}
     if set(data) != required:
         raise ValueError(
             f"arbitration response must contain exactly {sorted(required)} "
             f"({pair_id}); got {sorted(data)}"
         )
-    preferred = data["preferred"]
-    if preferred not in ("A", "B", "no_difference"):
+    decision = data["decision"]
+    if decision not in ("anchor", "no_difference"):
         raise ValueError(
-            f"arbitration preferred must be A/B/no_difference ({pair_id})"
+            f"arbitration decision must be anchor/no_difference ({pair_id})"
         )
     rationale = data["rationale"]
     if not isinstance(rationale, str) or not rationale.strip():
         raise ValueError(f"arbitration rationale must be non-blank ({pair_id})")
-    if preferred == "no_difference":
+    anchor_id = data["decisive_anchor_id"]
+    if decision == "no_difference":
+        if anchor_id is not None:
+            raise ValueError(
+                f"no_difference requires null decisive_anchor_id ({pair_id})"
+            )
         return "no_difference"
-    anchor = data["decisive_anchor"]
-    if not isinstance(anchor, dict):
-        raise ValueError(
-            f"arbitration decisive_anchor must be a JSON object ({pair_id})"
-        )
-    if set(anchor) != {"excerpt", "char_start", "char_end"}:
-        raise ValueError(
-            f"arbitration decisive_anchor must contain exactly excerpt/char_start/char_end "
-            f"({pair_id})"
-        )
-    excerpt = anchor["excerpt"]
-    if not isinstance(excerpt, str) or not excerpt.strip():
-        raise ValueError(
-            f"arbitration decisive_anchor excerpt must be non-blank ({pair_id})"
-        )
-    loc_a = _locate_excerpt(response_a, excerpt)
-    loc_b = _locate_excerpt(response_b, excerpt)
-    if loc_a and loc_b:
-        return "no_difference"  # 锚点在两处都出现 → 非区分性证据
-    if loc_a:
-        return "A"  # 内容（锚点）指向甲
-    if loc_b:
-        return "B"  # 内容（锚点）指向乙
+    if not isinstance(anchor_id, str) or not anchor_id:
+        raise ValueError(f"anchor decision requires decisive_anchor_id ({pair_id})")
+    in_a = anchor_id in anchor_ids_a
+    in_b = anchor_id in anchor_ids_b
+    if in_a and in_b:
+        return "no_difference"
+    if in_a:
+        return "A"
+    if in_b:
+        return "B"
     raise ValueError(
-        f"arbitration decisive_anchor not found in either response — fabricated ({pair_id})"
+        f"arbitration decisive_anchor_id was not offered — fabricated ({pair_id})"
     )
 
 
@@ -516,7 +534,7 @@ def predict_with_reviews(
     可直接交给 run_preference_judge 的正确口径（A=选 chosen=正确）。
     """
     decision = compare_single_reviews(review_chosen, review_rejected)
-    if decision != "undecidable":
+    if decision in ("A", "B"):
         return decision
     return arbitrate_fn(
         prompt,
@@ -529,29 +547,65 @@ def predict_with_reviews(
 
 
 def make_review_judge(review_fn, arbitrate_fn):
-    """把单候选评审 + 仲裁包成 judge_fn(pair, role) → "A"/"B"/"no_difference".
+    """把单候选评审 + 仲裁包成 judge_fn；换位时按内容哈希复用单评.
 
     review_fn(prompt, response, role, candidate_ref) → SingleCandidateReview
     arbitrate_fn(prompt, r_chosen, r_rejected, response_chosen, response_rejected, role)
         → "A"/"B"/"no_difference"（A=chosen 胜）
     """
 
+    review_cache: dict[tuple[str, str, str], SingleCandidateReview] = {}
+    arbitration_cache: dict[tuple[str, str, str, str], str | None] = {}
+
+    def _review(prompt_id: str, prompt: str, response: str, role: str):
+        response_hash = hashlib.sha256(response.encode("utf-8")).hexdigest()
+        key = (prompt_id, role, response_hash)
+        if key not in review_cache:
+            review_cache[key] = review_fn(
+                prompt,
+                response,
+                role,
+                candidate_ref=f"{prompt_id}:{response_hash[:12]}",
+            )
+        return review_cache[key]
+
     def judge(pair, role: str) -> str:
         candidate_ref = pair.prompt_id
-        r_chosen = review_fn(
-            pair.prompt, pair.chosen, role, candidate_ref=f"{candidate_ref}:chosen"
+        r_chosen = _review(candidate_ref, pair.prompt, pair.chosen, role)
+        r_rejected = _review(candidate_ref, pair.prompt, pair.rejected, role)
+        decision = compare_single_reviews(r_chosen, r_rejected)
+        if decision in ("A", "B"):
+            return decision
+
+        chosen_hash = hashlib.sha256(pair.chosen.encode("utf-8")).hexdigest()
+        rejected_hash = hashlib.sha256(pair.rejected.encode("utf-8")).hexdigest()
+        ordered = sorted(
+            (
+                (chosen_hash, r_chosen, pair.chosen),
+                (rejected_hash, r_rejected, pair.rejected),
+            ),
+            key=lambda item: item[0],
         )
-        r_rejected = review_fn(
-            pair.prompt, pair.rejected, role, candidate_ref=f"{candidate_ref}:rejected"
-        )
-        return predict_with_reviews(
-            r_chosen,
-            r_rejected,
-            prompt=pair.prompt,
-            response_chosen=pair.chosen,
-            response_rejected=pair.rejected,
-            role=role,
-            arbitrate_fn=arbitrate_fn,
-        )
+        cache_key = (candidate_ref, role, ordered[0][0], ordered[1][0])
+        if cache_key not in arbitration_cache:
+            canonical = arbitrate_fn(
+                pair.prompt,
+                ordered[0][1],
+                ordered[1][1],
+                ordered[0][2],
+                ordered[1][2],
+                role,
+            )
+            arbitration_cache[cache_key] = (
+                ordered[0][0]
+                if canonical == "A"
+                else ordered[1][0]
+                if canonical == "B"
+                else None
+            )
+        winner_hash = arbitration_cache[cache_key]
+        if winner_hash is None:
+            return "no_difference"
+        return "A" if winner_hash == chosen_hash else "B"
 
     return judge

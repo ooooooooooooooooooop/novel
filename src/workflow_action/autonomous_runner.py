@@ -30,6 +30,7 @@ token 数与费用。Tier 0 staged CLI 语义与旧 release 证据不受影响�
 from __future__ import annotations
 
 import copy
+import hashlib
 import json
 import re
 import time
@@ -40,6 +41,7 @@ from typing import NamedTuple
 from src.boundary_control.chapter_commit import ChapterCommitBoundary, derive_run_id
 from src.boundary_control.reader_gate import (
     evaluate_commit_reader_gate,
+    load_recent_chapters,
     write_reader_gate_report,
 )
 from src.boundary_control.runtime_state import (
@@ -48,6 +50,7 @@ from src.boundary_control.runtime_state import (
 )
 from src.boundary_control.serialization import SerializationBoundaryUnit
 from src.domain_layer.compliance_rules import build_nsfw_context
+from src.experiment.pass_audit import PassAuditUnit
 from src.domain_layer.rules import get_structure_template
 from src.llm_interface import DirectAPIInterface
 from src.object_state.autonomous import (
@@ -67,10 +70,11 @@ from src.object_state.judge_claim import (
     claim_is_hard_violation,
     soft_axis_score,
 )
+from src.object_state.narrativestate import NarrativeState
 from src.object_state.plotunit import PlotUnit
 from src.object_state.premise_candidate import PremiseCandidate
 from src.object_state.prose_candidate import ProseCandidate
-from src.object_state.run_manifest import sha256_text
+from src.object_state.run_manifest import read_run_manifest, sha256_file, sha256_text
 from src.object_state.workspec import WorkSpec
 from src.provider_adapter import AnthropicMessagesProvider, AutonomousBudgetLedger
 from src.workflow_action.continuation import ContinueUnit, admit_new_facts
@@ -94,9 +98,11 @@ from src.workflow_action.pareto_tournament import (
     compare_judge_claims,
     pareto_frontier,
     selection_tournament,
+    tournament_position_gate,
 )
 from src.workflow_action.preference_review import (
     ReviewQualityExhaustedError,
+    content_anchor_id,
     parse_anchored_arbitration,
 )
 from src.workflow_action.plan_search import (
@@ -136,6 +142,7 @@ from src.workflow_action.premise_search import (
     project_premise_frames,
     validate_premise_candidate,
 )
+from src.workflow_action.serial_reader import SerialReaderUnit
 from src.workflow_action.semantic_seam import (
     character_names,
     detect_event_replay,
@@ -153,6 +160,31 @@ _ROUTE_TERMINAL_STATUS = {
 }
 
 
+_MECHANISM_FILES = (
+    "src/auto_short_form.py",
+    "src/workflow_action/autonomous_runner.py",
+    "src/workflow_action/judge_council.py",
+    "src/workflow_action/preference_review.py",
+    "src/workflow_action/pareto_tournament.py",
+    "src/workflow_action/review.py",
+    "src/workflow_action/serial_reader.py",
+    "src/workflow_action/prose.py",
+    "src/boundary_control/reader_gate.py",
+    "src/boundary_control/chapter_commit.py",
+    "src/object_state/autonomous.py",
+    "src/object_state/run_manifest.py",
+    "src/object_state/reviewissue.py",
+)
+
+
+def _mechanism_source_sha256(repo_root: Path) -> str:
+    rows = [
+        f"{relative}:{sha256_file(repo_root / relative)}"
+        for relative in _MECHANISM_FILES
+    ]
+    return hashlib.sha256("\n".join(rows).encode("utf-8")).hexdigest()
+
+
 class AutonomousRunnerError(RuntimeError):
     """A1 运行器合同违例（非 Provider 错误；不得静默吞掉）。"""
 
@@ -163,6 +195,82 @@ def _orphan_number(path: Path) -> int:
         return int(Path(path).stem[len("chapter_"):])
     except (ValueError, IndexError):
         return 10**9
+
+
+def _remap_historical_fact_id_collisions(
+    new_facts: list,
+    new_state: NarrativeState,
+    existing_ids: set[str],
+    chapter_ref: str,
+) -> None:
+    """纠偏模型把历史 fact_id 复用于本章新事实的转写错误.
+
+    只处理与可信 ledger 的碰撞；同一响应内部的重复 ID 保持原样，继续由
+    ``admit_new_facts`` 严格拒绝。纠偏后同步当前状态的事实引用。
+    """
+    response_ids = [
+        raw.get("fact_id")
+        for raw in new_facts
+        if isinstance(raw, dict)
+        and isinstance(raw.get("fact_id"), str)
+        and raw.get("fact_id")
+    ]
+    counts = {fact_id: response_ids.count(fact_id) for fact_id in set(response_ids)}
+    occupied = set(existing_ids) | set(response_ids)
+    for raw_fact in new_facts:
+        if not isinstance(raw_fact, dict):
+            continue
+        fact_id = raw_fact.get("fact_id")
+        if (
+            not isinstance(fact_id, str)
+            or not fact_id
+            or counts.get(fact_id) != 1
+            or fact_id not in existing_ids
+        ):
+            continue
+        remapped = f"{fact_id}__{chapter_ref}"
+        suffix = 2
+        while remapped in occupied:
+            remapped = f"{fact_id}__{chapter_ref}_{suffix}"
+            suffix += 1
+        raw_fact["fact_id"] = remapped
+        occupied.add(remapped)
+        new_state.current_facts_in_scope = [
+            remapped if ref == fact_id else ref
+            for ref in new_state.current_facts_in_scope
+        ]
+
+
+_CLAIM_ISSUE_TYPE = {
+    "fact_conflict": "fact_conflict",
+    "character_fidelity": "character_distortion",
+    "character_contradiction": "character_distortion",
+    "progression": "weak_progression",
+    "friction": "generative_indicia",
+    "language_distinctiveness": "style_drift",
+    "constructive_ambiguity": "interpretive_space",
+    "contract_fulfillment": "promise_loss",
+    "contract_drift": "promise_loss",
+}
+
+
+def _violated_claim_issues(claims: list[JudgeClaim]) -> list[dict]:
+    """把获胜候选已发现的违例物化为 PASS Audit 可消费的 canonical O."""
+    issues: list[dict] = []
+    for claim in claims:
+        if claim.verdict != "violated":
+            continue
+        anchor = claim.anchors[0]
+        issues.append(
+            {
+                "issue_id": claim.claim_id,
+                "issue_type": _CLAIM_ISSUE_TYPE.get(claim.axis, "other"),
+                "severity": "blocking" if claim.severity == "blocking" else "low",
+                "location": anchor.excerpt,
+                "description": claim.rationale,
+            }
+        )
+    return issues
 
 
 class _SearchPremiseOutcome(NamedTuple):
@@ -249,6 +357,8 @@ class AutonomousRunner:
         failpoint=None,
         initial_candidates_remaining: int = 1,
         flow_mode: str = "extend",
+        campaign_identity_path: Path | None = None,
+        base_state_hash: str | None = None,
     ) -> None:
         if policy.provider_profile_id != profile.profile_id:
             raise AutonomousRunnerError(
@@ -263,10 +373,20 @@ class AutonomousRunner:
         self.run_dir = Path(run_dir).resolve()
         self.novel_dir = self.run_dir.parent.parent
         self.chapters_dir = self.novel_dir / "chapters"
+        expected_identity_path = self.novel_dir / "output" / "campaign_identity.json"
+        if campaign_identity_path is None:
+            raise AutonomousRunnerError("A1 run requires campaign_identity.json")
+        self._campaign_identity_path = Path(campaign_identity_path).resolve()
+        if self._campaign_identity_path != expected_identity_path.resolve():
+            raise AutonomousRunnerError(
+                "campaign identity must be novel/output/campaign_identity.json"
+            )
         self.policy = policy
         self.profile = profile
         self._policy_sha256 = canonical_model_sha256(policy)
         self._profile_sha256 = canonical_model_sha256(profile)
+        self._campaign_identity = self._validate_campaign_identity()
+        self._base_state_hash = base_state_hash
         self._source_text = source_text
         self._reader_contract = reader_contract
         self._time_book = time_book
@@ -298,6 +418,75 @@ class AutonomousRunner:
 
     # ---- 构造 / 恢复 ----
 
+    def _validate_campaign_identity(self) -> dict:
+        try:
+            data = json.loads(
+                self._campaign_identity_path.read_text(encoding="utf-8")
+            )
+        except (OSError, ValueError) as exc:
+            raise AutonomousRunnerError("campaign identity is missing or invalid") from exc
+        required = {
+            "schema_version",
+            "campaign",
+            "genre",
+            "base_state_sha256",
+            "policy_sha256",
+            "profile_sha256",
+            "mechanism_source_sha256",
+        }
+        if not isinstance(data, dict) or set(data) != required:
+            raise AutonomousRunnerError(
+                "campaign identity must contain exactly the registered fields"
+            )
+        checks = {
+            "schema_version": data["schema_version"] == 1,
+            "campaign": data["campaign"] == self.novel_dir.name,
+            "genre": isinstance(data["genre"], str) and bool(data["genre"].strip()),
+            "base_state_sha256": bool(re.fullmatch(r"[0-9a-f]{64}", str(data["base_state_sha256"]))),
+            "policy_sha256": data["policy_sha256"] == self._policy_sha256,
+            "profile_sha256": data["profile_sha256"] == self._profile_sha256,
+            "mechanism_source_sha256": data["mechanism_source_sha256"]
+            == _mechanism_source_sha256(Path(__file__).resolve().parents[2]),
+        }
+        failed = [name for name, passed in checks.items() if not passed]
+        if failed:
+            raise AutonomousRunnerError(
+                "campaign identity mismatch: " + ", ".join(failed)
+            )
+        return data
+
+    def _validate_base_state_lineage(self, initial_chapter: int) -> None:
+        if not self._base_state_hash or not re.fullmatch(
+            r"[0-9a-f]{64}", self._base_state_hash
+        ):
+            raise AutonomousRunnerError("fresh A1 run requires base_state_hash")
+        if initial_chapter == 1:
+            if self._base_state_hash != self._campaign_identity["base_state_sha256"]:
+                raise AutonomousRunnerError(
+                    "chapter_1 base state does not match campaign identity"
+                )
+            return
+        expected_previous = initial_chapter - 1
+        candidates = []
+        for child in (self.novel_dir / "output").iterdir():
+            if not child.is_dir() or child.resolve() == self.run_dir:
+                continue
+            recovery = ChapterCommitBoundary(child, self.chapters_dir).recover()
+            manifest = recovery.manifest
+            if (
+                recovery.recognized
+                and manifest is not None
+                and manifest.chapter_number == expected_previous
+                and manifest.state_after_hash == self._base_state_hash
+                and manifest.campaign_identity_hash
+                == sha256_file(self._campaign_identity_path)
+            ):
+                candidates.append(child)
+        if len(candidates) != 1:
+            raise AutonomousRunnerError(
+                "base state must match exactly one recover-recognized previous chapter"
+            )
+
     def _init_fresh(self, *, objects: list | None, frames: list | None) -> None:
         if self.run_dir.exists() and any(self.run_dir.iterdir()):
             raise AutonomousRunnerError(
@@ -308,6 +497,7 @@ class AutonomousRunner:
         self.run_dir.mkdir(parents=True, exist_ok=True)
         (self.run_dir / ".flow_version").write_text("3", encoding="utf-8")
         self._initial_abs = prose_action.next_chapter_number(self.chapters_dir)
+        self._validate_base_state_lineage(self._initial_abs)
         (self.run_dir / "initial_chapter").write_text(
             str(self._initial_abs), encoding="utf-8"
         )
@@ -823,7 +1013,8 @@ class AutonomousRunner:
         pv = self.policy.search.plot_candidates * self.policy.search.prose_variants_per_plot
         rounds = self.policy.search.max_decision_rounds
         tournament_upper = 2 * (pv - 1) * (1 + rounds) if pv >= 2 else 0
-        return 1 + 4 * pv + tournament_upper
+        # 获胜正文 Post-Prose + 独立 blind prose final audit + 在线窗口评审。
+        return 4 + 4 * pv + tournament_upper
 
     def _trusted_state_hash(self, narrative_state, facts) -> str:
         """可信状态（facts ledger + 上一 NarrativeState）哈希——锁定评审基线."""
@@ -1046,6 +1237,7 @@ class AutonomousRunner:
                 chapter_ref=chapter_ref,
                 role=role,
                 precommit=precommit,
+                require_role_axis=True,
             )
         except ValueError as exc:
             raise ReviewQualityExhaustedError(str(exc)) from exc
@@ -1078,7 +1270,18 @@ class AutonomousRunner:
         text = self._invoke(self._tournament_provider, prompt)
         try:
             return parse_anchored_arbitration(
-                text, pair_id=pair_id, response_a=prose_x, response_b=prose_y
+                text,
+                pair_id=pair_id,
+                anchor_ids_a={
+                    content_anchor_id(anchor.excerpt)
+                    for claim in claims_x
+                    for anchor in claim.anchors
+                },
+                anchor_ids_b={
+                    content_anchor_id(anchor.excerpt)
+                    for claim in claims_y
+                    for anchor in claim.anchors
+                },
             )
         except ValueError as exc:
             raise ReviewQualityExhaustedError(str(exc)) from exc
@@ -1100,22 +1303,42 @@ class AutonomousRunner:
         仍不稳定该对淘汰；无法收敛到唯一稳定胜者 → winner None → 运行层
         quality_exhausted（T6.5）。落盘只记候选 id、偏好与仲裁方式，正文只在内存。
         """
+        pair_winner_cache: dict[tuple[str, str], str | None] = {}
+
         def judge_pair(x: str, y: str) -> tuple[str, str]:
-            pair_id = f"{chapter_ref}:{x}|{y}"
-            claims_x = claims_by_id.get(x, [])
-            claims_y = claims_by_id.get(y, [])
-            decision = compare_judge_claims(claims_x, claims_y)
-            if decision == "X":
-                return ("A", "B")  # 确定性：x 胜，两轮一致（零 provider 调用）
-            if decision == "Y":
-                return ("B", "A")
-            pref_ab = self._arbitrate_pair(
-                claims_x, claims_y, prose_by_id[x], prose_by_id[y], pair_id + ":ab"
+            cache_key = tuple(sorted((x, y)))
+            if cache_key not in pair_winner_cache:
+                left, right = cache_key
+                decision = compare_judge_claims(
+                    claims_by_id.get(left, []), claims_by_id.get(right, [])
+                )
+                if decision == "X":
+                    winner = left
+                elif decision == "Y":
+                    winner = right
+                else:
+                    canonical_pref = self._arbitrate_pair(
+                        claims_by_id.get(left, []),
+                        claims_by_id.get(right, []),
+                        prose_by_id[left],
+                        prose_by_id[right],
+                        f"{chapter_ref}:{left}|{right}:canonical",
+                    )
+                    winner = (
+                        left
+                        if canonical_pref == "A"
+                        else right
+                        if canonical_pref == "B"
+                        else None
+                    )
+                pair_winner_cache[cache_key] = winner
+            winner = pair_winner_cache[cache_key]
+            if winner is None:
+                return "no_difference", "no_difference"
+            return (
+                "A" if winner == x else "B",
+                "A" if winner == y else "B",
             )
-            pref_ba = self._arbitrate_pair(
-                claims_y, claims_x, prose_by_id[y], prose_by_id[x], pair_id + ":ba"
-            )
-            return pref_ab, pref_ba
 
         result = selection_tournament(
             frontier,
@@ -1283,6 +1506,30 @@ class AutonomousRunner:
         except Exception as exc:
             return self._stage_failure("plan", exc)
 
+        # 确定性纠偏：线性续写中候选的 input_state_ref 语义上恒等于当前状态，
+        # output_state_ref 恒等于候选自带的 new_state；模型把引用抄成不存在的
+        # 状态 id 属于转写错误（temperature=0 下 identical prompt 会稳定复现同一
+        # 错 id，硬闸空转成 quality_exhausted 死循环）。仅在引用无效时重映射，
+        # 有效引用零行为变化；review.py 的存在性硬闸本身保持不变。
+        valid_state_ids = {
+            obj.state_id for obj in objects if isinstance(obj, NarrativeState)
+        }
+        for cand_pu, cand_state, _cand_facts, _cand_gaps in plan_tuples:
+            if cand_pu.input_state_ref and cand_pu.input_state_ref not in valid_state_ids:
+                cand_pu.input_state_ref = narrative_state.state_id
+            if (
+                cand_pu.output_state_ref
+                and cand_pu.output_state_ref
+                not in valid_state_ids | {cand_state.state_id}
+            ):
+                cand_pu.output_state_ref = cand_state.state_id
+
+        existing_fact_ids = {entry.fact_id for entry in facts.entries}
+        for _cand_pu, cand_state, cand_facts, _cand_gaps in plan_tuples:
+            _remap_historical_fact_id_collisions(
+                cand_facts, cand_state, existing_fact_ids, chapter_ref
+            )
+
         deduped = dedup_plan_candidates(plan_tuples, max_candidates=plot_candidates)
         ok, reason = verify_plan_diversity(deduped, max_candidates=plot_candidates)
         survivors: list = []
@@ -1438,7 +1685,12 @@ class AutonomousRunner:
                 if record.status == "candidate"
             }
             claims_by_id = {
-                record.prose_candidate.candidate_id: tuple(record.judge_claims)
+                record.prose_candidate.candidate_id: tuple(
+                    claim
+                    for claim in record.judge_claims
+                    if claim.generator_source == "reader_judge"
+                    and claim.axis in SOFT_AXES
+                )
                 for record in variant_records
                 if record.status == "candidate"
             }
@@ -1448,7 +1700,13 @@ class AutonomousRunner:
                 )
             except Exception as exc:
                 return self._stage_failure("tournament", exc)
-            if tournament.winner is not None:
+            if not tournament_position_gate(
+                tournament,
+                self.policy.evaluation.pairwise_position_consistency_min,
+            ):
+                best = None
+                best_score = None
+            elif tournament.winner is not None:
                 best = next(
                     record
                     for record in variant_records
@@ -1469,9 +1727,156 @@ class AutonomousRunner:
                 "no stable pairwise winner on the Pareto frontier",
             )
 
-        # 提交点读者门禁链（确定性，无 provider 调用）。
+        # 获胜正文绝对质量地板：相对 Pareto 只能选出「最不差」，不能证明可提交。
+        # 复用既有 Post-Prose Review 的七维正文终审；非 pass 一律耗尽本 run，零状态污染。
+        selected_plan = survivors[best.plan_index]
+        selected_plotunit, selected_new_state, _selected_facts, _selected_gaps = selected_plan
+        post_review_objects = objects + [selected_plotunit, selected_new_state]
+        try:
+            post_review_prompt = self._review.build_prompt(
+                post_review_objects,
+                context="a1-post-prose",
+                prose_text=best.text,
+            )
+            post_review_text = self._invoke(
+                self._judge_providers["reader_judge"], post_review_prompt
+            )
+            llm_post_issues, _reminders, post_route = self._review.parse_response(
+                post_review_text
+            )
+            post_issues = self._code_issues(
+                selected_plotunit, post_review_objects, objects
+            ) + llm_post_issues
+            prose_issue_types = {
+                "redundancy",
+                "emotion_landing",
+                "interpretive_space",
+                "scene_presence",
+                "dialogue_flat",
+                "generative_indicia",
+                "exposition_heavy",
+                "style_drift",
+            }
+            for issue in llm_post_issues:
+                if (
+                    issue.issue_type in prose_issue_types
+                    and issue.location not in best.text
+                ):
+                    raise ReviewQualityExhaustedError(
+                        f"post-prose issue {issue.issue_id} location is not a verbatim prose anchor"
+                    )
+            actionable_post_issues = [
+                issue for issue in llm_post_issues if issue.severity != "low"
+            ] + [
+                issue
+                for issue in post_issues[: len(post_issues) - len(llm_post_issues)]
+                if issue.is_blocking()
+            ]
+            post_route = self._review.resolve_route(post_issues, post_route)
+            if actionable_post_issues and post_route == "pass":
+                post_route = "rewrite"
+        except Exception as exc:
+            return self._stage_failure("post-prose-review", exc)
+        post_review_payload = {
+            "schema_version": 1,
+            "chapter_ref": chapter_ref,
+            "route": post_route,
+            "issues": [issue.model_dump(mode="json") for issue in post_issues],
+        }
+        post_review_json = json.dumps(
+            post_review_payload, ensure_ascii=False, indent=2
+        )
+        post_review_evidence_hash = sha256_text(post_review_json)
+        (self.run_dir / "post_prose_review.json").write_text(
+            post_review_json, encoding="utf-8"
+        )
+        if post_route != "pass":
+            return self._terminal(
+                "quality_exhausted",
+                f"post-prose absolute quality floor: {post_route}",
+            )
+
+        # 独立 blind prose final audit：与 PASS Audit 同 taxonomy/锚点协议，但本次
+        # 响应在 commit 前单独生成；warning+ 不提交，low 进入 canonical O。
+        blind_unit = PassAuditUnit()
+        try:
+            blind_text = self._invoke(
+                self._judge_providers["reader_judge"],
+                blind_unit.build_audit_prompt(best.text, chapter_ref),
+            )
+            blind_final = blind_unit.parse_audit(blind_text)
+        except Exception as exc:
+            return self._stage_failure("blind-final-audit", exc)
+        blind_review_issues: list[dict] = []
+        for index, finding in enumerate(blind_final["findings"], start=1):
+            location = finding.get("location")
+            if not isinstance(location, str) or location not in best.text:
+                return self._stage_failure(
+                    "blind-final-audit",
+                    ReviewQualityExhaustedError(
+                        f"blind finding {index} location is not a verbatim prose anchor"
+                    ),
+                )
+            blind_review_issues.append(
+                {
+                    "issue_id": f"blind_final_{chapter_ref}_{index:03d}",
+                    "issue_type": finding["issue_type"],
+                    "severity": finding["severity"],
+                    "location": location,
+                    "description": finding["evidence"],
+                }
+            )
+        if any(
+            finding["severity"] in ("warning", "blocking", "critical")
+            for finding in blind_final["findings"]
+        ):
+            return self._terminal(
+                "quality_exhausted",
+                "blind prose final audit found actionable defects",
+            )
+
+        # chapter3 起在线武装 SerialReader：chapter3/4 用 window=3，chapter5+ 用 window=5；
+        # 当前草稿与既往章经12维评审；协议失败/弱项均不得降级为 unarmed pass。
+        serial_report = None
+        previous_for_serial = load_recent_chapters(self.chapters_dir, n=4)
+        if len(previous_for_serial) >= 2:
+            serial_window = 5 if len(previous_for_serial) >= 4 else 3
+            previous_for_serial = previous_for_serial[-(serial_window - 1):]
+            serial_chapters = previous_for_serial + [best.text]
+            serial_refs = [
+                f"chapter_{chapter_number - len(previous_for_serial) + index}"
+                for index in range(len(previous_for_serial))
+            ] + [chapter_ref]
+            serial_unit = SerialReaderUnit()
+            try:
+                serial_prompt = serial_unit.build_prompt(
+                    serial_chapters,
+                    window=serial_window,
+                    chapter_refs=serial_refs,
+                    review_target=chapter_ref,
+                    reader_contract_context=(
+                        self._reader_contract.to_prompt_context()
+                        if self._reader_contract
+                        else ""
+                    ),
+                )
+                serial_text = self._invoke(
+                    self._judge_providers["reader_judge"], serial_prompt
+                )
+                serial_report = serial_unit.merge(
+                    serial_unit.parse_response(serial_text),
+                    window=serial_window,
+                    review_target=chapter_ref,
+                    chapter_refs=serial_refs,
+                )
+            except Exception as exc:
+                return self._stage_failure("serial-reader", exc)
+        # 提交点读者门禁链（确定性 + 已武装 SerialReader）。
         # P1 长程因果防线（causal_defense）：已提交状态 + 选中计划 → 事件抹除/代价/
         # 成长/制度后果/选择无差异的对象层检测，blocking 即拒绝提交。
+        # 历史 PlotUnit 是已提交证据，不是当前草案；若一并送入检测器，会被较晚才
+        # 确认的制度事实反向审判并污染当前章。只保留历史状态对象，再追加选中计划。
+        causal_context = [obj for obj in objects if not isinstance(obj, PlotUnit)]
         gate_verdict, gate_package, gate_reconcile_issues = evaluate_commit_reader_gate(
             output_dir=self.run_dir,
             chapters_dir=self.chapters_dir,
@@ -1481,31 +1886,28 @@ class AutonomousRunner:
             time_book=self._time_book,
             reader_contract=self._reader_contract,
             chapter_ref=chapter_ref,
-            causal_objects=objects + [plotunit, new_state],
+            causal_objects=causal_context + [selected_plotunit, selected_new_state],
+            serial_report_override=serial_report,
+            require_campaign_evidence=True,
         )
         gate_package_hash = (
             sha256_text(gate_package.model_dump_json())
             if gate_package is not None
             else ""
         )
-        write_reader_gate_report(
-            self.run_dir,
-            gate_verdict,
-            chapter_ref=chapter_ref,
-            package_hash=gate_package_hash,
-            reconcile_count=len(gate_reconcile_issues),
-        )
-
         gate_hard_violation = (
             f"reader gate: {gate_verdict.route}"
             if gate_verdict.route != "pass"
             else None
         )
+        required_axes_armed = {
+            claim.generator_source for claim in best.judge_claims
+        } == set(self.policy.search.judge_roles)
         decision = resolve_autonomous_decision(
             provider_error=None,
             viability_verdict="continue",
             premise_candidates_remaining=self._premise_candidates_remaining,
-            required_axes_armed=True,
+            required_axes_armed=required_axes_armed,
             reader_route=gate_verdict.route,
             hard_violation=gate_hard_violation,
             candidates_remaining=self._candidates_remaining,
@@ -1520,8 +1922,10 @@ class AutonomousRunner:
         if decision.route == "accepted":
             self._commit(
                 objects, frames, frame_context, facts,
-                survivors[best.plan_index], best, chapter_ref, gate_verdict,
-                gate_package, gate_reconcile_issues, chapter_number,
+                selected_plan, best, chapter_ref, gate_verdict,
+                gate_package, gate_reconcile_issues,
+                post_issues + blind_review_issues,
+                blind_final, serial_report, chapter_number,
             )
             self._candidates_remaining = self._initial_candidates_remaining
             # T7.1/T7.2 长程对账检查点：提交后若 run 章数落在冻结检查点，从已提交
@@ -1638,6 +2042,9 @@ class AutonomousRunner:
         gate_verdict,
         gate_package,
         gate_reconcile_issues: list,
+        post_review_issues: list,
+        blind_final: dict,
+        serial_report,
         chapter_number: int,
     ) -> None:
         plotunit, new_state, raw_new_facts, _gaps = plan
@@ -1654,7 +2061,25 @@ class AutonomousRunner:
             plan_ledger if isinstance(o, FactLedger) else o for o in objects
         ] + [plotunit, new_state]
         final_package = self._serializer.build_package(*final_objects)
-        self._frame_unit.advance_cursor(frames)
+        consumed_frame = ((frame_context or {}).get("current_frame") or {})
+        consumed_frame_id = consumed_frame.get("frame_id")
+        if consumed_frame_id:
+            self._frame_unit.link_plotunit(frames, consumed_frame_id, plotunit.unit_id)
+            frame_node = next(
+                frame for frame in frames if frame.get("frame_id") == consumed_frame_id
+            )
+            frame_node["input_state_ref"] = plotunit.input_state_ref
+            frame_node["output_state_ref"] = plotunit.output_state_ref
+        next_cursor = self._frame_unit.advance_cursor(frames)
+        next_frame = (
+            next(
+                frame
+                for frame in frames
+                if frame.get("frame_id") == next_cursor["current_frame_id"]
+            )
+            if next_cursor is not None
+            else {}
+        )
         frames_json = json.dumps(frames, ensure_ascii=False, indent=2)
         state_json = json.dumps(final_package.model_dump(), ensure_ascii=False, indent=2)
 
@@ -1664,17 +2089,23 @@ class AutonomousRunner:
             if prov_path.exists()
             else {"schema_version": 1, "chapters": {}}
         )
+        canonical_review_issues = (
+            _violated_claim_issues(best.judge_claims) + post_review_issues
+        )
         prov_entry = prose_action.build_chapter_provenance_entry(
             chapter_number,
             flow_version="3",
-            review_issues=best.code_issues,
+            review_issues=canonical_review_issues,
             final_draft_chars=len("".join((best.text or "").split())),
-            active_frame_id=(
-                ((frame_context or {}).get("current_frame") or {}).get("frame_id")
-            ),
-            active_formula_node=(
-                ((frame_context or {}).get("current_frame") or {}).get("formula_node")
-            ),
+            active_frame_id=consumed_frame_id,
+            active_formula_node=consumed_frame.get("formula_node"),
+            next_active_frame_id=next_frame.get("frame_id"),
+            next_active_formula_node=next_frame.get("formula_node"),
+        )
+        prov_entry["review_evidence_hash"] = sha256_text(
+            json.dumps(
+                prov_entry["review_issues"], ensure_ascii=False, sort_keys=True
+            )
         )
         prov_json = json.dumps(
             prose_action.merge_chapter_provenance(prov_existing, prov_entry),
@@ -1684,12 +2115,21 @@ class AutonomousRunner:
         gate_package_hash = (
             sha256_text(gate_package.model_dump_json()) if gate_package is not None else ""
         )
-        write_reader_gate_report(
-            self.run_dir,
-            gate_verdict,
-            chapter_ref=chapter_ref,
-            package_hash=gate_package_hash,
-            reconcile_count=len(gate_reconcile_issues),
+        reader_gate_json = json.dumps(
+            {
+                "schema_version": 1,
+                "chapter_ref": chapter_ref,
+                "route": gate_verdict.route,
+                "axes_armed": dict(gate_verdict.axes_armed),
+                "reasons": gate_verdict.reasons,
+                "issues": [
+                    issue.model_dump(mode="json") for issue in gate_verdict.issues
+                ],
+                "reconcile_issue_count": len(gate_reconcile_issues),
+                "facts_package_hash": gate_package_hash,
+            },
+            ensure_ascii=False,
+            indent=2,
         )
         source_text_hash = sha256_text(self._source_text) if self._source_text else None
 
@@ -1707,11 +2147,28 @@ class AutonomousRunner:
             frames_json=frames_json,
             archive_text=best.text,
             provenance_json=prov_json,
+            reader_gate_report_json=reader_gate_json,
+            blind_final_audit_json=json.dumps(
+                {
+                    "schema_version": 1,
+                    "chapter_ref": chapter_ref,
+                    "clean": blind_final["clean"],
+                    "findings": blind_final["findings"],
+                },
+                ensure_ascii=False,
+                indent=2,
+            ),
             prev_chapter_ref=(
                 f"chapter_{chapter_number - 1}" if chapter_number > 1 else None
             ),
             source_text_hash=source_text_hash,
             facts_package_hash=gate_package_hash,
+            campaign_identity_path=self._campaign_identity_path,
+            serial_reader_report_json=(
+                serial_report.model_dump_json(indent=2)
+                if serial_report is not None
+                else None
+            ),
             review_route="pass",
         )
         if not result.ok:

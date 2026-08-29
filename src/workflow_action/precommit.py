@@ -186,6 +186,10 @@ def _find_item(prose: str, item: str) -> int:
     2. 压缩（去空白标点）整串子串；
     3. 意译容忍：条目任一分句的内容二元组在正文**同一局部窗口**内成批出现
        （去重命中 ≥4 且 包含率 ≥0.35）。
+    4. 整条目合并判定（兜底）：正文可能把条目各分句内容分散在相邻句子
+       （代词回指/改写式意译/跨句表达），把条目全部子句的内容二元组合并成
+       一个词簇，在正文任一局部窗口内成批出现（命中 ≥4 且 覆盖 ≥0.35）
+       即视为落地——正文确以词结构在同一场景段重述了条目整体语义。
     前两级保持既有口径（短短语/逐字引用直接命中），第三级让长句条目在自然意译下
     也能被证伪而非无谓阻断——正文确以词结构在同一场景段重述了条目内容即视为落地；
     内容真正缺失（词对不局部成簇）仍然 violated/blocking。
@@ -203,6 +207,22 @@ def _find_item(prose: str, item: str) -> int:
         matched, ci = _clause_content_match(clause, prose)
         if matched:
             return _locate_content_anchor(prose, ci)
+    # 第四级：整条目合并判定（各子句二元组并集局部成簇）。
+    # 合并判定是兜底：正文把条目各分句内容分散在相邻句子时，单子句窗口命中
+    # 阈值偏高（4+bigrams×35%ratio），合并后整体词簇用更低阈值（3+bigrams×25%ratio），
+    # 因为合并信号已经比单子句弱，且正文确以词结构在同一场景段重述了条目整体语义。
+    merged: list[str] = []
+    for clause in _CLAUSE_SPLIT_RE.split(item):
+        ci = _content_chars(compact_text(clause))
+        if len(ci) >= 2:
+            merged.append(ci)
+    if merged:
+        merged_text = "".join(merged)
+        merged_bigrams = _content_bigrams(merged_text)
+        if len(merged_bigrams) >= 3:
+            hits = _windowed_clause_hits(merged_text, prose)
+            if hits >= 3 and hits / len(merged_bigrams) >= 0.25:
+                return _locate_content_anchor(prose, merged_text)
     return -1
 
 

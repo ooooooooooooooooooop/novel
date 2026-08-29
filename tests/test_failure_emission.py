@@ -80,6 +80,13 @@ def _types_of(issues: list[ReviewIssue]) -> list[str]:
 
 def test_duplication_of_threads_in_literal():
     assert "duplication_of_threads" in ReviewIssueType.__args__
+    assert {
+        "emotion_landing",
+        "interpretive_space",
+        "scene_presence",
+        "dialogue_flat",
+        "exposition_heavy",
+    }.issubset(set(ReviewIssueType.__args__))
 
 
 # ---------- iss_leak → information_leak ----------

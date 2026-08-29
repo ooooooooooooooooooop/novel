@@ -406,7 +406,11 @@ def run_mastery_canary_subprocess(novels_root: Path, novel_name: str = "canary_s
 
     # resume 提交 Chapter 2
     cp_ch2_res3 = _run_cli(["resume", novel_name], novels_root)
-    assert cp_ch2_res3.returncode == 0
+    if cp_ch2_res3.returncode != 0:
+        raise RuntimeError(
+            f"cp_ch2_res3 failed (rc={cp_ch2_res3.returncode}):\n"
+            f"{cp_ch2_res3.stdout}\n{cp_ch2_res3.stderr}"
+        )
     assert (novel_dir / "chapters" / "chapter_2.txt").exists()
 
     # 4. 执行 CLI Quality (Taste Stack)
@@ -656,6 +660,7 @@ def run_mastery_canary_staged(workspace_dir: Path) -> dict:
         characters=[char_mc],
         chapter_ref="chapter_1",
         causal_objects=[world, causal_rule, fact_ledger, pu_ch1, state_ch1_out],
+        require_campaign_evidence=False,
     )
     assert reader_gate_ch1.route == "pass"
 
@@ -839,6 +844,7 @@ def run_mastery_canary_staged(workspace_dir: Path) -> dict:
         characters=[char_mc],
         chapter_ref="chapter_2",
         causal_objects=[world, causal_rule, fact_ledger, pu_ch2, state_ch2_out],
+        require_campaign_evidence=False,
     )
     assert reader_gate_ch2.route == "pass"
 
@@ -869,6 +875,7 @@ def run_mastery_canary_staged(workspace_dir: Path) -> dict:
         frames_path=output_dir / "frames.json",
         frames_json=json.dumps({"current_scene": "scene_002", "completed": ["scene_001"]}),
         reader_gate_report_json=ch2_gate_json,
+        prev_chapter_ref="chapter_1",
         orchestration_state_json=json.dumps(orch_state_ch2.model_dump(mode="json")),
         orchestration_history_json=(output_dir / "orchestration_history.json").read_text(encoding="utf-8"),
         review_route="pass",

@@ -45,6 +45,11 @@ HARD_AXES = (
     "plotunit_expected_change",
     "state_necessity",
 )
+ROLE_AXES = {
+    "fact_judge": {"fact_conflict"},
+    "character_judge": {"character_fidelity", "character_contradiction"},
+    "reader_judge": set(SOFT_AXES) | {"contract_drift"},
+}
 
 
 def _derive_anchor_position(char_start: int, prose_len: int) -> str:
@@ -82,6 +87,7 @@ def build_judge_claim_prompt(
         "reader_judge": "你负责【读者体验】轴：推进/阅读摩擦/契约/语言辨识度/建设性歧义。",
     }
     axis_guide = role_lines.get(role, role_lines["reader_judge"])
+    allowed_axes = sorted(ROLE_AXES.get(role, ROLE_AXES["reader_judge"]))
     contract_section = (
         f"\n【读者契约】\n{reader_contract_context}" if reader_contract_context else ""
     )
@@ -104,7 +110,8 @@ def build_judge_claim_prompt(
 {prose}
 
 【评审要求】
-1. 只对你有把握的轴给出判断；没有证据的轴**不要**输出 claim（宁缺毋滥）。
+1. axis 只能取：{' / '.join(allowed_axes)}。必须至少输出一条 claim；没有发现违例时，
+   对最有把握的允许轴输出 satisfied，不得返回空 claims 或自造轴名。
 2. 每条 claim 必须带 ≥1 个**正文锚点**：直接引用本章正文中的连续原文片段，给出
    它在正文中的 [char_start, char_end) 偏移（0 起始，excerpt 必须与正文该区间逐字一致）。
 3. 结论必须是单轴（axis 只能填一个轴）；verdict = satisfied / violated / inconclusive。
@@ -130,7 +137,7 @@ def build_judge_claim_prompt(
 }}
 
 注意：anchors 不含 chapter_ref（系统注入）；excerpt 必须与正文 [char_start, char_end)
-逐字一致（去空白比较）。claims 可为空数组。
+逐字一致（去空白比较）。claims 不得为空数组。
 """
 
 
@@ -141,6 +148,7 @@ def parse_judge_claims(
     chapter_ref: str,
     role: str,
     precommit: EvaluatorPrecommit,
+    require_role_axis: bool = False,
 ) -> list[JudgeClaim]:
     """严格解析评审响应，核验锚点真实性与预承诺归属.
 
@@ -155,6 +163,9 @@ def parse_judge_claims(
     claims = data["claims"]
     if not isinstance(claims, list):
         raise ValueError("judge response 'claims' must be a list")
+    allowed_axes = ROLE_AXES.get(role)
+    if require_role_axis and not claims:
+        raise ValueError(f"{role} must return at least one registered-axis claim")
     parsed: list[JudgeClaim] = []
     for index, item in enumerate(claims):
         if not isinstance(item, dict):
@@ -177,6 +188,12 @@ def parse_judge_claims(
         if item["precommit_id"] != precommit.precommit_id:
             raise ValueError(
                 f"judge claim {index} references wrong precommit {item['precommit_id']}"
+            )
+        if require_role_axis and (
+            allowed_axes is None or item["axis"] not in allowed_axes
+        ):
+            raise ValueError(
+                f"judge claim {index} axis {item['axis']!r} is not allowed for {role}"
             )
         if not isinstance(item["anchors"], list) or not item["anchors"]:
             raise ValueError(f"judge claim {index} anchors must be a non-empty list")

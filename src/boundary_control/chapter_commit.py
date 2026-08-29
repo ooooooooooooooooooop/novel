@@ -172,6 +172,18 @@ def set_run_status(
     """
     if read_flow_version(output_dir) != "3":
         return None
+    if status == "committed":
+        if run_id.startswith("migrate-v2-"):
+            return seed_v2_baseline(
+                output_dir,
+                run_id=run_id,
+                mode=mode,
+                chapter_number=chapter_number,
+                notes=notes,
+            )
+        raise ValueError(
+            "committed status must be created by ChapterCommitBoundary.commit"
+        )
 
     manifest = read_run_manifest(output_dir)
     if manifest is None:
@@ -239,6 +251,10 @@ class ChapterCommitBoundary:
         failpoint: Callable[[str], None] | None = None,
     ) -> None:
         self.output_dir = Path(output_dir)
+        if self.output_dir.parent.name != "output":
+            raise UnmanagedArtifactError(
+                "output_dir must be <novel>/output/<mode-or-run>"
+            )
         self.novel_dir = self.output_dir.parent.parent
         self.chapters_dir = Path(chapters_dir) if chapters_dir else (
             self.novel_dir / "chapters"
@@ -271,9 +287,12 @@ class ChapterCommitBoundary:
         orchestration_state_json: str | None = None,
         orchestration_history_json: str | None = None,
         reader_gate_report_json: str | None = None,
+        serial_reader_report_json: str | None = None,
+        blind_final_audit_json: str | None = None,
         prev_chapter_ref: str | None = None,
         source_text_hash: str | None = None,
         facts_package_hash: str | None = None,
+        campaign_identity_path: Path | None = None,
         review_route: str | None = None,
         notes: list[str] | None = None,
     ) -> CommitResult:
@@ -283,6 +302,22 @@ class ChapterCommitBoundary:
         （含 failpoint 注入的崩溃）→ manifest 不落盘 → 重启 recover() 不识别。
         """
         chapter_file = self.chapters_dir / f"chapter_{chapter_number}.txt"
+        archive_text = chapter_text if archive_text is None else archive_text
+        facts_package_hash = facts_package_hash or sha256_text("")
+        review_route = review_route or "not_applicable"
+        if campaign_identity_path is not None:
+            if (
+                provenance_json is None
+                or reader_gate_report_json is None
+                or blind_final_audit_json is None
+            ):
+                raise UnmanagedArtifactError(
+                    "A1 campaign commit requires provenance/reader/blind-final evidence"
+                )
+            if chapter_number >= 3 and serial_reader_report_json is None:
+                raise UnmanagedArtifactError(
+                    "A1 chapter_3+ commit requires serial reader evidence"
+                )
         if chapter_file.exists():
             raise UnmanagedArtifactError(
                 f"unmanaged chapter artifact already exists: {chapter_file}; "
@@ -318,8 +353,11 @@ class ChapterCommitBoundary:
             self._touch_failpoint("frames")
             frames_path.write_text(frames_json, encoding="utf-8")
 
-            # 5. 状态写入（state_before 在覆盖前取）
-            state_before_hash = hash_file_if_exists(state_path)
+            # 5. 状态写入（state_before 在覆盖前取）；首次 generic compose 无旧文件时
+            # 用 sha256(empty bytes) 明确记录『提交前不存在』，不得留成无证据 None。
+            state_before_hash = (
+                hash_file_if_exists(state_path) or sha256_text("")
+            )
             self._touch_failpoint("state")
             state_path.write_text(state_json, encoding="utf-8")
 
@@ -341,6 +379,12 @@ class ChapterCommitBoundary:
                 reader_gate_path = self.output_dir / "reader_gate_report.json"
                 reader_gate_path.parent.mkdir(parents=True, exist_ok=True)
                 reader_gate_path.write_text(reader_gate_report_json, encoding="utf-8")
+            if serial_reader_report_json is not None:
+                serial_reader_path = self.output_dir / "serial_reader_report.json"
+                serial_reader_path.write_text(serial_reader_report_json, encoding="utf-8")
+            if blind_final_audit_json is not None:
+                blind_final_path = self.output_dir / "blind_final_audit.json"
+                blind_final_path.write_text(blind_final_audit_json, encoding="utf-8")
         except Exception:
             # 模拟崩溃 / 真实 IO 失败：manifest 未落盘，不算提交。
             raise
@@ -365,8 +409,23 @@ class ChapterCommitBoundary:
             orch_hist_path = self.output_dir / "orchestration_history.json"
             artifacts[self._rel(orch_hist_path)] = sha256_file(orch_hist_path)
         reader_gate_file = self.output_dir / "reader_gate_report.json"
-        if reader_gate_file.exists():
+        if reader_gate_report_json is not None:
             artifacts[self._rel(reader_gate_file)] = sha256_file(reader_gate_file)
+        serial_reader_file = self.output_dir / "serial_reader_report.json"
+        if serial_reader_report_json is not None:
+            artifacts[self._rel(serial_reader_file)] = sha256_file(serial_reader_file)
+        blind_final_file = self.output_dir / "blind_final_audit.json"
+        if blind_final_audit_json is not None:
+            artifacts[self._rel(blind_final_file)] = sha256_file(blind_final_file)
+        campaign_identity_hash = None
+        if campaign_identity_path is not None:
+            identity_path = Path(campaign_identity_path)
+            if not identity_path.is_file():
+                raise UnmanagedArtifactError(
+                    f"campaign identity not found: {identity_path}"
+                )
+            campaign_identity_hash = sha256_file(identity_path)
+            artifacts[self._rel(identity_path)] = campaign_identity_hash
         artifacts[self._rel(frames_path)] = sha256_file(frames_path)
         artifacts[self._rel(state_path)] = sha256_file(state_path)
         if orchestration_state_json is not None:
@@ -381,6 +440,37 @@ class ChapterCommitBoundary:
             prev_file = self.chapters_dir / f"{prev_chapter_ref}.txt"
             prev_chapter_hash = hash_file_if_exists(prev_file)
 
+        chapter_artifact = self._rel(chapter_file)
+        draft_artifact = self._rel(
+            self.output_dir / "prose_history" / f"draft_chapter_{chapter_number}.txt"
+        )
+        state_artifact = self._rel(state_path)
+        frame_artifact = self._rel(frames_path)
+        provenance_artifact = (
+            self._rel(self.output_dir / "chapter_provenance.json")
+            if provenance_json is not None
+            else None
+        )
+        reader_gate_artifact = (
+            self._rel(self.output_dir / "reader_gate_report.json")
+            if reader_gate_report_json is not None
+            else None
+        )
+        serial_reader_artifact = (
+            self._rel(self.output_dir / "serial_reader_report.json")
+            if serial_reader_report_json is not None
+            else None
+        )
+        blind_final_audit_artifact = (
+            self._rel(self.output_dir / "blind_final_audit.json")
+            if blind_final_audit_json is not None
+            else None
+        )
+        campaign_identity_artifact = (
+            self._rel(Path(campaign_identity_path))
+            if campaign_identity_path is not None
+            else None
+        )
         manifest = RunManifest(
             run_id=run_id,
             flow_version="3",
@@ -391,12 +481,22 @@ class ChapterCommitBoundary:
             chapter_number=chapter_number,
             prev_chapter_ref=prev_chapter_ref,
             source_text_hash=source_text_hash,
+            campaign_identity_hash=campaign_identity_hash,
             prev_chapter_hash=prev_chapter_hash,
-            draft_hash=sha256_text(chapter_text),
+            draft_hash=sha256_file(chapter_file),
             facts_package_hash=facts_package_hash,
             state_before_hash=state_before_hash,
             state_after_hash=sha256_file(state_path),
             frame_hash=sha256_file(frames_path),
+            chapter_artifact=chapter_artifact,
+            draft_artifact=draft_artifact,
+            state_artifact=state_artifact,
+            frame_artifact=frame_artifact,
+            provenance_artifact=provenance_artifact,
+            reader_gate_artifact=reader_gate_artifact,
+            serial_reader_artifact=serial_reader_artifact,
+            blind_final_audit_artifact=blind_final_audit_artifact,
+            campaign_identity_artifact=campaign_identity_artifact,
             artifacts=artifacts,
             review_route=review_route,
             notes=list(notes or []),
@@ -469,6 +569,14 @@ class ChapterCommitBoundary:
                 orphans=self._scan_orphans(manifest),
                 stale_tmp=stale_tmp,
             )
+        if manifest.kind == "seed":
+            return RecoveryReport(
+                recognized=True,
+                reason="committed",
+                manifest=manifest,
+                orphans=self._scan_orphans(manifest),
+                stale_tmp=stale_tmp,
+            )
 
         missing: list[str] = []
         mismatched: list[dict] = []
@@ -481,13 +589,180 @@ class ChapterCommitBoundary:
             if actual != expected:
                 mismatched.append({"path": rel, "expected": expected, "actual": actual})
 
-        if missing or mismatched:
+        semantic_mismatches: list[dict] = []
+        expected_paths = {
+            "chapter_artifact": self._rel(
+                self.chapters_dir / f"chapter_{manifest.chapter_number}.txt"
+            ),
+            "draft_artifact": self._rel(
+                self.output_dir / "prose_history"
+                / f"draft_chapter_{manifest.chapter_number}.txt"
+            ),
+        }
+        for field, expected in expected_paths.items():
+            actual = getattr(manifest, field)
+            if actual != expected:
+                semantic_mismatches.append(
+                    {"field": field, "expected": expected, "actual": actual}
+                )
+        run_prefix = self._rel(self.output_dir).rstrip("/") + "/"
+        for field in ("state_artifact", "frame_artifact"):
+            actual = getattr(manifest, field) or ""
+            if not actual.startswith(run_prefix):
+                semantic_mismatches.append(
+                    {"field": field, "expected": run_prefix + "...", "actual": actual}
+                )
+        if manifest.chapter_number and manifest.chapter_number > 1:
+            prev_path = self.chapters_dir / f"chapter_{manifest.chapter_number - 1}.txt"
+            actual_prev = hash_file_if_exists(prev_path)
+            if (
+                manifest.prev_chapter_ref != f"chapter_{manifest.chapter_number - 1}"
+                or actual_prev != manifest.prev_chapter_hash
+            ):
+                semantic_mismatches.append(
+                    {
+                        "field": "prev_chapter_hash",
+                        "expected": actual_prev,
+                        "actual": manifest.prev_chapter_hash,
+                    }
+                )
+        if manifest.campaign_identity_hash is not None:
+            fixed = {
+                "campaign_identity_artifact": self._rel(
+                    self.novel_dir / "output" / "campaign_identity.json"
+                ),
+                "provenance_artifact": self._rel(
+                    self.output_dir / "chapter_provenance.json"
+                ),
+                "reader_gate_artifact": self._rel(
+                    self.output_dir / "reader_gate_report.json"
+                ),
+                "blind_final_audit_artifact": self._rel(
+                    self.output_dir / "blind_final_audit.json"
+                ),
+            }
+            if manifest.chapter_number and manifest.chapter_number >= 3:
+                fixed["serial_reader_artifact"] = self._rel(
+                    self.output_dir / "serial_reader_report.json"
+                )
+            for field, expected in fixed.items():
+                actual = getattr(manifest, field)
+                if actual != expected:
+                    semantic_mismatches.append(
+                        {"field": field, "expected": expected, "actual": actual}
+                    )
+            try:
+                gate = json.loads(
+                    (self.output_dir / "reader_gate_report.json").read_text(
+                        encoding="utf-8"
+                    )
+                )
+                if (
+                    gate.get("chapter_ref") != manifest.chapter_ref
+                    or gate.get("route") != "pass"
+                    or gate.get("facts_package_hash") != manifest.facts_package_hash
+                ):
+                    semantic_mismatches.append(
+                        {"field": "reader_gate_report", "actual": gate}
+                    )
+                provenance = json.loads(
+                    (self.output_dir / "chapter_provenance.json").read_text(
+                        encoding="utf-8"
+                    )
+                )["chapters"][manifest.chapter_ref]
+                review_hash = sha256_text(
+                    json.dumps(
+                        provenance.get("review_issues", []),
+                        ensure_ascii=False,
+                        sort_keys=True,
+                    )
+                )
+                if provenance.get("review_evidence_hash") != review_hash:
+                    semantic_mismatches.append(
+                        {"field": "review_evidence_hash", "actual": provenance.get("review_evidence_hash")}
+                    )
+                blind_final = json.loads(
+                    (self.output_dir / "blind_final_audit.json").read_text(
+                        encoding="utf-8"
+                    )
+                )
+                chapter_text = (
+                    self.chapters_dir / f"chapter_{manifest.chapter_number}.txt"
+                ).read_text(encoding="utf-8")
+                canonical_pairs = {
+                    (issue.get("issue_type"), issue.get("location"), issue.get("severity"))
+                    for issue in provenance.get("review_issues", [])
+                }
+                if blind_final.get("chapter_ref") != manifest.chapter_ref:
+                    semantic_mismatches.append(
+                        {"field": "blind_final_chapter_ref", "actual": blind_final.get("chapter_ref")}
+                    )
+                for finding in blind_final.get("findings", []):
+                    location = finding.get("location")
+                    pair = (
+                        finding.get("issue_type"),
+                        location,
+                        finding.get("severity"),
+                    )
+                    if (
+                        not isinstance(location, str)
+                        or location not in chapter_text
+                        or pair not in canonical_pairs
+                    ):
+                        semantic_mismatches.append(
+                            {"field": "blind_final_finding", "actual": finding}
+                        )
+                    if finding.get("severity") in (
+                        "warning",
+                        "blocking",
+                        "critical",
+                    ):
+                        semantic_mismatches.append(
+                            {"field": "blind_final_actionable", "actual": finding.get("severity")}
+                        )
+                if manifest.chapter_number and manifest.chapter_number >= 3:
+                    from src.object_state.serialreader import SerialReaderReport
+
+                    serial = SerialReaderReport.model_validate_json(
+                        (self.output_dir / "serial_reader_report.json").read_text(
+                            encoding="utf-8"
+                        )
+                    )
+                    expected_window = 5 if manifest.chapter_number >= 5 else 3
+                    expected_refs = [
+                        f"chapter_{number}"
+                        for number in range(
+                            manifest.chapter_number - expected_window + 1,
+                            manifest.chapter_number + 1,
+                        )
+                    ]
+                    if (
+                        serial.window != expected_window
+                        or serial.review_target != manifest.chapter_ref
+                        or serial.chapter_refs != expected_refs
+                        or serial.overall == "weak"
+                    ):
+                        semantic_mismatches.append(
+                            {"field": "serial_reader_report", "actual": serial.model_dump(mode="json")}
+                        )
+            except Exception as exc:
+                semantic_mismatches.append(
+                    {"field": "campaign_evidence_parse", "actual": type(exc).__name__}
+                )
+
+        if missing or mismatched or semantic_mismatches:
             return RecoveryReport(
                 recognized=False,
-                reason="artifact_missing" if missing else "artifact_mismatch",
+                reason=(
+                    "artifact_missing"
+                    if missing
+                    else "artifact_mismatch"
+                    if mismatched
+                    else "semantic_mismatch"
+                ),
                 manifest=manifest,
                 missing=missing,
-                mismatched=mismatched,
+                mismatched=mismatched + semantic_mismatches,
                 orphans=self._scan_orphans(manifest),
                 stale_tmp=stale_tmp,
             )

@@ -82,9 +82,10 @@ from src.workflow_action.taste_stack import (
 class TestOrchestrationCommitTransaction:
     def test_orchestration_atomic_commit_and_failpoint(self, tmp_path):
         """Orchestration 状态纳入 ChapterCommitBoundary 单事务与 failpoint 步进."""
-        output_dir = tmp_path / "workspace"
-        output_dir.mkdir()
-        chapters_dir = output_dir / "chapters"
+        workspace = tmp_path / "workspace"
+        output_dir = workspace / "output" / "compose"
+        output_dir.mkdir(parents=True)
+        chapters_dir = workspace / "chapters"
         chapters_dir.mkdir()
 
         boundary = ChapterCommitBoundary(output_dir, chapters_dir)

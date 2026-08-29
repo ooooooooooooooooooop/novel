@@ -57,9 +57,10 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 # R1-R9 真实状态Rollout、强绑定TasteStack、结构化因果防线、人类盲评防伪与真实2章Staged Canary（+7）升至 2940；R0 修复闭环 2947；R3 真实状态驱动 rollout +1、WP3 资格证据包 +4、AuthorTemplate 验收 +5、Author 实例化语料作者模型测试 +4、深采样参数回归测试 +1 → 2963 collected；续写 offstage 修复（test_continuation_offstage.py,+1）与结构搜索 T3 阶段一（test_structural_search_t3_phase1.py,+6）→ 2970 collected；作者语料采样粒度修复（test_corpus_author_model.py,+12）→ 2982 collected；六字段个性合同注入（test_corpus_author_model.py,+1）→ 2983 collected。
 # v2 出版文本代理验证器对抗性测试（test_authormodel_v3.py,+9：holdout泄漏/topic别名/候选首项/无优势/空输入不回落0.5/缺困难负样本/静默丢折/低置信度INVALID/合法小样本PASS）→ 2983 + 9 = 2992（2991 passed + 1 skipped）。
 # v8 双平面裁决测试（test_authormodel_v3.py,+8）→ 2992 + 8 = 3000 收集（2999 passed + 1 skipped）。
-# observed-decision-author-signature-v1 机制测试（test_observed_author_signature.py,+18）→ 3000 + 18 = 3018 收集（3017 passed + 1 skipped）。
+# observed-decision-author-signature-v1 机制测试（test_observed_author_signature.py,+18）→ 3000 + 18 = 3018；S1（test_s1_auto_mode.py,+7）→ 3025 收集（3024 passed + 1 skipped）。
 # 与 test_cli_runtime_contract 的 EXPECTED_TEST_BASELINE 保持一致；该常量锁 collected。
-EXPECTED_BASELINE = 3018
+# S6 canary ch9 计划候选无效状态引用确定性重映射（test_autonomous_runner.py,+1）→ 3079 + 1 = 3080。
+EXPECTED_BASELINE = 3080
 EXAMPLE_PATH = "docs/00_project/tier0_release_record.example.json"
 CANARY_EVIDENCE_EXAMPLE_PATH = "docs/00_project/tier0_canary_evidence.example.json"
 COMMITTED_RELEASE_RECORD_PATH = "docs/00_project/releases/tier0-release.json"

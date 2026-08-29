@@ -18,10 +18,11 @@ committed（正文+状态+Frame 原子提交）或 rejected（阻断/人工拒�
 """
 
 import hashlib
-from pathlib import Path
+import re
+from pathlib import Path, PurePosixPath
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 RunStatus = Literal["staged", "draft", "reviewed", "committed", "rejected"]
 
@@ -89,6 +90,9 @@ class RunManifest(BaseModel):
     source_text_hash: str | None = Field(
         default=None, description="原文/WorkSpec 哈希（compose=workspec，extend=input）"
     )
+    campaign_identity_hash: str | None = Field(
+        default=None, description="A1 campaign_identity.json 哈希（直接自动入口身份锁）"
+    )
     prev_chapter_hash: str | None = Field(
         default=None, description="前章正文哈希"
     )
@@ -107,6 +111,17 @@ class RunManifest(BaseModel):
     frame_hash: str | None = Field(
         default=None, description="Frame 光标状态哈希（提交后）"
     )
+
+    # 核心产物的显式路径绑定（相对 novel 工作区，字段哈希必须与 artifacts 交叉一致）
+    chapter_artifact: str | None = None
+    draft_artifact: str | None = None
+    state_artifact: str | None = None
+    frame_artifact: str | None = None
+    provenance_artifact: str | None = None
+    reader_gate_artifact: str | None = None
+    serial_reader_artifact: str | None = None
+    blind_final_audit_artifact: str | None = None
+    campaign_identity_artifact: str | None = None
 
     # 提交记录：所有产物文件 → sha256（相对 novel 工作区路径）
     artifacts: ArtifactMap = Field(
@@ -131,6 +146,99 @@ class RunManifest(BaseModel):
     seeded_from_flow: str | None = Field(
         default=None, description="种子来源流（migrate 种子为 '2'）"
     )
+
+    @model_validator(mode="after")
+    def _committed_run_has_complete_evidence(self) -> "RunManifest":
+        if self.kind != "run" or self.status != "committed":
+            return self
+        required = {
+            "chapter_ref": self.chapter_ref,
+            "chapter_number": self.chapter_number,
+            "draft_hash": self.draft_hash,
+            "facts_package_hash": self.facts_package_hash,
+            "state_before_hash": self.state_before_hash,
+            "state_after_hash": self.state_after_hash,
+            "frame_hash": self.frame_hash,
+            "review_route": self.review_route,
+            "committed_at_utc": self.committed_at_utc,
+        }
+        missing = [name for name, value in required.items() if value in (None, "")]
+        if missing or not self.artifacts:
+            raise ValueError(
+                "committed run requires complete evidence: "
+                + ", ".join(missing + (["artifacts"] if not self.artifacts else []))
+            )
+        for path, digest in self.artifacts.items():
+            posix = PurePosixPath(path)
+            if (
+                not path
+                or posix.is_absolute()
+                or ".." in posix.parts
+                or "\\" in path
+            ):
+                raise ValueError(f"unsafe artifact path: {path!r}")
+            if not isinstance(digest, str) or not re.fullmatch(
+                r"[0-9a-f]{64}", digest
+            ):
+                raise ValueError(f"invalid artifact sha256 for {path!r}")
+        bound = {
+            "chapter_artifact": (self.chapter_artifact, self.draft_hash),
+            "draft_artifact": (self.draft_artifact, self.draft_hash),
+            "state_artifact": (self.state_artifact, self.state_after_hash),
+            "frame_artifact": (self.frame_artifact, self.frame_hash),
+        }
+        for name, (path, expected_hash) in bound.items():
+            if not path or self.artifacts.get(path) != expected_hash:
+                raise ValueError(f"{name} must bind its manifest hash in artifacts")
+        expected_chapter = f"chapters/chapter_{self.chapter_number}.txt"
+        if self.chapter_artifact != expected_chapter:
+            raise ValueError("chapter_artifact must bind the committed chapter number")
+        if not self.draft_artifact.endswith(
+            f"/prose_history/draft_chapter_{self.chapter_number}.txt"
+        ):
+            raise ValueError("draft_artifact must bind the committed chapter draft")
+        for name, path in (
+            ("state_artifact", self.state_artifact),
+            ("frame_artifact", self.frame_artifact),
+        ):
+            if not path.startswith("output/"):
+                raise ValueError(f"{name} must stay under output/")
+        for name in (
+            "provenance_artifact",
+            "reader_gate_artifact",
+            "serial_reader_artifact",
+            "blind_final_audit_artifact",
+        ):
+            path = getattr(self, name)
+            if path is not None and self.artifacts.get(path) is None:
+                raise ValueError(f"{name} must be present in artifacts")
+        if self.chapter_number and self.chapter_number > 1:
+            if not self.prev_chapter_ref or not self.prev_chapter_hash:
+                raise ValueError(
+                    "committed chapter after chapter_1 requires prev chapter evidence"
+                )
+        if self.campaign_identity_hash is not None:
+            if (
+                not self.campaign_identity_artifact
+                or self.artifacts.get(self.campaign_identity_artifact)
+                != self.campaign_identity_hash
+            ):
+                raise ValueError(
+                    "campaign identity artifact must bind campaign_identity_hash"
+                )
+            if (
+                not self.provenance_artifact
+                or not self.reader_gate_artifact
+                or not self.blind_final_audit_artifact
+            ):
+                raise ValueError(
+                    "A1 committed run requires provenance/reader/blind-final artifacts"
+                )
+            if self.chapter_number and self.chapter_number >= 3 and not self.serial_reader_artifact:
+                raise ValueError(
+                    "A1 chapter_3+ committed run requires serial reader artifact"
+                )
+        return self
 
     def transition_allowed(self, target: RunStatus) -> bool:
         """校验 status → target 是否在合法迁移表内（幂等重设同态允许）。"""

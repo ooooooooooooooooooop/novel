@@ -11,10 +11,12 @@ import json
 
 import pytest
 
+from src.boundary_control.chapter_commit import ChapterCommitBoundary
 from src.experiment.pass_audit import (
     PassAuditUnit,
     summarize_pass_audit,
 )
+from src.pass_audit_short_form import _chapter_num, _load_provenance
 
 
 def _chapter(text: str) -> tuple[str, str]:
@@ -94,7 +96,7 @@ def test_run_pass_audit_records_findings():
     assert results[0]["findings"][0]["issue_type"] == "generative_indicia"
 
 
-def test_summarize_miss_rate():
+def test_summarize_miss_rate(tmp_path):
     def fake_judge(prompt: str) -> str:
         return json.dumps({
             "clean": False,
@@ -115,6 +117,64 @@ def test_summarize_miss_rate():
     assert o["audit_finding_rate"] == pytest.approx(0.4)
     assert o["true_miss_rate"] == pytest.approx(0.4)
     assert o["by_issue_type"]["redundancy"]["count"] == 2
+
+    # staged --sample 必须跨重跑稳定，否则 response 会错配章节。
+    import random
+
+    chapters = []
+    for number in range(1, 31):
+        path = tmp_path / f"chapter_{number}.txt"
+        path.write_text(str(number), encoding="utf-8")
+        chapters.append(path)
+    first = sorted(random.Random(0).sample(chapters, 10), key=_chapter_num)
+    second = sorted(random.Random(0).sample(chapters, 10), key=_chapter_num)
+    assert [path.name for path in first] == [path.name for path in second]
+
+    # A1 每章独立 run：只有 recover 认可且 review_route=pass 的事务 sidecar 可作为 O。
+    provenance_root = tmp_path / "novel" / "output"
+    committed = provenance_root / "ch1-try2"
+    chapters_dir = tmp_path / "novel" / "chapters"
+    committed.mkdir(parents=True)
+    chapters_dir.mkdir()
+    state_path = committed / "state.json"
+    state_path.write_text('{"state":"before"}', encoding="utf-8")
+    review_issues = []
+    review_hash = __import__("hashlib").sha256(
+        json.dumps(review_issues, ensure_ascii=False, sort_keys=True).encode("utf-8")
+    ).hexdigest()
+    provenance_json = json.dumps(
+        {
+            "chapters": {
+                "chapter_1": {
+                    "review_version": "post-prose-v1",
+                    "review_issues": review_issues,
+                    "review_evidence_hash": review_hash,
+                }
+            }
+        }
+    )
+    ChapterCommitBoundary(committed, chapters_dir).commit(
+        run_id="compose-1",
+        mode="compose",
+        chapter_number=1,
+        chapter_text="正文",
+        state_path=state_path,
+        state_json='{"state":"after"}',
+        frames_path=committed / "frames.json",
+        frames_json="[]",
+        archive_text="正文",
+        provenance_json=provenance_json,
+        facts_package_hash="f" * 64,
+        review_route="pass",
+    )
+    failed = provenance_root / "ch1-try3"
+    failed.mkdir()
+    (failed / "chapter_provenance.json").write_text(
+        json.dumps({"chapters": {"chapter_1": {"review_version": "must-not-win"}}}),
+        encoding="utf-8",
+    )
+
+    assert _load_provenance(provenance_root)["chapter_1"]["review_version"] == "post-prose-v1"
 
 
 def test_summarize_empty():

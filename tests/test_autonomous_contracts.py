@@ -201,6 +201,10 @@ def test_policy_rejects_inconsistent_canary_budget():
     payload["budget"]["max_canary_chapters_total"] = 89
     with pytest.raises(ValidationError, match="canary chapter total"):
         AutonomousPolicy.model_validate(payload)
+    low_swap = _policy_payload()
+    low_swap["evaluation"]["pairwise_position_consistency_min"] = 0.8999
+    with pytest.raises(ValidationError):
+        AutonomousPolicy.model_validate(low_swap)
 
 
 def test_policy_hash_is_canonical():

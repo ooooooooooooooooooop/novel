@@ -234,7 +234,9 @@ class ReviewUnit:
         Returns:
             (ReviewIssue 列表, ReviewReminder 列表, 路由推荐)
         """
-        data = json.loads(response)
+        from src.workflow_action.preference_review import _parse_json
+
+        data = _parse_json(response)
         required_fields = ("issues", "reminders", "route")
         missing = [field for field in required_fields if field not in data]
         if missing:
@@ -666,6 +668,8 @@ class ReviewUnit:
                 " 同章内语句或对白逐字重复 / 每场戏都完整起承转合\n"
                 "\n对每个对象层 issue，对照【本章正文】判定：已被正文自然兑现则降级或撤销，"
                 "被正文坐实则升级；正文层独有问题以新增 issue 形式报告。"
+                "正文层新增 issue 的 location 必须直接复制【本章正文】中的一段连续原文，"
+                "不得写『第一段』『全章』『正文』等位置标签；该原文将被系统逐字核验。"
             )
 
         object_summary = "\n---\n".join(obj_ctx)

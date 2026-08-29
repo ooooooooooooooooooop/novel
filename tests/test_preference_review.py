@@ -25,6 +25,7 @@ from src.workflow_action.preference_review import (
     build_anchored_arbitration_prompt,
     build_single_review_prompt,
     compare_single_reviews,
+    content_anchor_id,
     make_review_judge,
     parse_anchored_arbitration,
     parse_single_review,
@@ -179,15 +180,18 @@ def test_parse_single_review_accepts_markdown_code_fence():
 def test_parse_anchored_arbitration_accepts_markdown_code_fence():
     fence = "```json\n" + json.dumps(
         {
-            "preferred": "B",
-            "decisive_anchor": {"excerpt": "故事在推进。主线在发展", "char_start": 0, "char_end": 10},
+            "decision": "anchor",
+            "decisive_anchor_id": content_anchor_id("故事在推进。主线在发展"),
             "rationale": "测试。",
         },
         ensure_ascii=False,
     ) + "\n```"
     assert (
         parse_anchored_arbitration(
-            fence, pair_id="p", response_a=_TEXT_X, response_b=_TEXT_Y
+            fence,
+            pair_id="p",
+            anchor_ids_a={content_anchor_id("故事在推进。主线在发展")},
+            anchor_ids_b=set(),
         )
         == "A"
     )
@@ -251,14 +255,19 @@ def test_parse_anchored_arbitration_accepts_unescaped_quote_in_rationale():
     payload = (
         '```json\n'
         '{\n'
-        '  "preferred": "A",\n'
-        '  "decisive_anchor": {"excerpt": "故事在推进。主线在发展", "char_start": 0, "char_end": 10},\n'
+        '  "decision": "anchor",\n'
+        f'  "decisive_anchor_id": "{content_anchor_id("故事在推进。主线在发展")}",\n'
         '  "rationale": "它说"推进"了"\n'
         '}\n'
         '```'
     )
     assert (
-        parse_anchored_arbitration(payload, pair_id="p", response_a=_TEXT_X, response_b=_TEXT_Y)
+        parse_anchored_arbitration(
+            payload,
+            pair_id="p",
+            anchor_ids_a={content_anchor_id("故事在推进。主线在发展")},
+            anchor_ids_b=set(),
+        )
         == "A"
     )
 
@@ -433,22 +442,19 @@ def test_build_arbitration_prompt_has_both_evidence_and_contract():
 
 
 def _arb_text(preferred: str, excerpt: str, pair_id: str, resp_a: str, resp_b: str) -> str:
+    anchor_id = content_anchor_id(excerpt)
     return parse_anchored_arbitration(
         json.dumps(
             {
-                "preferred": preferred,
-                "decisive_anchor": {
-                    "excerpt": excerpt,
-                    "char_start": 0,
-                    "char_end": len(excerpt),
-                },
+                "decision": "anchor",
+                "decisive_anchor_id": anchor_id,
                 "rationale": "测试。",
             },
             ensure_ascii=False,
         ),
         pair_id=pair_id,
-        response_a=resp_a,
-        response_b=resp_b,
+        anchor_ids_a={anchor_id} if excerpt in resp_a else set(),
+        anchor_ids_b={anchor_id} if excerpt in resp_b else set(),
     )
 
 
@@ -476,12 +482,12 @@ def test_arbitration_no_difference_no_anchor():
     assert (
         parse_anchored_arbitration(
             json.dumps(
-                {"preferred": "no_difference", "decisive_anchor": None, "rationale": "难分。"},
+                {"decision": "no_difference", "decisive_anchor_id": None, "rationale": "难分。"},
                 ensure_ascii=False,
             ),
             pair_id="p",
-            response_a=_TEXT_X,
-            response_b=_TEXT_Y,
+            anchor_ids_a=set(),
+            anchor_ids_b=set(),
         )
         == "no_difference"
     )
@@ -513,58 +519,84 @@ def _cross_axis_review(prompt, response, role, candidate_ref):
 def _content_arbitrate(prompt, r_chosen, r_rejected, response_chosen, response_rejected, role):
     """内容稳定仲裁：恒偏好含「推进」的文本（X），锚点引其真实原文——无论 X 在哪个槽位."""
     x_is_chosen = "推进" in response_chosen
-    preferred = "A" if x_is_chosen else "B"
     excerpt = "故事在推进。主线在发展"
+    anchor_id = content_anchor_id(excerpt)
     return parse_anchored_arbitration(
         json.dumps(
             {
-                "preferred": preferred,
-                "decisive_anchor": {"excerpt": excerpt, "char_start": 0, "char_end": len(excerpt)},
+                "decision": "anchor",
+                "decisive_anchor_id": anchor_id,
                 "rationale": "推进优先。",
             },
             ensure_ascii=False,
         ),
         pair_id="content",
-        response_a=response_chosen,
-        response_b=response_rejected,
+        anchor_ids_a={anchor_id} if x_is_chosen else set(),
+        anchor_ids_b=set() if x_is_chosen else {anchor_id},
     )
 
 
 def _slot_biased_arbitrate(prompt, r_chosen, r_rejected, response_chosen, response_rejected, role):
     """槽位命名仲裁：恒命名「甲」并引当前甲槽位正文——内容映射下换位必须暴露为不一致."""
     excerpt = response_chosen[:12]
+    anchor_id = content_anchor_id(excerpt)
     return parse_anchored_arbitration(
         json.dumps(
             {
-                "preferred": "A",
-                "decisive_anchor": {"excerpt": excerpt, "char_start": 0, "char_end": len(excerpt)},
+                "decision": "anchor",
+                "decisive_anchor_id": anchor_id,
                 "rationale": "恒甲。",
             },
             ensure_ascii=False,
         ),
         pair_id="slot",
-        response_a=response_chosen,
-        response_b=response_rejected,
+        anchor_ids_a={anchor_id},
+        anchor_ids_b=set(),
     )
 
 
 def test_position_consistency_content_stable_review_judge_is_1():
-    judge = make_review_judge(_cross_axis_review, _content_arbitrate)
+    calls = {"n": 0}
+
+    def counted(*args):
+        calls["n"] += 1
+        return _content_arbitrate(*args)
+
+    judge = make_review_judge(_cross_axis_review, counted)
+    pairs = [_pair(prompt_id=f"p-{i:03d}") for i in range(3)]
+    assert measure_position_consistency(pairs, judge, role="reader_judge") == 1.0
+    assert calls["n"] == 3  # 每对仅一次 canonical content-order 仲裁
+
+
+def test_position_consistency_slot_naming_arbitration_is_0():
+    # adapter 对同一 pair 只做一次 canonical content-order 仲裁；即使底层恒选当前 A，
+    # AB/BA 也映射到同一内容。裸恒选 A 的位置负控由 test_auto_calibrate 保持 0.0。
+    judge = make_review_judge(_cross_axis_review, _slot_biased_arbitrate)
     pairs = [_pair(prompt_id=f"p-{i:03d}") for i in range(3)]
     assert measure_position_consistency(pairs, judge, role="reader_judge") == 1.0
 
 
-def test_position_consistency_slot_naming_arbitration_is_0():
-    judge = make_review_judge(_cross_axis_review, _slot_biased_arbitrate)
-    pairs = [_pair(prompt_id=f"p-{i:03d}") for i in range(3)]
-    assert measure_position_consistency(pairs, judge, role="reader_judge") == 0.0
-
-
 def test_make_review_judge_correctness_follows_content():
-    judge = make_review_judge(_cross_axis_review, _content_arbitrate)
-    # chosen=X（推进型）→ 内容仲裁选 X → "A"（正确）；rejected=X → "B"（rejected 胜）。
-    assert judge(_pair(chosen=_TEXT_X, rejected=_TEXT_Y), "reader_judge") == "A"
-    assert judge(_pair(chosen=_TEXT_Y, rejected=_TEXT_X), "reader_judge") == "B"
+    calls = []
+
+    def counted(prompt, response, role, candidate_ref):
+        calls.append((response, candidate_ref))
+        return _cross_axis_review(prompt, response, role, candidate_ref)
+
+    judge = make_review_judge(counted, _content_arbitrate)
+    pair = _pair(chosen=_TEXT_X, rejected=_TEXT_Y)
+    assert judge(pair, "reader_judge") == "A"
+    swapped = PreferencePair(
+        prompt_id=pair.prompt_id,
+        tag=pair.tag,
+        prompt=pair.prompt,
+        chosen=pair.rejected,
+        rejected=pair.chosen,
+        split=pair.split,
+        bucket=pair.bucket,
+    )
+    assert judge(swapped, "reader_judge") == "B"
+    assert len(calls) == 2  # 两个内容各评一次；换位只交换已缓存证据
 
 
 def test_predict_with_reviews_arbitrates_only_when_undecidable():
@@ -576,12 +608,12 @@ def test_predict_with_reviews_arbitrates_only_when_undecidable():
         calls["n"] += 1
         return "A"
 
-    # 决定性 → 不仲裁
+    # 证据打平也必须进入内容仲裁，不能把平分直接误计为位置不稳定。
     decisive = predict_with_reviews(
         x, x, prompt="p", response_chosen=_TEXT_X, response_rejected=_TEXT_Y,
         role="reader_judge", arbitrate_fn=counting_arbitrate,
     )
-    assert decisive == "no_difference" and calls["n"] == 0
+    assert decisive == "A" and calls["n"] == 1
     # undecidable → 仲裁
     undecided = predict_with_reviews(
         x, y, prompt="p", response_chosen=_TEXT_X, response_rejected=_TEXT_Y,

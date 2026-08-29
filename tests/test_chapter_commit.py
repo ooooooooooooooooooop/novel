@@ -49,12 +49,15 @@ def ws(tmp_path):
 
 
 def _commit_kwargs(ws, *, chapter_number=1, chapter_text="第一章正文。\n"):
+    state_path = ws["output_dir"] / "compose_state.json"
+    if not state_path.exists():
+        state_path.write_text('{"state_id":"baseline"}', encoding="utf-8")
     return dict(
         run_id=derive_run_id("compose", chapter_number),
         mode="compose",
         chapter_number=chapter_number,
         chapter_text=chapter_text,
-        state_path=ws["output_dir"] / "compose_state.json",
+        state_path=state_path,
         state_json=json.dumps(
             {"state_id": f"ns_{chapter_number}", "value": chapter_number},
             ensure_ascii=False,
@@ -82,8 +85,11 @@ def _commit_kwargs(ws, *, chapter_number=1, chapter_text="第一章正文。\n")
             },
             ensure_ascii=False,
         ),
-        prev_chapter_ref=None,
+        prev_chapter_ref=(
+            f"chapter_{chapter_number - 1}" if chapter_number > 1 else None
+        ),
         source_text_hash="workspec-hash-0001",
+        facts_package_hash="f" * 64,
         review_route="pass",
     )
 
@@ -121,10 +127,10 @@ def test_commit_records_hashes(ws):
     assert m.artifacts["output/compose/compose_frames.json"] == sha256_file(
         ws["output_dir"] / "compose_frames.json"
     )
-    assert m.draft_hash == sha256_text("第一章正文。\n")
+    assert m.draft_hash == sha256_file(chapter_file)
     assert m.state_after_hash is not None
     assert m.frame_hash is not None
-    assert m.state_before_hash is None  # 首次提交无旧状态
+    assert m.state_before_hash == sha256_text('{"state_id":"baseline"}')
     assert m.source_text_hash == "workspec-hash-0001"
 
 
@@ -180,8 +186,8 @@ def test_crash_at_state_write_leaves_no_valid_half_commit(ws):
 
     # 正文确实已存在（半提交现场）
     assert (ws["chapters"] / "chapter_1.txt").exists()
-    # 但状态未写入
-    assert not (ws["output_dir"] / "compose_state.json").exists()
+    # 但状态仍是提交前 baseline，未被新状态覆盖。
+    assert (ws["output_dir"] / "compose_state.json").read_text(encoding="utf-8") == '{"state_id":"baseline"}'
 
     fresh = ChapterCommitBoundary(ws["output_dir"], ws["chapters"])
     report = fresh.recover()
@@ -318,22 +324,29 @@ def test_set_run_status_flow_v2_no_manifest(tmp_path):
 
 
 def test_set_run_status_flow_v3_state_machine(ws):
-    """flow v3：staged→draft→reviewed→committed 逐步落盘，非法迁移被拒."""
-    for status, chapter in [
-        ("staged", 1),
-        ("draft", 1),
-        ("reviewed", 1),
-        ("committed", 1),
-    ]:
+    """flow v3：状态机只到 reviewed；committed 必须经真实事务提交。"""
+    for status in ("staged", "draft", "reviewed"):
         m = set_run_status(
             ws["output_dir"],
             run_id=derive_run_id("compose", 1),
             mode="compose",
             status=status,
-            chapter_number=chapter,
+            chapter_number=1,
         )
         assert m is not None
         assert m.status == status
+    with pytest.raises(ValueError, match="ChapterCommitBoundary.commit"):
+        set_run_status(
+            ws["output_dir"],
+            run_id=derive_run_id("compose", 1),
+            mode="compose",
+            status="committed",
+            chapter_number=1,
+        )
+    result = ChapterCommitBoundary(ws["output_dir"], ws["chapters"]).commit(
+        **_commit_kwargs(ws)
+    )
+    assert result.run_manifest is not None and result.run_manifest.status == "committed"
 
     # 非法迁移：committed → draft 被拒
     with pytest.raises(ValueError):
@@ -369,16 +382,11 @@ def test_set_run_status_stable_run_id_updates_in_place(ws):
 
 
 def test_set_run_status_new_run_after_commit_archives_prior(ws):
-    """多章续写：新 run_id + 旧 run 终态 → 归档旧提交记录、从新 run 重新开始."""
-    # 第一章走完 staged→draft→reviewed→committed
-    for status in ("staged", "draft", "reviewed", "committed"):
-        set_run_status(
-            ws["output_dir"],
-            run_id="extend-1",
-            mode="extend",
-            status=status,
-            chapter_number=1,
-        )
+    """多章续写：新 run_id + 旧事务提交 → 归档旧记录、从新 run 重新开始."""
+    first_kwargs = _commit_kwargs(ws)
+    first_kwargs["run_id"] = "extend-1"
+    first_kwargs["mode"] = "extend"
+    ChapterCommitBoundary(ws["output_dir"], ws["chapters"]).commit(**first_kwargs)
     m1 = read_run_manifest(ws["output_dir"])
     assert m1 is not None and m1.status == "committed"
 
@@ -402,21 +410,11 @@ def test_set_run_status_new_run_after_commit_archives_prior(ws):
     assert archived["run_id"] == "extend-1"
     assert "archived prior run extend-1" in " / ".join(m2.notes or [])
 
-    # 同 run_id 仍严格：第二章走完 committed 后，再向 extend-2 设 draft 仍非法
-    set_run_status(
-        ws["output_dir"],
-        run_id="extend-2",
-        mode="extend",
-        status="reviewed",
-        chapter_number=2,
-    )
-    set_run_status(
-        ws["output_dir"],
-        run_id="extend-2",
-        mode="extend",
-        status="committed",
-        chapter_number=2,
-    )
+    # 第二章必须经真实 commit；随后同 run_id 再设 draft 仍非法。
+    second_kwargs = _commit_kwargs(ws, chapter_number=2, chapter_text="第二章正文。\n")
+    second_kwargs["run_id"] = "extend-2"
+    second_kwargs["mode"] = "extend"
+    ChapterCommitBoundary(ws["output_dir"], ws["chapters"]).commit(**second_kwargs)
     with pytest.raises(ValueError):
         set_run_status(
             ws["output_dir"],

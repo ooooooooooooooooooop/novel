@@ -119,6 +119,14 @@ def test_g8_zero_committed_chapters_withholds():
     assert gate["gates"]["G8"]["pass"] is False
     assert gate["gates"]["G8"]["detail"]["total_committed"] == 0
 
+    # 当前 S6 CPA 证据入口必须直接聚合三个实际 workspace，而非已退休且不存在的
+    # runtime/refs/t8_canary/setup_manifest.json。
+    real_canary = arv.aggregate_canary()
+    assert real_canary["total_expected"] == 90
+    assert real_canary["total_committed"] == 90
+    assert real_canary["certified"] is True
+    assert all(item["certified"] for item in real_canary["genres"].values())
+
 
 def test_g9_frozen_release_drift_withholds():
     gate = _evaluate(frozen_errors=["[Tier0/Q1] tier0 record sha256 changed"])

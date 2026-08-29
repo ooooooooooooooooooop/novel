@@ -19,6 +19,7 @@ from src.workflow_action.auto_calibrate import (
     MIN_CALIBRATION_PROMPT_IDS,
     MIN_CALIBRATION_TAGS,
     _stratified_position_sample,
+    build_position_ledger,
     build_preference_judge_prompt,
     compute_accuracy,
     freeze_quality_thresholds,
@@ -435,6 +436,10 @@ def test_measure_position_consistency_stable_judge():
     # 稳定判断：恒偏好「甲文」内容，换位后仍命名同一响应 → 一致
     assert measure_position_consistency(pairs, _stable_correct_judge,
                                         role="reader_judge") == 1.0
+    ledger = build_position_ledger(pairs, _stable_correct_judge, role="reader_judge")
+    assert len(ledger) == 3
+    assert all(row["protocol_valid"] and row["position_consistent"] for row in ledger)
+    assert all(len(row["chosen_sha256"]) == 64 for row in ledger)
 
 
 def test_measure_position_consistency_positional_judge():

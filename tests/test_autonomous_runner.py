@@ -10,10 +10,10 @@ AutonomousChapterPolicy 提供互不相同的值）。plan 阶段现返回多 Pl
 - 全新 run 初始化（manifest created、拒绝覆盖非空目录）
 - 可信停止 Canary（viability stop → narrative_stopped，零 provider 调用）
 - needs_premise（无活跃帧 + 活跃承诺 → premise_exhausted，零生成调用）
-- 完整接受周期（多候选：19 次调用 → 提交 chapter_N.txt → usage 记账）
+- 完整接受周期（多候选：20 次调用，含获胜正文绝对终审 → 提交 chapter_N.txt → usage 记账）
 - 拒绝路径（三角色 JudgeClaim blocking → quality_exhausted）
 - Provider 错误（只记错误类型，不重试，终止运行）
-- 预算不足（投影 29 次调用越限 → 零调用终止）
+- 预算不足（投影 30 次调用越限 → 零调用终止）
 - 崩溃恢复（failpoint mid-commit → resume 拒绝）
 - created 状态续跑（首章提交前崩溃干净恢复）
 - 提交吸收（flow 提交完成但 A1 manifest 未推进 → resume 吸收）
@@ -29,7 +29,9 @@ from src.object_state.autonomous import (
     AutonomousPolicy,
     ProviderProfile,
     TERMINAL_STATUSES,
+    canonical_model_sha256,
 )
+from src.object_state.run_manifest import sha256_text
 from src.provider_adapter import A1_CLOSED_LOOP_ALLOWED, A1_PROVIDER_CALLS_IMPLEMENTED
 from src.workflow_action.autonomous_runner import AutonomousRunner, AutonomousRunnerError
 from src.workflow_action.frame import NarrativeFrameUnit
@@ -195,7 +197,7 @@ def _policy_payload(**budget_updates) -> dict:
         "evaluation": {
             "holdout_overall_accuracy_min": 0.6,
             "holdout_genre_accuracy_min": 0.5,
-            "pairwise_position_consistency_min": 0.6,
+            "pairwise_position_consistency_min": 0.9,
             "hard_fact_conflicts_allowed": 0,
             "manual_routes_allowed": 0,
             "unarmed_required_axes_allowed": 0,
@@ -440,12 +442,13 @@ def _section(prompt: str, header: str, next_headers: list[str]) -> str:
     return body.strip()
 
 
-def _evidence_anchor(evidence: str) -> str:
-    """从单候选评审证据段提取锚点原文（可能跨多行，须整体引用以保持逐字真实）."""
-    marker = "锚点原文: "
+def _evidence_anchor_id(evidence: str) -> str:
+    """从证据段复制系统给出的内容地址，不生成自由引文。"""
+    marker = "[anc_"
     start = evidence.find(marker)
-    assert start >= 0, "arbitration evidence must contain 锚点原文"
-    return evidence[start + len(marker):].strip()
+    assert start >= 0, "arbitration evidence must contain content anchor id"
+    end = evidence.find("]", start)
+    return evidence[start + 1:end]
 
 
 def _arbitration_payload(prompt: str, *, slot_biased: bool = False) -> str:
@@ -462,28 +465,22 @@ def _arbitration_payload(prompt: str, *, slot_biased: bool = False) -> str:
     evidence_b = _section(
         prompt, "【候选乙 评审证据】\n", ["【裁定要求】"]
     )
-    anchor_a = _evidence_anchor(evidence_a)
-    anchor_b = _evidence_anchor(evidence_b)
+    anchor_a = _evidence_anchor_id(evidence_a)
+    anchor_b = _evidence_anchor_id(evidence_b)
     if slot_biased:
-        preferred = "A"
-        excerpt = anchor_a
+        anchor_id = anchor_a
         rationale = "恒甲槽位（位置偏置夹具）。"
     else:
         # 内容基：恰好一个证据块是「推进轴 satisfied」（v1 的判别信号）。
         a_is_v1 = "progression / satisfied" in evidence_a
         b_is_v1 = "progression / satisfied" in evidence_b
         assert a_is_v1 != b_is_v1, "exactly one evidence block must show progression satisfied"
-        preferred = "A" if a_is_v1 else "B"
-        excerpt = anchor_a if a_is_v1 else anchor_b
+        anchor_id = anchor_a if a_is_v1 else anchor_b
         rationale = "推进证据判别（测试注入）。"
     return json.dumps(
         {
-            "preferred": preferred,
-            "decisive_anchor": {
-                "excerpt": excerpt,
-                "char_start": 0,
-                "char_end": len(excerpt),
-            },
+            "decision": "anchor",
+            "decisive_anchor_id": anchor_id,
             "rationale": rationale,
         },
         ensure_ascii=False,
@@ -495,11 +492,16 @@ def _judge_claims_payload(prompt: str, *, blocking: bool, role: str) -> str:
     precommit_id = _extract_precommit_id(prompt)
     end = min(40, len(prose))
     if blocking:
+        blocking_axis = {
+            "fact_judge": "fact_conflict",
+            "character_judge": "character_contradiction",
+            "reader_judge": "contract_drift",
+        }[role]
         claims = [
             {
                 "claim_id": "cl_block",
                 "precommit_id": precommit_id,
-                "axis": "fact_conflict",
+                "axis": blocking_axis,
                 "verdict": "violated",
                 "severity": "blocking",
                 "anchors": [
@@ -548,8 +550,27 @@ def _judge_claims_payload(prompt: str, *, blocking: bool, role: str) -> str:
             }
         ]
     else:
-        # fact/character 角色：pass 路径无硬违例、无软轴 claim（只审硬轴）。
-        claims = []
+        axis = "fact_conflict" if role == "fact_judge" else "character_fidelity"
+        role_tail_len = min(30, len(prose))
+        role_tail_start = len(prose) - role_tail_len
+        claims = [
+            {
+                "claim_id": f"cl_{role}",
+                "precommit_id": precommit_id,
+                "axis": axis,
+                "verdict": "satisfied",
+                "severity": "advisory",
+                "anchors": [
+                    {
+                        "position": "end",
+                        "excerpt": prose[role_tail_start:],
+                        "char_start": role_tail_start,
+                        "char_end": len(prose),
+                    }
+                ],
+                "rationale": "测试注入的角色轴覆盖。",
+            }
+        ]
     return json.dumps({"claims": claims})
 
 
@@ -560,6 +581,7 @@ def _fake_urlopen(
     prose_text=None,
     prose_texts=None,
     review_blocking: bool = False,
+    post_review_blocking: bool = False,
     premise_text=None,
     fail_max_tokens: set[int] | None = None,
     error: Exception = RuntimeError("simulated provider failure"),
@@ -606,10 +628,63 @@ def _fake_urlopen(
                 texts = prose_texts if prose_texts is not None else _DEFAULT_PROSE_TEXTS
                 text = texts[len(_prose_seen)]
                 _prose_seen.append(text)
+        elif "你是一位小说质量评审。下面是一章小说正文" in prompt_text:
+            reviewed_prose = _section(
+                prompt_text, f"【章节：", ["【审查维度参考】"]
+            )
+            reviewed_prose = reviewed_prose.split("】\n", 1)[-1].strip()
+            anchor = reviewed_prose[:40]
+            text = json.dumps(
+                {
+                    "clean": False,
+                    "findings": [
+                        {
+                            "issue_type": "style_drift",
+                            "location": anchor,
+                            "severity": "low",
+                            "evidence": "测试注入的轻度句式趋同。",
+                        }
+                    ],
+                }
+            )
+        elif "【审查窗口】window=" in prompt_text:
+            text = json.dumps({"findings": [], "overall": "good"})
         elif "【证据锚定仲裁】" in prompt_text:
             text = _arbitration_payload(
                 prompt_text, slot_biased=tournament_position_biased
             )
+        elif "【审查上下文】a1-post-prose" in prompt_text:
+            reviewed_prose = _section(
+                prompt_text, "【本章正文】\n", ["【正文层审查维度】"]
+            )
+            issues = [
+                {
+                    "issue_id": "iss_post_low_style",
+                    "issue_type": "style_drift",
+                    "severity": "low",
+                    "location": reviewed_prose[:40],
+                    "scope_of_impact": "句式辨识度",
+                    "violated_rule": "避免模板化句式",
+                    "description": "轻度句式趋同，记录但不阻断。",
+                    "suggested_fix": "后续章增加句式变化。",
+                }
+            ]
+            route = "pass"
+            if post_review_blocking:
+                issues = [
+                    {
+                        "issue_id": "iss_post_quality",
+                        "issue_type": "generative_indicia",
+                        "severity": "blocking",
+                        "location": reviewed_prose[:40],
+                        "scope_of_impact": "读者体验",
+                        "violated_rule": "Post-Prose 绝对质量地板",
+                        "description": "模板化总结过重。",
+                        "suggested_fix": "重写正文。",
+                    }
+                ]
+                route = "block"
+            text = json.dumps({"issues": issues, "reminders": [], "route": route})
         elif judge_text is not None:
             # M1 单次调用契约回归：judge 阶段返回协议违规（不可解析）响应 → 校验其
             # 恰好调用一次、显式终态、零状态污染（不重请求）。
@@ -669,6 +744,7 @@ def _make_runner(
     source_text: str = "",
     objects=None,
     judge_text=None,
+    plan_text=None,
 ):
     _provider_files(tmp_path)
     if policy is None:
@@ -685,9 +761,29 @@ def _make_runner(
                 prose_text=prose_text,
                 prose_texts=prose_texts,
                 judge_text=judge_text,
+                plan_text=plan_text,
             ),
         )
     run_dir = _run_dir(tmp_path)
+    identity_path = run_dir.parent / "campaign_identity.json"
+    identity_path.parent.mkdir(parents=True, exist_ok=True)
+    if not identity_path.exists():
+        identity_path.write_text(
+            json.dumps(
+                {
+                    "schema_version": 1,
+                    "campaign": run_dir.parent.parent.name,
+                    "genre": "test",
+                    "base_state_sha256": "a" * 64,
+                    "policy_sha256": canonical_model_sha256(policy),
+                    "profile_sha256": canonical_model_sha256(profile),
+                    "mechanism_source_sha256": __import__(
+                        "src.workflow_action.autonomous_runner", fromlist=["_mechanism_source_sha256"]
+                    )._mechanism_source_sha256(Path(__file__).resolve().parents[1]),
+                }
+            ),
+            encoding="utf-8",
+        )
     runner = AutonomousRunner(
         run_dir=run_dir,
         policy=policy,
@@ -699,6 +795,8 @@ def _make_runner(
         initial_candidates_remaining=candidates,
         flow_mode=flow_mode,
         source_text=source_text,
+        campaign_identity_path=identity_path,
+        base_state_hash="a" * 64,
     )
     return runner, run_dir, policy, profile, calls
 
@@ -709,6 +807,7 @@ def _resume_runner(tmp_path: Path, run_dir: Path, policy, profile):
         policy=policy,
         profile=profile,
         user_home=tmp_path,
+        campaign_identity_path=run_dir.parent / "campaign_identity.json",
     )
 
 
@@ -732,13 +831,34 @@ def test_fresh_init_creates_manifest_and_refuses_overwrite(tmp_path):
     other = tmp_path / "novels" / "other" / "output" / "stale"
     other.mkdir(parents=True)
     (other / "stray.txt").write_text("x", encoding="utf-8")
+    other_policy = _policy()
+    other_profile = _profile()
+    other_identity = other.parent / "campaign_identity.json"
+    other_identity.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "campaign": "other",
+                "genre": "test",
+                "base_state_sha256": "a" * 64,
+                "policy_sha256": canonical_model_sha256(other_policy),
+                "profile_sha256": canonical_model_sha256(other_profile),
+                "mechanism_source_sha256": __import__(
+                    "src.workflow_action.autonomous_runner", fromlist=["_mechanism_source_sha256"]
+                )._mechanism_source_sha256(Path(__file__).resolve().parents[1]),
+            }
+        ),
+        encoding="utf-8",
+    )
     with pytest.raises(AutonomousRunnerError, match="refuse overwrite"):
         AutonomousRunner(
             run_dir=other,
-            policy=_policy(),
-            profile=_profile(),
+            policy=other_policy,
+            profile=other_profile,
             objects=_base_objects(),
             user_home=tmp_path,
+            campaign_identity_path=other_identity,
+            base_state_hash="a" * 64,
         )
 
 
@@ -797,8 +917,8 @@ def test_needs_premise_search_finds_premise_then_commits(tmp_path, monkeypatch):
     assert terminal.status == "completed"
     assert terminal.committed_chapters == 1
     # premise 搜索 1 + plan 批次 1 + 4 版正文 + 12 次评审（三角色）+ 2 次证据锚定仲裁 = 20
-    assert terminal.usage.calls == 20
-    assert len(calls) == 20
+    assert terminal.usage.calls == 21
+    assert len(calls) == 21
     assert (run_dir / "premise.json").is_file()
     premise = json.loads((run_dir / "premise.json").read_text(encoding="utf-8"))
     assert premise["candidate_id"] == "premise-001"
@@ -829,6 +949,9 @@ def _two_chapter_policy() -> AutonomousPolicy:
 
 
 def test_long_horizon_drift_blocks_second_checkpoint(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        "src.boundary_control.reader_gate._style_drift_issues", lambda *args: []
+    )
     # T7.1/T7.2：ch1 检查点建立基线（pass），ch2 检查点正文重建 vs 滚动摘要对账——
     # 开放承诺 rem_001（神秘来信）从未在正文落地 → 漂移超阈值 → quality_exhausted。
     # 每章获胜版（甲方案）均不含「神秘来信」→ 承诺失落地。
@@ -859,6 +982,9 @@ def test_long_horizon_drift_blocks_second_checkpoint(tmp_path, monkeypatch):
 
 
 def test_long_horizon_grounded_promise_passes_and_continues(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        "src.boundary_control.reader_gate._style_drift_issues", lambda *args: []
+    )
     # T7 通过路径：开放承诺在正文落地 → 检查点 pass，滚动摘要以正文刷新，run 继续到
     # 章预算完成。承诺漂移为 false positive 时不应阻断生产。
     grounded = _PROSE2 + "\n神秘来信正是那封旧信。\n甲方案收束。"
@@ -976,24 +1102,139 @@ def test_seam_event_replay_blocks_chapter(tmp_path, monkeypatch):
 def test_full_accept_cycle_commits_chapter_and_records_usage(
     tmp_path, monkeypatch
 ):
-    runner, run_dir, _, _, calls = _make_runner(tmp_path, monkeypatch=monkeypatch)
+    from src.boundary_control.reader_gate import (
+        evaluate_commit_reader_gate as real_commit_reader_gate,
+    )
+    from src.object_state.factledger import FactEntry, FactLedger
+    from src.object_state.narrativestate import NarrativeState
+    from src.object_state.plotunit import PlotUnit
+
+    historical_payload = _minimal_continue_payload()["plotunit"]
+    historical_payload["unit_id"] = "pu_historical"
+    historical_payload["output_state_ref"] = "ns_001"
+    historical = PlotUnit.model_validate(historical_payload)
+    historical_fact_id = "f_historical"
+    objects = _base_objects() + [historical]
+    facts = next(obj for obj in objects if isinstance(obj, FactLedger))
+    facts.add_fact(
+        FactEntry(
+            fact_id=historical_fact_id,
+            statement="历史已提交事实",
+            fact_type="event",
+            confirmed=True,
+        )
+    )
+    first_plan = _minimal_continue_payload()
+    first_plan["new_facts"] = [
+        {
+            "fact_id": historical_fact_id,
+            "statement": "本章新增且内容不同的事实",
+            "fact_type": "event",
+            "confirmed": True,
+        }
+    ]
+    first_plan["new_state"]["current_facts_in_scope"] = [historical_fact_id]
+    plan_text = json.dumps(
+        {"candidates": [first_plan, _second_continue_payload()]}
+    )
+    captured_plotunits: list[str] = []
+
+    def capture_commit_reader_gate(**kwargs):
+        captured_plotunits.extend(
+            obj.unit_id
+            for obj in kwargs.get("causal_objects", [])
+            if isinstance(obj, PlotUnit)
+        )
+        return real_commit_reader_gate(**kwargs)
+
+    monkeypatch.setattr(
+        "src.workflow_action.autonomous_runner.evaluate_commit_reader_gate",
+        capture_commit_reader_gate,
+    )
+    runner, run_dir, _, _, calls = _make_runner(
+        tmp_path,
+        monkeypatch=monkeypatch,
+        objects=objects,
+        plan_text=plan_text,
+    )
     terminal = runner.run_until_terminal()
     assert terminal.status == "completed"
     assert terminal.committed_chapters == 1
     # plan 批次 1 + 4 版正文 + 12 次评审（三角色）+ 2 次证据锚定仲裁 = 19
-    assert terminal.usage.calls == 19
-    assert len(calls) == 19
+    assert terminal.usage.calls == 20
+    assert len(calls) == 20
     assert (runner.chapters_dir / "chapter_1.txt").is_file()
     assert (run_dir / "terminal.json").is_file()
     assert (run_dir / "run_manifest.json").is_file()
     assert (run_dir / "reader_gate_report.json").is_file()
+    from src.boundary_control.chapter_commit import ChapterCommitBoundary
+    from src.object_state.run_manifest import sha256_file
+
+    identity_path = run_dir.parent / "campaign_identity.json"
+    manifest = json.loads((run_dir / "run_manifest.json").read_text(encoding="utf-8"))
+    identity_rel = "output/campaign_identity.json"
+    assert manifest["campaign_identity_hash"] == sha256_file(identity_path)
+    assert manifest["artifacts"][identity_rel] == sha256_file(identity_path)
+    assert ChapterCommitBoundary(run_dir, runner.chapters_dir).recover().recognized
     # 提交正文与获胜候选（甲方案）draft 一致
     committed = (runner.chapters_dir / "chapter_1.txt").read_text(encoding="utf-8")
     assert committed.strip() == _PROSE_A.strip()
+    # 提交门禁只能审查最终选中计划；历史 PU 与候选循环末项均不得污染当前章。
+    assert captured_plotunits == ["pu_candidate"]
+    state = runner._serializer.load(run_dir / "state" / "state_package.json")
+    state_objects = runner._serializer.deserialize_package(state)
+    committed_facts = next(
+        obj for obj in state_objects if isinstance(obj, FactLedger)
+    )
+    fact_ids = [entry.fact_id for entry in committed_facts.entries]
+    remapped_fact_id = f"{historical_fact_id}__chapter_1"
+    assert fact_ids.count(historical_fact_id) == 1
+    assert remapped_fact_id in fact_ids
+    committed_state = next(
+        obj
+        for obj in state_objects
+        if isinstance(obj, NarrativeState) and obj.state_id == "ns_002"
+    )
+    assert committed_state.current_facts_in_scope == [remapped_fact_id]
+    frames = json.loads((run_dir / "state" / "frames.json").read_text(encoding="utf-8"))
+    consumed = next(frame for frame in frames if frame["frame_id"] == "scene_001")
+    assert consumed["target_plotunit_ids"] == ["pu_candidate"]
+    assert consumed["input_state_ref"] == "ns_001"
+    assert consumed["output_state_ref"] == "ns_002"
+    provenance = json.loads(
+        (run_dir / "chapter_provenance.json").read_text(encoding="utf-8")
+    )["chapters"]["chapter_1"]
+    assert provenance["active_frame_id"] == "scene_001"
+    assert provenance["next_active_frame_id"] == "scene_002"
+    assert provenance["next_active_formula_node"] == "inciting_incident"
+    assert provenance["review_evidence_hash"] == sha256_text(
+        json.dumps(
+            provenance["review_issues"], ensure_ascii=False, sort_keys=True
+        )
+    )
+    from src.experiment.pass_audit import classify_chapter
+
+    style_issue = next(
+        issue for issue in provenance["review_issues"]
+        if issue["issue_type"] == "style_drift"
+    )
+    classified = classify_chapter(
+        provenance["review_issues"],
+        [
+            {
+                "issue_type": "style_drift",
+                "location": style_issue["location"],
+                "severity": "low",
+                "evidence": "独立盲审复现同一轻度句式问题。",
+            }
+        ],
+    )
+    assert len(classified["matched"]) == 1
+    assert classified["missed"] == []
 
     # 审计：只存 SHA-256 与计数，绝不落正文/凭证/思维块
     audits = sorted((run_dir / "calls").glob("call_*.json"))
-    assert len(audits) == 19
+    assert len(audits) == 20
     role_counts = {}
     for path in audits:
         audit = json.loads(path.read_text(encoding="utf-8"))
@@ -1012,7 +1253,7 @@ def test_full_accept_cycle_commits_chapter_and_records_usage(
     assert role_counts["generation"] == 5  # plan 批次 1 + 正文 4
     assert role_counts["fact_judge"] == 4
     assert role_counts["character_judge"] == 4
-    assert role_counts["reader_judge"] == 6  # reader 评审 4 + 证据锚定仲裁 2
+    assert role_counts["reader_judge"] == 7  # 候选4 + canonical1 + Post-Prose1 + blind-final1
 
     # T6.1/T6.3/T6.4 选择证据：前沿 + 证据锚定仲裁 + 位置一致率落盘。
     selection = json.loads(
@@ -1037,6 +1278,32 @@ def test_full_accept_cycle_commits_chapter_and_records_usage(
     assert tournament["pairs"][0]["winner"] == "prose_pu_candidate_v1"
 
 
+def test_plan_invalid_state_refs_remapped_before_plan_gate(tmp_path, monkeypatch):
+    # 回归（S6 canary ch9 实测死锁）：temperature=0 下模型把全部候选的
+    # input_state_ref/output_state_ref 稳定抄成不存在的 id，计划硬闸（存在性
+    # 校验）反复全灭 → quality_exhausted 死循环。runner 必须在硬闸前把无效
+    # 引用确定性重映射到当前状态/候选新状态 id，候选照常过闸、流程与调用数
+    # 与正常路径完全一致。
+    runner, run_dir, _, _, calls = _make_runner(
+        tmp_path, monkeypatch=monkeypatch, install_fake=False
+    )
+    bad_a = _minimal_continue_payload()
+    bad_a["plotunit"]["input_state_ref"] = "ns_999_missing"
+    bad_a["plotunit"]["output_state_ref"] = "ns_998_missing"
+    bad_b = _second_continue_payload()
+    bad_b["plotunit"]["input_state_ref"] = "ns_999_missing"
+    bad_b["plotunit"]["output_state_ref"] = "ns_998_missing"
+    monkeypatch.setattr(
+        "src.provider_adapter.urllib.request.urlopen",
+        _fake_urlopen(calls, plan_text=json.dumps({"candidates": [bad_a, bad_b]})),
+    )
+    terminal = runner.run_until_terminal()
+    assert terminal.status == "completed"
+    assert terminal.committed_chapters == 1
+    assert terminal.usage.calls == 20
+    assert (runner.chapters_dir / "chapter_1.txt").is_file()
+
+
 def test_reject_path_quality_exhausted(tmp_path, monkeypatch):
     # JudgeClaim 返回 blocking 硬违例（带正文锚点）→ 全部正文候选 rejected →
     # quality_exhausted（硬分数不能由软轴抵消）。
@@ -1055,11 +1322,33 @@ def test_reject_path_quality_exhausted(tmp_path, monkeypatch):
     assert not (runner.chapters_dir / "chapter_1.txt").exists()
     assert not (run_dir / "run_manifest.json").exists()
 
+    # 同一拒绝测试覆盖获胜正文绝对质量地板，不新增收集项。
+    floor_dir = tmp_path / "post-floor"
+    floor_dir.mkdir()
+    runner2, run_dir2, _, _, calls2 = _make_runner(
+        floor_dir, monkeypatch=monkeypatch, install_fake=False
+    )
+    monkeypatch.setattr(
+        "src.provider_adapter.urllib.request.urlopen",
+        _fake_urlopen(calls2, post_review_blocking=True),
+    )
+    terminal2 = runner2.run_until_terminal()
+    assert terminal2.status == "quality_exhausted"
+    assert terminal2.terminal_reason == "post-prose absolute quality floor: block"
+    assert terminal2.committed_chapters == 0
+    assert not (runner2.chapters_dir / "chapter_1.txt").exists()
+    report = json.loads(
+        (run_dir2 / "post_prose_review.json").read_text(encoding="utf-8")
+    )
+    assert report["route"] == "block"
+    assert "generative_indicia" in {
+        issue["issue_type"] for issue in report["issues"]
+    }
+
 
 def test_tournament_position_bias_quality_exhausted(tmp_path, monkeypatch):
-    # T6.6 位置偏置夹具：仲裁恒命名「甲」并引当前甲槽位证据的锚点 → A/B 轮甲=v1、
-    # B/A 轮甲=v2 → 两轮命名不同正文 → 判别轮后仍不稳定 → 该对双方淘汰 → 无稳定
-    # 胜者 → quality_exhausted（不转人工）。换位测量下槽位命名仲裁必然暴露为 0.0。
+    # 底层仲裁恒选展示槽位甲；runner 只按正文 hash 做一次 canonical-order 仲裁，
+    # 再本地映射 AB/BA，因此槽位行为固定到同一内容而不能制造换位漂移。
     runner, run_dir, _, _, calls = _make_runner(
         tmp_path, monkeypatch=monkeypatch, install_fake=False
     )
@@ -1068,26 +1357,24 @@ def test_tournament_position_bias_quality_exhausted(tmp_path, monkeypatch):
         _fake_urlopen(calls, tournament_position_biased=True),
     )
     terminal = runner.run_until_terminal()
-    assert terminal.status == "quality_exhausted"
-    assert terminal.committed_chapters == 0
-    assert terminal.terminal_reason == "no stable pairwise winner on the Pareto frontier"
-    # plan 1 + 4 正文 + 12 评审 + 2 证据锚定仲裁（1 对，位置不一致，max_rounds=1）= 19
-    assert terminal.usage.calls == 19
-    assert not (runner.chapters_dir / "chapter_1.txt").exists()
+    assert terminal.status == "completed"
+    assert terminal.committed_chapters == 1
+    # plan1 + 正文4 + 评审12 + canonical仲裁1 + Post-Prose1 = 19
+    assert terminal.usage.calls == 20
+    assert (runner.chapters_dir / "chapter_1.txt").exists()
     tournament = json.loads(
         (run_dir / "tournament.json").read_text(encoding="utf-8")
     )["chapters"]["chapter_1"]
-    assert tournament["stable_winner"] is None
-    assert tournament["position_consistency_rate"] == 0.0
-    assert tournament["pairs"][0]["position_consistent"] is False
+    assert tournament["stable_winner"] is not None
+    assert tournament["position_consistency_rate"] == 1.0
+    assert tournament["pairs"][0]["position_consistent"] is True
     assert tournament["pairs"][0]["discriminator_rounds"] == 1
-    assert "A/B→A, B/A→A" in tournament["pairs"][0]["disagreement"]
     selection = json.loads(
         (run_dir / "candidate_selection.json").read_text(encoding="utf-8")
     )["chapters"]["chapter_1"]
-    assert selection["selected"] is None
-    assert selection["frontier"]  # 前沿存在，只是没有稳定胜者
-    assert not (run_dir / "run_manifest.json").exists()
+    assert selection["selected"] == tournament["stable_winner"]
+    assert selection["frontier"]
+    assert (run_dir / "run_manifest.json").exists()
 
 
 def test_provider_error_records_type_only_and_stops(tmp_path, monkeypatch):
@@ -1142,7 +1429,7 @@ def test_m1_judge_protocol_violation_single_call_terminal_no_pollution(tmp_path,
 
 
 def test_budget_exhaustion_halts_before_generation(tmp_path, monkeypatch):
-    # T6 投影一次候选 29 calls（plan 1 + 正文 4 + 三角色评审 12 + 淘汰赛上界 12）；
+    # 投影 30 calls（plan 1 + 正文 4 + 候选评审 12 + 淘汰赛上界 12 + Post-Prose 1）；
     # budget 只有 2 → 零调用终止
     runner, run_dir, _, _, calls = _make_runner(
         tmp_path,
@@ -1191,7 +1478,7 @@ def test_created_run_resumes_cleanly_and_continues(tmp_path, monkeypatch):
     terminal = runner2.run_until_terminal()
     assert terminal.status == "completed"
     assert terminal.committed_chapters == 1
-    assert terminal.usage.calls == 19
+    assert terminal.usage.calls == 20
 
 
 def test_absorb_commit_on_resume(tmp_path, monkeypatch):

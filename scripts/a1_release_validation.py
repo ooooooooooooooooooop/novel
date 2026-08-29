@@ -177,13 +177,34 @@ def privacy_scan() -> list[str]:
 
 def aggregate_canary() -> dict[str, Any]:
     """Aggregate three-genre 30-chapter canary evidence + run terminals."""
-    setup_manifest = _load_json(REPO_ROOT / "runtime" / "refs" / "t8_canary" / "setup_manifest.json")
-    genres = dict(setup_manifest.get("genres", {}))
+    cpa_policy = REPO_ROOT / "runtime" / "refs" / "cpa_active" / "canary_policy_s6_cpa.json"
+    if cpa_policy.exists():
+        policy = _load_json(cpa_policy)
+        canary_spec = dict(policy.get("canary", {}))
+        expected_each = int(canary_spec.get("chapters_per_genre", 0))
+        genres = {
+            str(genre_key): {"scenes": expected_each}
+            for genre_key in canary_spec.get("genres", [])
+        }
+    else:
+        setup_manifest = _load_json(
+            REPO_ROOT / "runtime" / "refs" / "t8_canary" / "setup_manifest.json"
+        )
+        genres = dict(setup_manifest.get("genres", {}))
+
+    current_dirs = {
+        "contemporary_officialdom": "s6-canary-offdom",
+        "mythic_fantasy": "s6-canary-mythic",
+        "historical_strategy": "s6-canary-hist",
+    }
     per_genre: dict[str, Any] = {}
     for genre_key, spec in genres.items():
         expected = int(spec.get("scenes", 0))
         runs: list[dict[str, Any]] = []
-        run_root = REPO_ROOT / "novels" / f"canary-{genre_key.replace('_', '-')}" / "output"
+        novel_dir = current_dirs.get(
+            genre_key, f"canary-{genre_key.replace('_', '-')}"
+        )
+        run_root = REPO_ROOT / "novels" / novel_dir / "output"
         if run_root.exists():
             for run_dir in sorted(p for p in run_root.iterdir() if p.is_dir()):
                 terminal = run_dir / "terminal.json"

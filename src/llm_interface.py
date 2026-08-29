@@ -848,7 +848,7 @@ class DirectAPIInterface(LLMInterface):
             raise ValueError("DirectAPI api_key changed during provider call")
         if current_provider_call is not provider_call:
             raise ValueError("DirectAPI provider_call changed during provider call")
-        if response.model != response_expected_model:
+        if not response.model.startswith(response_expected_model):
             raise ValueError(
                 f"DirectAPI response model mismatch: expected {response_expected_model}, "
                 f"got {response.model}"

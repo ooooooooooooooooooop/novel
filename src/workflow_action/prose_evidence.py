@@ -46,6 +46,11 @@ _META_TEXT_RE = re.compile(r"(上一章|本章|下一章|第[0-9一二三四五�
 # 章节标题（行首的「第N章」「第N回」是合法标题行，非元文本泄漏——CLAUDE.md
 # 章节正文保留标题行「第一章 开端」）
 _CHAPTER_TITLE_RE = re.compile(r"^第[0-9一二三四五六七八九十]+[章回]")
+# 「下文」后接章回体叙事习语 = 正常叙事（下文再表/下文自有分晓/下文如何/下文详见），
+# 不是生成/编辑过程文字。匹配从「下文」结束位置开始的叙事后缀。
+_NARRATIVE_AFTER_DOWN_WEN_RE = re.compile(
+    r"(再表|自有分晓|自有交代|自有分解|详见|如何|怎么|会发生|且听|自见分晓|自有下文|见分晓)"
+)
 
 # 实体状态动词 -> 规范化状态
 _STATUS_VERBS = {
@@ -248,6 +253,10 @@ def _extract_meta_text(text: str, seq: int) -> list[ProseEvidenceItem]:
         if m.start() == 0 or (m.start() > 0 and text[m.start() - 1] == "\n"):
             if _CHAPTER_TITLE_RE.match(text[m.start():]):
                 continue
+        # 「下文」在章回体中是标准叙事习语（下文再表/下文自有分晓/下文如何），
+        # 不是生成/编辑过程文字，跳过误杀。
+        if m.group(0) == "下文" and _NARRATIVE_AFTER_DOWN_WEN_RE.match(text, m.end()):
+            continue
         items.append(
             ProseEvidenceItem.new(
                 seq, "meta_text",

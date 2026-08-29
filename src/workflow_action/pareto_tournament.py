@@ -24,7 +24,7 @@ from typing import Callable, NamedTuple
 
 from src.object_state.judge_claim import claim_is_hard_violation, soft_axis_score
 from src.workflow_action.judge_council import SOFT_AXES
-from src.workflow_action.preference_review import parse_anchored_arbitration
+from src.workflow_action.preference_review import content_anchor_id
 from src.workflow_action.json_repair import parse_json
 
 # 匿名换位评审的严格输出：preferred ∈ {A, B, no_difference}。
@@ -37,6 +37,11 @@ class PairTournamentResult(NamedTuple):
     winner: str | None
     pairs: list[dict]
     position_consistency_rate: float
+
+
+def tournament_position_gate(result: PairTournamentResult, minimum: float) -> bool:
+    """任何剩余 winner 都必须同时满足冻结的全局换位一致率。"""
+    return result.winner is not None and result.position_consistency_rate >= minimum
 
 
 def pareto_frontier(
@@ -126,17 +131,19 @@ def build_anchored_pair_prompt(
     def _render(claims: list) -> str:
         lines: list[str] = []
         for claim in claims:
-            anchor_text = "；".join(a.excerpt for a in claim.anchors)
+            anchor_text = "；".join(
+                f"[{content_anchor_id(a.excerpt)}] {a.excerpt}" for a in claim.anchors
+            )
             lines.append(
                 f"- {claim.axis} / {claim.verdict} / {claim.severity}: "
-                f"{claim.rationale} | 锚点原文: {anchor_text}"
+                f"{claim.rationale} | 已验证锚点: {anchor_text}"
             )
         return "\n".join(lines) if lines else "（无判断）"
 
     return f"""【证据锚定仲裁】
 两个候选的章节正文都通过了独立单候选评审（带正文锚点），但评审证据未能直接分出高下。
-请你比较下面两份**评审证据**（逐条判断 + 正文锚点原文），并引用你裁定所依据的
-**决定性正文片段**来仲裁。
+请你比较下面两份**评审证据**（逐条判断 + 已验证锚点），并选择你裁定所依据的
+**决定性 anchor ID**来仲裁。
 
 {role_guide}{contract_section}
 
@@ -147,16 +154,16 @@ def build_anchored_pair_prompt(
 {_render(claims_y)}
 
 【裁定要求】
-1. preferred ∈ "A" / "B" / "no_difference"：哪个候选的正文更优。
-2. decisive_anchor：从你选中的候选**自己的正文**中引用一段决定性证据（excerpt 必须
-   逐字来自该候选正文，给 [char_start, char_end) 偏移）。preferred 为 "no_difference"
-   时 decisive_anchor 为 null。
-3. rationale：一句话理由。禁止捏造锚点。
+1. decision 只能是 "anchor" / "no_difference"。
+2. decision="anchor" 时 decisive_anchor_id 必须复制上方一个方括号中的 anchor ID；
+   禁止自造 ID、禁止重新引用正文、禁止按候选甲/乙槽位猜测。
+3. 无唯一决定性锚点时返回 no_difference 且 decisive_anchor_id=null。
+4. rationale：一句话理由。
 
 【输出格式】严格 JSON（只输出 JSON，不要 Markdown 代码块）：
 {{
-  "preferred": "A",
-  "decisive_anchor": {{"excerpt": "…", "char_start": 0, "char_end": 40}},
+  "decision": "anchor",
+  "decisive_anchor_id": "anc_0123456789abcdef",
   "rationale": "…"
 }}
 """

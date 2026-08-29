@@ -22,6 +22,7 @@ from src.workflow_action.pareto_tournament import (
     pareto_frontier,
     resolve_pair,
     selection_tournament,
+    tournament_position_gate,
 )
 
 _X = "prose_pu_candidate_v1"
@@ -367,7 +368,8 @@ class TestAnchoredPairPrompt:
         assert "【候选甲 评审证据】" in prompt
         assert "【候选乙 评审证据】" in prompt
         assert "主线在发展" in prompt and "读起来很费劲" in prompt
-        assert "decisive_anchor" in prompt
+        assert "decisive_anchor_id" in prompt
+        assert "[anc_" in prompt
 
     def test_no_candidate_identity_leaks(self):
         prompt = build_anchored_pair_prompt([_jc("a1", "progression", "satisfied")],
@@ -479,3 +481,11 @@ class TestSelectionTournamentAnchored:
         )
         assert result.winner is None
         assert result.position_consistency_rate == 0.0
+        mixed = selection_tournament(
+            [_X, _Y, "candidate_z"],
+            _anchored_judge(claims_by_id, lambda *a: "A"),
+            max_rounds=1,
+        )
+        assert mixed.winner == "candidate_z"  # 算法仍诚实报告剩余者
+        assert mixed.position_consistency_rate == 0.0
+        assert tournament_position_gate(mixed, 0.9) is False

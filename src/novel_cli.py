@@ -397,7 +397,48 @@ def _script_path(name: str) -> str:
     return str(PROJECT_ROOT / "src" / name)
 
 
+def _auto_or_staged(args: argparse.Namespace, flow_mode: str) -> int | None:
+    """S1（54 计划）：--auto 转发 A1 自动通路；返回 None 表示继续 staged 路径。
+
+    --auto 时调用既有 `_run_auto`（A1 承重墙，doc 48 §6 step 2）。
+    policy/profile 为 A1 冻结证据文件（gitignored），经环境变量
+    NOVEL_AUTO_POLICY / NOVEL_AUTO_PROFILE 提供；缺失时明确报错不静默。
+    """
+    if not getattr(args, "auto", False):
+        return None
+    if flow_mode not in ("extend", "compose"):
+        print("Error: audit 不支持 --auto（A1 自动通路仅支持 extend/compose 生成流）")
+        return 1
+    policy = os.environ.get("NOVEL_AUTO_POLICY", "")
+    profile = os.environ.get("NOVEL_AUTO_PROFILE", "")
+    if not policy or not profile:
+        print(
+            "Error: --auto 需要 A1 冻结证据 policy/profile 文件；"
+            "请设置环境变量 NOVEL_AUTO_POLICY 与 NOVEL_AUTO_PROFILE"
+        )
+        return 1
+    auto_args = argparse.Namespace(
+        novel=args.novel,
+        run_name="auto",
+        flow_mode=flow_mode,
+        candidates=1,
+        policy=policy,
+        profile=profile,
+        nsfw=getattr(args, "nsfw", "off"),
+        base_state=None,
+        base_frames=None,
+        source_text=getattr(args, "input", None),
+        reader_contract=None,
+        time_book=None,
+        style=getattr(args, "style", None),
+    )
+    return _run_auto(auto_args)
+
+
 def _run_audit(args: argparse.Namespace) -> int:
+    auto_result = _auto_or_staged(args, "audit")
+    if auto_result is not None:
+        return auto_result
     novel_dir = _novel_dir(args.novel)
     output_dir = _output_dir(novel_dir, "audit")
     _validate_long_options(args)
@@ -437,6 +478,9 @@ def _run_audit(args: argparse.Namespace) -> int:
 
 
 def _run_extend(args: argparse.Namespace) -> int:
+    auto_result = _auto_or_staged(args, "extend")
+    if auto_result is not None:
+        return auto_result
     novel_dir = _novel_dir(args.novel)
     output_dir = _output_dir(novel_dir, "extend")
     _validate_long_options(args)
@@ -482,6 +526,9 @@ def _run_extend(args: argparse.Namespace) -> int:
 
 
 def _run_compose(args: argparse.Namespace) -> int:
+    auto_result = _auto_or_staged(args, "compose")
+    if auto_result is not None:
+        return auto_result
     novel_dir = _novel_dir(args.novel)
     output_dir = _output_dir(novel_dir, "compose")
     if args.workspec:
@@ -885,6 +932,8 @@ def _run_auto(args: argparse.Namespace) -> int:
         args.policy,
         "--profile",
         args.profile,
+        "--campaign-identity",
+        args.campaign_identity,
         "--flow-mode",
         args.flow_mode,
         "--candidates",
@@ -2254,6 +2303,7 @@ def build_parser(*, emit_json_errors: bool = False) -> argparse.ArgumentParser:
 
     audit = subparsers.add_parser("audit", help="审核已有小说")
     audit.add_argument("novel", help="小说名")
+    audit.add_argument("--auto", action="store_true", help="委托 A1 自动执行通路")
     _add_input_argument(audit)
     _add_long_arguments(audit)
     audit.add_argument("--format", choices=["json", "markdown"], default="json", help="审核报告格式")
@@ -2262,6 +2312,7 @@ def build_parser(*, emit_json_errors: bool = False) -> argparse.ArgumentParser:
 
     extend = subparsers.add_parser("extend", help="续写已有小说")
     extend.add_argument("novel", help="小说名")
+    extend.add_argument("--auto", action="store_true", help="委托 A1 自动执行通路")
     _add_input_argument(extend)
     _add_long_arguments(extend)
     extend.add_argument("--style", help="引用风格库中的已有档案 <name>，注入续写 prompt")
@@ -2297,6 +2348,7 @@ def build_parser(*, emit_json_errors: bool = False) -> argparse.ArgumentParser:
 
     compose = subparsers.add_parser("compose", help="从 WorkSpec 创作")
     compose.add_argument("novel", help="小说名")
+    compose.add_argument("--auto", action="store_true", help="委托 A1 自动执行通路")
     compose.add_argument("--workspec", help="WorkSpec JSON 文件路径")
     compose.add_argument("--style", help="引用风格库中的已有档案 <name>，注入续写 prompt")
     compose.add_argument(
@@ -2438,6 +2490,10 @@ def build_parser(*, emit_json_errors: bool = False) -> argparse.ArgumentParser:
     auto_cmd.add_argument("--policy", required=True, help="冻结策略 JSON（AutonomousPolicy）")
     auto_cmd.add_argument("--profile", required=True, help="冻结 Provider 档案 JSON（ProviderProfile）")
     auto_cmd.add_argument("--base-state", default="", help="起始 SerializationPackage JSON（全新 run 必需）")
+    auto_cmd.add_argument(
+        "--campaign-identity", required=True,
+        help="novel/output/campaign_identity.json（A1 身份/基线哈希锁）",
+    )
     auto_cmd.add_argument("--base-frames", default="", help="起始 Frame 状态 JSON（缺省从 workspec 构建）")
     auto_cmd.add_argument("--source-text", default="", help="原书文本文件（extend 锚点/文风/去重用；空=compose）")
     auto_cmd.add_argument("--reader-contract", default="", help="ReaderContract JSON（可选）")

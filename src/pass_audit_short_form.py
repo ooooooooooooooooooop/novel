@@ -21,6 +21,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
+from src.boundary_control.chapter_commit import ChapterCommitBoundary
 from src.experiment.pass_audit import PassAuditUnit, load_pass_audit_results, summarize_pass_audit
 
 
@@ -49,7 +50,10 @@ def main() -> int:
     if args.limit:
         chapters = chapters[: args.limit]
     if args.sample:
-        chapters = random.sample(chapters, min(args.sample, len(chapters)))
+        chapters = sorted(
+            random.Random(0).sample(chapters, min(args.sample, len(chapters))),
+            key=_chapter_num,
+        )
     if not chapters:
         print(f"Error: no chapters in {chapters_dir}")
         return 1
@@ -119,11 +123,59 @@ def main() -> int:
 
 
 def _load_provenance(output_dir: Path) -> dict:
-    """读 output/chapter_provenance.json（无则返回空，回退全当前）."""
-    path = Path(output_dir) / "chapter_provenance.json"
-    if not path.exists():
-        return {}
-    return json.loads(path.read_text(encoding="utf-8")).get("chapters", {})
+    """只读取 recover 认可、review_route=pass、artifact hash 完整的提交 provenance."""
+    output_dir = Path(output_dir)
+
+    def accepted(run_dir: Path) -> tuple[int, dict] | None:
+        boundary = ChapterCommitBoundary(run_dir)
+        recovery = boundary.recover()
+        manifest = recovery.manifest
+        if (
+            not recovery.recognized
+            or manifest is None
+            or manifest.review_route != "pass"
+            or manifest.chapter_number is None
+        ):
+            return None
+        path = run_dir / "chapter_provenance.json"
+        rel = boundary._rel(path)
+        if rel not in manifest.artifacts or not path.is_file():
+            return None
+        data = json.loads(path.read_text(encoding="utf-8")).get("chapters", {})
+        key = f"chapter_{manifest.chapter_number}"
+        if key not in data:
+            return None
+        entry = data[key]
+        expected_review_hash = __import__("hashlib").sha256(
+            json.dumps(
+                entry.get("review_issues", []),
+                ensure_ascii=False,
+                sort_keys=True,
+            ).encode("utf-8")
+        ).hexdigest()
+        if entry.get("review_evidence_hash") != expected_review_hash:
+            return None
+        return manifest.chapter_number, {key: entry}
+
+    by_number: dict[int, dict] = {}
+    candidate_dirs = []
+    if (output_dir / "run_manifest.json").is_file():
+        candidate_dirs.append(output_dir)
+    candidate_dirs.extend(
+        sorted(path for path in output_dir.iterdir() if path.is_dir())
+    )
+    for run_dir in candidate_dirs:
+        item = accepted(run_dir)
+        if item is None:
+            continue
+        number, chapter = item
+        if number in by_number:
+            raise ValueError(f"multiple recover-recognized PASS runs for chapter_{number}")
+        by_number[number] = chapter
+    chapters: dict = {}
+    for number in sorted(by_number):
+        chapters.update(by_number[number])
+    return chapters
 
 
 def _print_summary(summary: dict) -> None:

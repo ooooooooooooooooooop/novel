@@ -1144,6 +1144,7 @@ def main() -> int:
                     reader_contract=reader_contract,
                     chapter_ref=f"chapter_{chapter_number}",
                     causal_objects=objects + [plotunit, new_state],
+                    require_campaign_evidence=False,
                 )
             )
             gate_package_hash = (
@@ -1151,14 +1152,24 @@ def main() -> int:
                 if gate_package is not None
                 else ""
             )
-            write_reader_gate_report(
-                output_dir,
-                gate_verdict,
-                chapter_ref=f"chapter_{chapter_number}",
-                package_hash=gate_package_hash,
-                reconcile_count=len(gate_reconcile_issues),
+            reader_gate_json = json.dumps(
+                {
+                    "schema_version": 1,
+                    "chapter_ref": f"chapter_{chapter_number}",
+                    "route": gate_verdict.route,
+                    "axes_armed": dict(gate_verdict.axes_armed),
+                    "reasons": gate_verdict.reasons,
+                    "issues": [i.model_dump(mode="json") for i in gate_verdict.issues],
+                    "reconcile_issue_count": len(gate_reconcile_issues),
+                    "facts_package_hash": gate_package_hash,
+                },
+                ensure_ascii=False,
+                indent=2,
             )
             if gate_verdict.route != "pass":
+                (output_dir / "reader_gate_report.json").write_text(
+                    reader_gate_json, encoding="utf-8"
+                )
                 set_run_status(
                     output_dir,
                     run_id=derive_run_id("compose", chapter_number),
@@ -1242,9 +1253,12 @@ def main() -> int:
                 frames_json=frames_json,
                 archive_text=draft_text,
                 provenance_json=prov_json,
+                reader_gate_report_json=reader_gate_json,
                 orchestration_state_json=orch_state_json,
                 orchestration_history_json=orch_hist_json,
-                prev_chapter_ref=None,
+                prev_chapter_ref=(
+                    f"chapter_{chapter_number - 1}" if chapter_number > 1 else None
+                ),
                 source_text_hash=model_content_hash(workspec),
                 facts_package_hash=gate_package_hash,
                 review_route=route,

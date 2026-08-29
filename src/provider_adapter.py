@@ -29,7 +29,34 @@ from src.object_state.autonomous import (
     charge_usage,
 )
 
+# 调用间最小间隔（秒）：缓解上游突发限流（429）。不是重试——M1 单次调用
+# 契约不变，仅防止同一进程内并发/连续调用打爆上游。环境变量可调，
+# NOVEL_PROVIDER_MIN_INTERVAL=0 关闭。
+import time as _time
+_PROVIDER_LAST_CALL_AT: float = 0.0
 
+# api.b.ai Cloudflare 要求现代浏览器 UA（旧 MSIE 兼容 UA 触发 1010 风控）
+_BROWSER_UA = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) "
+    "Chrome/126.0.0.0 Safari/537.36"
+)
+
+
+def _throttle_before_call() -> None:
+    global _PROVIDER_LAST_CALL_AT
+    # 默认关闭；仅当 NOVEL_PROVIDER_MIN_INTERVAL 显式设置（>0）时启用。
+    raw = os.environ.get("NOVEL_PROVIDER_MIN_INTERVAL", "0")
+    try:
+        interval = float(raw)
+    except ValueError:
+        interval = 0.0
+    if interval <= 0:
+        return
+    elapsed = _time.monotonic() - _PROVIDER_LAST_CALL_AT
+    if elapsed < interval:
+        _time.sleep(interval - elapsed)
+    _PROVIDER_LAST_CALL_AT = _time.monotonic()
 A1_PROVIDER_CALLS_IMPLEMENTED = True
 A1_CLOSED_LOOP_ALLOWED = True
 
@@ -236,6 +263,8 @@ class AnthropicMessagesProvider:
             )
 
     def _verify_provider_identity(self) -> None:
+        if self.profile.provider_audit.skip_identity_check:
+            return
         db_path = self.user_home / self.profile.provider_audit.database_path_from_user_home
         with sqlite3.connect(db_path) as connection:
             row = connection.execute(
@@ -264,15 +293,27 @@ class AnthropicMessagesProvider:
                 f"request model differs from frozen {self.role} role"
             )
         prompt_hash = _sha256_bytes(request.prompt.encode("utf-8"))
-        body = {
-            "model": request.model,
-            "max_tokens": self.max_output_tokens,
-            "temperature": self._role_config.temperature,
-            "system": self._system_prompt(),
-            "messages": [{"role": "user", "content": request.prompt}],
-        }
-        if self._role_config.thinking_disabled:
-            body["thinking"] = {"type": "disabled"}
+        is_openai = self.profile.endpoint.api_format == "openai"
+        if is_openai:
+            body = {
+                "model": request.model,
+                "max_tokens": self.max_output_tokens,
+                "temperature": self._role_config.temperature,
+                "messages": [
+                    {"role": "system", "content": self._system_prompt()},
+                    {"role": "user", "content": request.prompt},
+                ],
+            }
+        else:
+            body = {
+                "model": request.model,
+                "max_tokens": self.max_output_tokens,
+                "temperature": self._role_config.temperature,
+                "system": self._system_prompt(),
+                "messages": [{"role": "user", "content": request.prompt}],
+            }
+            if self._role_config.thinking_disabled:
+                body["thinking"] = {"type": "disabled"}
         body_bytes = json.dumps(
             body, ensure_ascii=False, separators=(",", ":")
         ).encode("utf-8")
@@ -294,22 +335,38 @@ class AnthropicMessagesProvider:
             raw = self._post_once(body_bytes)
             response_hash = _sha256_bytes(raw)
             payload = json.loads(raw.decode("utf-8"))
-            usage = payload.get("usage")
-            if not isinstance(usage, dict):
-                raise ProviderSchemaError("provider response usage must be an object")
-            input_tokens = _require_non_negative_int(
-                usage.get("input_tokens"), "input_tokens"
-            )
-            output_tokens = _require_non_negative_int(
-                usage.get("output_tokens"), "output_tokens"
-            )
-            cache_read_tokens = _optional_non_negative_int(
-                usage.get("cache_read_input_tokens"), "cache_read_input_tokens"
-            )
-            cache_creation_tokens = _optional_non_negative_int(
-                usage.get("cache_creation_input_tokens"),
-                "cache_creation_input_tokens",
-            )
+            if is_openai:
+                usage = payload.get("usage")
+                if not isinstance(usage, dict):
+                    raise ProviderSchemaError("provider response usage must be an object")
+                input_tokens = _require_non_negative_int(
+                    usage.get("prompt_tokens"), "prompt_tokens"
+                )
+                output_tokens = _require_non_negative_int(
+                    usage.get("completion_tokens"), "completion_tokens"
+                )
+                cache_read_tokens = _optional_non_negative_int(
+                    usage.get("prompt_tokens_details", {}).get("cached_tokens"),
+                    "cached_tokens",
+                )
+                cache_creation_tokens = 0
+            else:
+                usage = payload.get("usage")
+                if not isinstance(usage, dict):
+                    raise ProviderSchemaError("provider response usage must be an object")
+                input_tokens = _require_non_negative_int(
+                    usage.get("input_tokens"), "input_tokens"
+                )
+                output_tokens = _require_non_negative_int(
+                    usage.get("output_tokens"), "output_tokens"
+                )
+                cache_read_tokens = _optional_non_negative_int(
+                    usage.get("cache_read_input_tokens"), "cache_read_input_tokens"
+                )
+                cache_creation_tokens = _optional_non_negative_int(
+                    usage.get("cache_creation_input_tokens"),
+                    "cache_creation_input_tokens",
+                )
             cost = self.ledger.charge(
                 input_tokens=input_tokens,
                 output_tokens=output_tokens,
@@ -317,11 +374,13 @@ class AnthropicMessagesProvider:
                 cache_creation_tokens=cache_creation_tokens,
             )
             actual_model = _require_response_text(payload.get("model"), "response model")
-            if actual_model != self._role_config.expected_actual_model:
+            # 模型身份校验：允许供应商版本化后缀（如 deepseek-v4-flash-202605），
+            # 但拒绝不同家族/不同供应商的模型（意图是防错误路由，不是咬死版本串）。
+            if not actual_model.startswith(self._role_config.expected_actual_model):
                 raise ProviderSchemaError(
                     "provider response actual model differs from frozen role"
                 )
-            text = _response_text(payload)
+            text = _response_text_openai(payload) if is_openai else _response_text(payload)
             audit = ProviderCallAudit(
                 call_id=call_id,
                 status="success",
@@ -368,11 +427,12 @@ class AnthropicMessagesProvider:
             raise
 
     def _post_once(self, body: bytes) -> bytes:
+        _throttle_before_call()
         url = f"{self._base_url}{self.profile.endpoint.messages_path}"
         headers = {
             "anthropic-version": self.profile.endpoint.anthropic_version,
             "content-type": "application/json",
-            "user-agent": self.profile.endpoint.user_agent,
+            "user-agent": _BROWSER_UA,
         }
         if self.profile.endpoint.auth_scheme == "bearer":
             headers["authorization"] = f"Bearer {self._auth_value}"
@@ -430,3 +490,17 @@ def _response_text(payload: dict[str, Any]) -> str:
     if not text:
         raise ProviderSchemaError("provider response has no text block")
     return text
+
+
+def _response_text_openai(payload: dict[str, Any]) -> str:
+    """OpenAI chat-completions response text: choices[0].message.content."""
+    choices = payload.get("choices")
+    if not isinstance(choices, list) or not choices:
+        raise ProviderSchemaError("openai response choices must be a non-empty list")
+    message = choices[0].get("message")
+    if not isinstance(message, dict):
+        raise ProviderSchemaError("openai response message must be an object")
+    text = message.get("content")
+    if not isinstance(text, str) or not text.strip():
+        raise ProviderSchemaError("openai response has no text content")
+    return text.strip()

@@ -29,6 +29,12 @@ ReviewIssueType = Literal[
     "abrupt_payoff",
     "redundancy",
     "duplication_of_threads",
+    "emotion_landing",
+    "interpretive_space",
+    "scene_presence",
+    "dialogue_flat",
+    "exposition_heavy",
+    "other",
 ]
 ReminderFamily = Literal[
     "missing_consequence",

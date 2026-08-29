@@ -37,25 +37,47 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from src.llm_interface import DirectAPIInterface
-from src.object_state.autonomous import AutonomousPolicy, ProviderProfile
+from src.object_state.autonomous import (
+    AutonomousPolicy,
+    ProviderProfile,
+    canonical_model_sha256,
+)
 from src.provider_adapter import AnthropicMessagesProvider, AutonomousBudgetLedger
 from src.workflow_action.auto_calibrate import (
     compute_accuracy,
     freeze_quality_thresholds,
     load_frozen_preference_bench,
+    build_position_ledger,
     run_holdout,
     run_preference_judge,
 )
 from src.workflow_action.preference_review import (
     ReviewQualityExhaustedError,
+    _parse_json,
     build_anchored_arbitration_prompt,
     build_single_review_prompt,
     make_review_judge,
+    content_anchor_id,
     parse_anchored_arbitration,
     parse_single_review,
 )
 
 DEFAULT_ROLE = "reader_judge"
+_POSITION_SOURCE_FILES = (
+    "src/auto_calibrate_short_form.py",
+    "src/workflow_action/auto_calibrate.py",
+    "src/workflow_action/preference_review.py",
+    "src/object_state/autonomous.py",
+    "src/object_state/qualitythresholds.py",
+)
+
+
+def _position_source_sha256() -> str:
+    rows = [
+        f"{relative}:{_sha256_file(PROJECT_ROOT / relative)}"
+        for relative in _POSITION_SOURCE_FILES
+    ]
+    return hashlib.sha256("\n".join(rows).encode("utf-8")).hexdigest()
 
 
 def _load_json_model(path: str, model):
@@ -106,6 +128,11 @@ def main() -> int:
         "--skip-holdout",
         action="store_true",
         help="只跑 calibration（Phase 1 门禁：calibration 达标后才允许消耗一次性 holdout）",
+    )
+    parser.add_argument(
+        "--position-only",
+        action="store_true",
+        help="只读冻结 holdout 做换位台账；不校准、不冻结或修改阈值",
     )
     args = parser.parse_args()
 
@@ -188,6 +215,36 @@ def main() -> int:
                 text, candidate_ref=candidate_ref, response=response, role=role
             )
         except ValueError as exc:
+            if args.position_only and "fabricated anchor" in str(exc):
+                try:
+                    data = _parse_json(text)
+                    digest = data.get("content_digest")
+                    confidence = data.get("overall_confidence")
+                    rating = data.get("experience_rating")
+                    if (
+                        isinstance(digest, str)
+                        and digest.strip()
+                        and isinstance(confidence, (int, float))
+                        and 0 <= confidence <= 1
+                        and (rating is None or isinstance(rating, (int, float)))
+                    ):
+                        from src.object_state.preference_review import SingleCandidateReview
+
+                        return SingleCandidateReview(
+                            review_id=candidate_ref,
+                            content_digest=digest,
+                            claims=[],
+                            experience_rating=(
+                                int(rating)
+                                if isinstance(rating, (int, float)) and 1 <= rating <= 5
+                                else None
+                            ),
+                            overall_confidence=float(confidence),
+                            abstain=True,
+                            abstain_reason="anchor validation failed; no verified claim retained",
+                        )
+                except (ValueError, TypeError):
+                    pass
             raise ReviewQualityExhaustedError(str(exc)) from exc
 
     def arbitrate(prompt, r_chosen, r_rejected, response_chosen, response_rejected, role: str):
@@ -210,8 +267,16 @@ def main() -> int:
             return parse_anchored_arbitration(
                 text,
                 pair_id=r_chosen.review_id,
-                response_a=response_chosen,
-                response_b=response_rejected,
+                anchor_ids_a={
+                    content_anchor_id(anchor.excerpt)
+                    for claim in r_chosen.claims
+                    for anchor in claim.anchors
+                },
+                anchor_ids_b={
+                    content_anchor_id(anchor.excerpt)
+                    for claim in r_rejected.claims
+                    for anchor in claim.anchors
+                },
             )
         except ValueError as exc:
             raise ReviewQualityExhaustedError(str(exc)) from exc
@@ -229,6 +294,71 @@ def main() -> int:
         )
 
     judge_pair = make_review_judge(review_candidate, arbitrate)
+
+    if args.position_only:
+        sample = args.position_sample or 12
+        try:
+            ledger_rows = build_position_ledger(
+                holdout_pairs, judge_pair, role=args.role, sample=sample
+            )
+        except Exception as exc:
+            print(f"Error: position-only 失败: {type(exc).__name__}")
+            return 1
+        total = len(ledger_rows)
+        consistent = sum(1 for row in ledger_rows if row["position_consistent"])
+        protocol_failures = sum(1 for row in ledger_rows if not row["protocol_valid"])
+        rate = round(consistent / total, 4) if total else 0.0
+        minimum = policy.evaluation.pairwise_position_consistency_min
+        pair_ledger_sha256 = hashlib.sha256(
+            json.dumps(
+                ledger_rows,
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode("utf-8")
+        ).hexdigest()
+        call_audits = [
+            {
+                "name": path.name,
+                "sha256": _sha256_file(path),
+            }
+            for path in sorted((output_dir / "calls").glob("call_*.json"))
+        ]
+        call_audit_sha256 = hashlib.sha256(
+            json.dumps(
+                call_audits,
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode("utf-8")
+        ).hexdigest()
+        result = {
+            "schema_version": 3,
+            "mode": "position_only",
+            "role": args.role,
+            "sample_strategy": "deterministic_stratified_by_tag",
+            "requested_sample": sample,
+            "policy_id": policy.policy_id,
+            "policy_sha256": canonical_model_sha256(policy),
+            "profile_id": profile.profile_id,
+            "profile_sha256": canonical_model_sha256(profile),
+            "position_source_sha256": _position_source_sha256(),
+            "preference_source_sha256": _sha256_file(bench),
+            "preference_split_manifest_sha256": _sha256_file(split),
+            "n_pairs": total,
+            "position_consistency": rate,
+            "minimum": minimum,
+            "protocol_failures": protocol_failures,
+            "met": rate >= minimum and protocol_failures == 0,
+            "pair_ledger_sha256": pair_ledger_sha256,
+            "call_audit_sha256": call_audit_sha256,
+            "call_audits": call_audits,
+            "pairs": ledger_rows,
+        }
+        output_dir.joinpath("position_consistency.json").write_text(
+            json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+        return 0 if result["met"] else 1
 
     # ---- 1. calibration：跑评审 → 准确率 → 冻结阈值（唯一来源 = calibration）。
     try:

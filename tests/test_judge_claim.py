@@ -20,6 +20,7 @@ from src.object_state.judge_claim import (
     claim_is_hard_violation,
     soft_axis_score,
 )
+from src.workflow_action.autonomous_runner import _violated_claim_issues
 from src.workflow_action.judge_council import (
     HARD_AXES,
     SOFT_AXES,
@@ -240,9 +241,36 @@ class TestParseJudgeClaims:
         assert claim.generator_source == "reader_judge"  # 运行层注入，评审无法自报
         assert claim.anchors[0].chapter_ref == "chapter_1"
         assert claim.precommit_id == "precommit_plan_0001"
+        violated = _parse(
+            claims=[
+                _claim_json(
+                    axis="language_distinctiveness",
+                    verdict="violated",
+                    severity="advisory",
+                    rationale="句式趋同。",
+                )
+            ],
+            require_role_axis=True,
+        )[0]
+        assert _violated_claim_issues([violated]) == [
+            {
+                "issue_id": "cl_001",
+                "issue_type": "style_drift",
+                "severity": "low",
+                "location": _PROSE[0:12],
+                "description": "句式趋同。",
+            }
+        ]
 
     def test_empty_claims_allowed(self):
         assert _parse(claims=[]) == []
+        with pytest.raises(ValueError, match="at least one registered-axis"):
+            _parse(claims=[], require_role_axis=True)
+        with pytest.raises(ValueError, match="not allowed for reader_judge"):
+            _parse(
+                claims=[_claim_json(axis="fact_conflict")],
+                require_role_axis=True,
+            )
 
     def test_non_object_top_level_rejected(self):
         with pytest.raises(ValueError, match="only 'claims'"):

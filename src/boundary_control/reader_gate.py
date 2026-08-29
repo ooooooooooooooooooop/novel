@@ -24,7 +24,16 @@ from src.object_state.readercontract import ReaderContract
 from src.object_state.readerreport import ReaderExperienceReport
 from src.object_state.reviewissue import ReviewIssue
 from src.object_state.serialreader import SerialReaderReport
-from src.workflow_action.prose_evidence import extract_prose_evidence
+from src.workflow_action.prose_evidence import (
+    extract_prose_evidence,
+    opening_signature,
+    split_sentences,
+)
+from src.experiment.style_drift import measure_text
+from src.workflow_action.semantic_seam import (
+    detect_event_replay,
+    extract_event_fingerprints,
+)
 from src.workflow_action.prose_reconcile import (
     _conclusion_core,
     build_trusted_snapshot,
@@ -34,6 +43,15 @@ from src.workflow_action.prose_reconcile import (
 
 # 单章报告的关键读者维度（weak 不得提交，可经 prose revise 修订）
 KEY_READER_DIMENSIONS = frozenset({"hook", "payoff", "presence", "emotion"})
+STYLE_DRIFT_MAX_RATIO = 1.2
+_STYLE_AI_KEYS = (
+    "realization_per_1k",
+    "not_a_but_b_per_1k",
+    "body_reaction_per_1k",
+    "explanatory_ending_per_1k",
+    "metaphor_per_1k",
+    "symmetric_per_1k",
+)
 
 # 窗口报告 objective 维（客观硬错误 → block）
 OBJECTIVE_SERIAL_DIMENSIONS = frozenset(
@@ -97,6 +115,131 @@ def _repeated_loop_second_issues(
                 f"同一闭环连续第二次被重新完成，读者感到原地踏步"
             ),
             suggested_fix="保留一次，其余改为行为/后果落地，或让角色真正行动",
+        )
+    ]
+
+
+def _normalize_signature(text: str) -> str:
+    return "".join(ch for ch in text if ch.isalnum())
+
+
+def _window_replay_issues(
+    draft_text: str,
+    prev_chapters: list[str],
+    chapter_ref: str,
+    entity_names: list[str] | None = None,
+) -> list[ReviewIssue]:
+    """最近五章的场景事件与开头/结尾签名不得被当前章原样重演。"""
+    if not prev_chapters:
+        return []
+    prev_chapters = prev_chapters[-4:]  # 窗口定义：当前章 + 最近四个已提交章
+    issues: list[ReviewIssue] = []
+    draft_number = _chapter_num(Path(f"{chapter_ref or 'chapter_1'}.txt"))
+    entities = entity_names or []
+    prior_events = []
+    for offset, chapter in enumerate(prev_chapters, start=draft_number - len(prev_chapters)):
+        prior_events.extend(
+            extract_event_fingerprints(
+                chapter,
+                chapter_number=max(1, offset),
+                entities=entities,
+                position="middle",
+            )
+        )
+    current_events = extract_event_fingerprints(
+        draft_text,
+        chapter_number=draft_number,
+        entities=entities,
+        position="middle",
+    )
+    replay = detect_event_replay(prior_events, current_events, window=4)
+    if replay:
+        issues.append(
+            ReviewIssue(
+                issue_id="iss_q4_window_scene_replay",
+                issue_type="redundancy",
+                severity="blocking",
+                location=f"{chapter_ref} 全章",
+                scope_of_impact="最近五章场景进展",
+                violated_rule="最近五章不得重演同一确证事件而无新状态变化",
+                description=replay[0].description,
+                suggested_fix="删除重演，改写为该事件造成的新选择、代价或结果",
+            )
+        )
+
+    draft_opening = _normalize_signature(opening_signature(draft_text))
+    draft_ending = _normalize_signature("".join(split_sentences(draft_text)[-2:]))
+    prior_openings = {
+        _normalize_signature(opening_signature(chapter)) for chapter in prev_chapters
+    }
+    prior_endings = {
+        _normalize_signature("".join(split_sentences(chapter)[-2:]))
+        for chapter in prev_chapters
+    }
+    if draft_opening and len(draft_opening) >= 12 and draft_opening in prior_openings:
+        issues.append(
+            ReviewIssue(
+                issue_id="iss_q4_window_opening_replay",
+                issue_type="redundancy",
+                severity="blocking",
+                location=f"{chapter_ref} 开头",
+                scope_of_impact="最近五章场景进展",
+                violated_rule="最近五章不得原样复用同一开场",
+                description=f"本章开头签名『{draft_opening[:24]}…』已在最近四章出现",
+                suggested_fix="从新的时间、地点、行动或冲突落点开场",
+            )
+        )
+    if draft_ending and len(draft_ending) >= 12 and draft_ending in prior_endings:
+        issues.append(
+            ReviewIssue(
+                issue_id="iss_q4_window_ending_replay",
+                issue_type="redundancy",
+                severity="blocking",
+                location=f"{chapter_ref} 结尾",
+                scope_of_impact="最近五章结尾推进",
+                violated_rule="最近五章不得原样复用同一结尾",
+                description=f"本章结尾签名『{draft_ending[:24]}…』已在最近四章出现",
+                suggested_fix="让章末落在新的行动、代价、信息或未决选择上",
+            )
+        )
+    return issues
+
+
+def _ai_indicia_density(text: str) -> float:
+    metrics = measure_text(text)["ai"]
+    return sum(float(metrics[key]) for key in _STYLE_AI_KEYS)
+
+
+def _style_drift_issues(
+    draft_text: str, prev_chapters: list[str], chapter_ref: str
+) -> list[ReviewIssue]:
+    """冻结 S7 within-run 口径：累计均值不得超过首章 AI indicia 的 1.2 倍。"""
+    if not prev_chapters:
+        return []
+    baseline = _ai_indicia_density(prev_chapters[0])
+    densities = [_ai_indicia_density(chapter) for chapter in prev_chapters]
+    densities.append(_ai_indicia_density(draft_text))
+    mean_density = sum(densities) / len(densities)
+    ratio = (
+        mean_density / baseline
+        if baseline > 0
+        else (1.0 if mean_density == 0 else float("inf"))
+    )
+    if ratio <= STYLE_DRIFT_MAX_RATIO:
+        return []
+    return [
+        ReviewIssue(
+            issue_id="iss_q4_style_drift_within",
+            issue_type="style_drift",
+            severity="blocking",
+            location=f"{chapter_ref} 全章",
+            scope_of_impact="同一 campaign 文风稳定性",
+            violated_rule="累计 AI indicia density / 首章 baseline 不得超过 1.2",
+            description=(
+                f"当前累计风格漂移比 {ratio:.4f} 超过冻结上限 "
+                f"{STYLE_DRIFT_MAX_RATIO:.1f}"
+            ),
+            suggested_fix="重写当前章，减少解释性收尾、模板化对称句与机械身体反应",
         )
     ]
 
@@ -220,6 +363,9 @@ class ReaderQualityGatePolicy:
         serial_report: Optional[SerialReaderReport] = None,
         reader_contract: Optional[ReaderContract] = None,
         chapter_ref: str = "",
+        entity_names: Optional[list[str]] = None,
+        style_chapters: Optional[list[str]] = None,
+        enforce_style_drift: bool = False,
     ) -> ReaderGateVerdict:
         reconcile_issues = reconcile_issues or []
         prev_chapters = prev_chapters or []
@@ -255,7 +401,27 @@ class ReaderQualityGatePolicy:
             issues.extend(loop_issues)
             reasons.append("重复闭环第二次出现（与上一章同一顿悟核心）")
 
-        # c) 契约漂移（正文层子串，确定性）
+        # c) 最近五章场景/开头/结尾重演（确定性）
+        replay_issues = _window_replay_issues(
+            draft_text, prev_chapters, chapter_ref, entity_names
+        )
+        if replay_issues:
+            issues.extend(replay_issues)
+            reasons.append(f"最近五章重演 {len(replay_issues)} 项")
+
+        # d) within-run style drift（首章冻结 baseline，S7 阈值 1.2）
+        style_issues = (
+            _style_drift_issues(
+                draft_text, style_chapters or prev_chapters, chapter_ref
+            )
+            if enforce_style_drift
+            else []
+        )
+        if style_issues:
+            issues.extend(style_issues)
+            reasons.append("累计 style drift 超过冻结上限 1.2")
+
+        # e) 契约漂移（正文层子串，确定性）
         drift_issues = _contract_drift_issues(draft_text, reader_contract, chapter_ref)
         if drift_issues:
             issues.extend(drift_issues)
@@ -270,6 +436,22 @@ class ReaderQualityGatePolicy:
         ser_objective, ser_aesthetic, ser_reasons = _serial_finding_issues(
             serial_report, chapter_ref
         )
+        if serial_report is not None and serial_report.overall == "weak" and not (
+            ser_objective or ser_aesthetic
+        ):
+            ser_objective.append(
+                ReviewIssue(
+                    issue_id="iss_q4_serial_overall_weak",
+                    issue_type="weak_progression",
+                    severity="blocking",
+                    location=f"{chapter_ref} 窗口",
+                    scope_of_impact="连续阅读12维总体",
+                    violated_rule="SerialReader overall=weak 不得提交",
+                    description="连续阅读总体为 weak，但评审未给出可执行 finding",
+                    suggested_fix="重新评审并重写导致总体 weak 的连续阅读问题",
+                )
+            )
+            ser_reasons.append("连续阅读总体 weak")
         issues.extend(ser_objective)
         issues.extend(ser_aesthetic)
         reasons.extend(ser_reasons)
@@ -321,6 +503,21 @@ def load_recent_chapters(chapters_dir: Path, n: int) -> list[str]:
         return []
     files = sorted(chapters_dir.glob("chapter_*.txt"), key=_chapter_num)
     return [_read_text(p) for p in files[-n:]]
+
+
+def load_contiguous_chapter_history(
+    chapters_dir: Path,
+) -> tuple[list[str], list[str]]:
+    """加载 chapter_1..chapter_N；缺 chapter1、跳号或重号一律拒绝。"""
+    if not chapters_dir.exists():
+        return [], []
+    files = sorted(chapters_dir.glob("chapter_*.txt"), key=_chapter_num)
+    numbers = [_chapter_num(path) for path in files]
+    if numbers and numbers != list(range(1, len(numbers) + 1)):
+        raise ValueError(
+            "committed chapter history must be exactly continuous from chapter_1"
+        )
+    return [_read_text(path) for path in files], [path.stem for path in files]
 
 
 def _labels_from_characters(characters: list) -> dict[str, list[str]]:
@@ -400,6 +597,8 @@ def evaluate_commit_reader_gate(
     reader_contract: Optional[ReaderContract] = None,
     chapter_ref: str = "",
     causal_objects: Optional[list] = None,
+    serial_report_override: Optional[SerialReaderReport] = None,
+    require_campaign_evidence: bool,
 ) -> tuple[ReaderGateVerdict, Optional[object], list[ReviewIssue]]:
     """提交点门禁链：ProseEvidence 提取 → 跨章 Reconcile → 长程因果防线 → 门禁策略.
 
@@ -422,7 +621,20 @@ def evaluate_commit_reader_gate(
     )
 
     # 2. 跨章 Reconcile（单章硬一致性 + 窗口核对）
-    prev_chapters = load_recent_chapters(chapters_dir, n=4)
+    if require_campaign_evidence:
+        style_chapters, style_refs = load_contiguous_chapter_history(chapters_dir)
+        expected_chapter_ref = f"chapter_{len(style_chapters) + 1}"
+        if chapter_ref and chapter_ref != expected_chapter_ref:
+            raise ValueError(
+                f"draft chapter_ref {chapter_ref} does not follow continuous history "
+                f"ending at chapter_{len(style_chapters)}"
+            )
+    else:
+        style_chapters = load_recent_chapters(chapters_dir, n=1 << 20)
+        style_refs = [
+            f"chapter_{index}" for index in range(1, len(style_chapters) + 1)
+        ]
+    prev_chapters = style_chapters[-4:]
     trusted = build_trusted_snapshot(
         fact_ledger=facts,
         character_model=(characters[0] if characters else None),
@@ -449,6 +661,40 @@ def evaluate_commit_reader_gate(
     reader_report, serial_report = load_reader_reports(
         output_dir.parent / "reader_experience", chapter_ref
     )
+    if serial_report_override is not None:
+        serial_report = serial_report_override
+    required_serial_window = 5 if len(style_chapters) >= 4 else (
+        3 if len(style_chapters) >= 2 else None
+    )
+    if require_campaign_evidence and required_serial_window is not None:
+        expected_refs = (
+            style_refs[-(required_serial_window - 1):] + [chapter_ref]
+        )
+        serial_valid = (
+            serial_report is not None
+            and serial_report.window == required_serial_window
+            and serial_report.review_target == chapter_ref
+            and serial_report.chapter_refs == expected_refs
+        )
+        if not serial_valid:
+            serial_report = None
+            reconcile_issues = list(reconcile_issues) + [
+                ReviewIssue(
+                    issue_id="iss_q4_serial_required_unarmed",
+                    issue_type="weak_progression",
+                    severity="blocking",
+                    location=f"{chapter_ref} 窗口",
+                    scope_of_impact="连续阅读12维证据完整性",
+                    violated_rule=(
+                        f"chapter_{len(style_chapters) + 1} 提交必须武装 "
+                        f"window={required_serial_window} 的连续读者报告"
+                    ),
+                    description=(
+                        "SerialReader 报告缺失、非法或 chapter_refs 与真实连续历史不匹配"
+                    ),
+                    suggested_fix="生成匹配真实连续章号的在线 SerialReader 报告后再提交",
+                )
+            ]
     verdict = ReaderQualityGatePolicy().evaluate(
         draft_text=draft_text,
         reconcile_issues=reconcile_issues,
@@ -457,6 +703,9 @@ def evaluate_commit_reader_gate(
         serial_report=serial_report,
         reader_contract=reader_contract,
         chapter_ref=chapter_ref,
+        entity_names=[label for values in labels.values() for label in values],
+        style_chapters=style_chapters,
+        enforce_style_drift=require_campaign_evidence,
     )
     return verdict, package, reconcile_issues
 

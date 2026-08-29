@@ -128,7 +128,7 @@ class QualityThresholds(BaseModel):
         ge=0.0, le=1.0, description="holdout 分类型准确率下界（预注册）"
     )
     position_consistency_min: float = Field(
-        ge=0.0, le=1.0, description="holdout A/B 换位稳定率下界（预注册）"
+        ge=0.9, le=1.0, description="holdout A/B 换位稳定率下界（预注册）"
     )
     calibration_stats: AccuracyReport = Field(
         description="calibration 划分观察统计（阈值的证据基础）"

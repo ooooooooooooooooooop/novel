@@ -18,6 +18,7 @@ holdout 验证；阈值冻结后不得根据 holdout 调整（T7.6）。
 from __future__ import annotations
 
 import hashlib
+import hashlib
 import json
 import math
 from pathlib import Path
@@ -393,6 +394,55 @@ def _stratified_position_sample(
         if not progressed:
             break
     return selected
+
+
+def build_position_ledger(
+    pairs: list[PreferencePair],
+    judge_fn,
+    *,
+    role: str = "reader_judge",
+    sample: int | None = None,
+) -> list[dict]:
+    """逐对 AB/BA 台账；协议失败保留在分母并显式标 protocol_valid=false."""
+    if sample is not None and sample > 0:
+        pairs = _stratified_position_sample(pairs, sample)
+    ledger: list[dict] = []
+    for pair in pairs:
+        row = {
+            "prompt_id": pair.prompt_id,
+            "tag": pair.tag,
+            "chosen_sha256": hashlib.sha256(pair.chosen.encode("utf-8")).hexdigest(),
+            "rejected_sha256": hashlib.sha256(pair.rejected.encode("utf-8")).hexdigest(),
+            "pref_ab": "unreviewable",
+            "pref_ba": "unreviewable",
+            "position_consistent": False,
+            "protocol_valid": False,
+        }
+        try:
+            row["stage"] = "ab"
+            row["pref_ab"] = judge_fn(pair, role)
+            swapped_pair = PreferencePair(
+                prompt_id=pair.prompt_id,
+                tag=pair.tag,
+                prompt=pair.prompt,
+                chosen=pair.rejected,
+                rejected=pair.chosen,
+                split=pair.split,
+                bucket=pair.bucket,
+            )
+            row["stage"] = "ba"
+            row["pref_ba"] = judge_fn(swapped_pair, role)
+            row["stage"] = "complete"
+            row["protocol_valid"] = True
+            row["position_consistent"] = (row["pref_ab"], row["pref_ba"]) in (
+                ("A", "B"),
+                ("B", "A"),
+            )
+        except ReviewQualityExhaustedError as exc:
+            row["error_type"] = type(exc).__name__
+            row["error"] = str(exc)[:240]
+        ledger.append(row)
+    return ledger
 
 
 def measure_position_consistency(

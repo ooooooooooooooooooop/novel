@@ -35,6 +35,7 @@ from src.object_state.autonomous import (
     ProviderProfile,
 )
 from src.object_state.readercontract import ReaderContract
+from src.object_state.run_manifest import sha256_file
 from src.object_state.timebook import TimeBook
 from src.workflow_action.autonomous_runner import AutonomousRunner, AutonomousRunnerError
 from src.workflow_action.style import StyleProfile
@@ -59,6 +60,10 @@ def main() -> int:
     parser.add_argument("--profile", required=True, help="冻结 Provider 档案 JSON（ProviderProfile）")
     parser.add_argument("--base-state", default="", help="起始 SerializationPackage JSON（全新 run 必需）")
     parser.add_argument("--base-frames", default="", help="起始 Frame 状态 JSON（缺省从 workspec 构建）")
+    parser.add_argument(
+        "--campaign-identity", required=True,
+        help="novel/output/campaign_identity.json（A1 身份/基线哈希锁）",
+    )
     parser.add_argument("--source-text", default="", help="原书文本文件（extend 锚点/文风/去重用；空=compose）")
     parser.add_argument("--reader-contract", default="", help="ReaderContract JSON（可选）")
     parser.add_argument("--time-book", default="", help="TimeBook JSON（可选）")
@@ -71,6 +76,10 @@ def main() -> int:
     run_dir = Path(args.run_dir).resolve()
     policy = _load_json_model(args.policy, AutonomousPolicy)
     profile = _load_json_model(args.profile, ProviderProfile)
+    campaign_identity_path = Path(args.campaign_identity).resolve()
+    if not campaign_identity_path.is_file():
+        print(f"Error: campaign identity not found: {campaign_identity_path}")
+        return 1
     if policy.provider_profile_id != profile.profile_id:
         print(
             f"Error: policy.provider_profile_id ({policy.provider_profile_id}) "
@@ -130,6 +139,10 @@ def main() -> int:
             nsfw_on=(args.nsfw == "on"),
             initial_candidates_remaining=args.candidates,
             flow_mode=args.flow_mode,
+            campaign_identity_path=campaign_identity_path,
+            base_state_hash=(
+                sha256_file(Path(args.base_state)) if fresh else None
+            ),
         )
     except AutonomousRunnerError as exc:
         print(f"Error: {exc}")
@@ -159,6 +172,10 @@ def main() -> int:
     if terminal.status == "execution_failed":
         print("\nExecution failed: run did not reach a legitimate stop; "
               "check the failure reason (error type only, no details).")
+        return 1
+    if terminal.status == "quality_exhausted":
+        print("\nQuality exhausted: all candidates failed quality gates; "
+              "no chapter committed (run-level retry required).")
         return 1
     return 0
 

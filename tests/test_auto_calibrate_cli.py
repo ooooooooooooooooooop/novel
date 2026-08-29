@@ -335,16 +335,11 @@ def _fake_arbitration_response(prompt: str, prefer_marker: str):
     evidence = _section(
         prompt, evidence_header, ["【候选甲 内容摘要】", "【候选乙 内容摘要】"]
     )
-    match = re.search(r"锚点原文: ([^\n]+)", evidence)
-    assert match, "arbitration evidence must contain 锚点原文"
-    excerpt = match.group(1).strip()
+    match = re.search(r"\[(anc_[0-9a-f]+)\]", evidence)
+    assert match, "arbitration evidence must contain content anchor id"
     payload = {
-        "preferred": preferred,
-        "decisive_anchor": {
-            "excerpt": excerpt,
-            "char_start": 0,
-            "char_end": len(excerpt),
-        },
+        "decision": "anchor",
+        "decisive_anchor_id": match.group(1),
         "rationale": "测试注入仲裁。",
     }
     return _Response(_success_payload(json.dumps(payload, ensure_ascii=False)))

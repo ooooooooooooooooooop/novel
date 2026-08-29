@@ -9,6 +9,7 @@ compose/extend 的 PlotUnit 只产出结构，不产出正文（frame.py 明确
 不写 chapters/），prompt 字节不变。
 """
 
+import hashlib
 import json
 from pathlib import Path
 
@@ -301,6 +302,9 @@ def build_chapter_provenance_entry(
     expansion_required: bool | None = None,
     active_frame_id: str | None = None,
     active_formula_node: str | None = None,
+    next_active_frame_id: str | None = None,
+    next_active_formula_node: str | None = None,
+    review_evidence_hash: str | None = None,
 ) -> dict:
     """纯函数：构建单章 provenance 条目（不落盘）。
 
@@ -318,6 +322,12 @@ def build_chapter_provenance_entry(
             "location": d.get("location"),
             "description": d.get("description"),
         })
+    if review_evidence_hash is None:
+        review_evidence_hash = hashlib.sha256(
+            json.dumps(
+                issues, ensure_ascii=False, sort_keys=True
+            ).encode("utf-8")
+        ).hexdigest()
     return {
         "chapter_number": chapter_number,
         "flow_version": flow_version,
@@ -325,6 +335,7 @@ def build_chapter_provenance_entry(
         "prose_review_enabled": bool(prose_review_enabled),
         "draft_commit_enabled": bool(draft_commit_enabled),
         "review_issues": issues,
+        "review_evidence_hash": review_evidence_hash,
         # 篇幅观测（操作者扩写也如实记录）
         "first_draft_chars": first_draft_chars,
         "final_draft_chars": final_draft_chars,
@@ -337,6 +348,8 @@ def build_chapter_provenance_entry(
         # Frame 生命周期观测
         "active_frame_id": active_frame_id,
         "active_formula_node": active_formula_node,
+        "next_active_frame_id": next_active_frame_id,
+        "next_active_formula_node": next_active_formula_node,
         "committed_at_utc": None,
     }
 

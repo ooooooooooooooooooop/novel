@@ -73,6 +73,9 @@ class ProviderEndpoint(_StrictModel):
     user_agent: str = Field(min_length=1)
     timeout_seconds: int = Field(gt=0)
     max_attempts: Literal[1]
+    # api_format: "anthropic" (default) uses /v1/messages payload/response schema;
+    # "openai" uses /v1/chat/completions schema.
+    api_format: Literal["anthropic", "openai"] = "anthropic"
 
 
 class ProviderAuditIdentity(_StrictModel):
@@ -83,6 +86,10 @@ class ProviderAuditIdentity(_StrictModel):
     upstream_url: str = Field(min_length=1)
     expected_actual_model: str = Field(min_length=1)
     failover_allowed: Literal[False]
+    # True for non-Claude providers (e.g. cpa/OpenAI gateway) that don't
+    # have a cc-switch.db to verify against.  Classic Claude providers
+    # must keep this False (default).
+    skip_identity_check: bool = False
 
 
 class ProviderRole(_StrictModel):
@@ -124,7 +131,7 @@ class ProviderSmokeEvidence(_StrictModel):
 class ProviderProfile(_StrictModel):
     schema_version: Literal["1.0"]
     profile_id: str = Field(min_length=1)
-    transport: Literal["anthropic_messages_http"]
+    transport: Literal["anthropic_messages_http", "openai_chat_completions"]
     endpoint: ProviderEndpoint
     provider_audit: ProviderAuditIdentity
     roles: ProviderRoles
@@ -137,7 +144,7 @@ class ProviderProfile(_StrictModel):
         roles = self.roles.model_dump().values()
         if any(role["expected_actual_model"] != expected for role in roles):
             raise ValueError("all provider roles must freeze the audited actual model")
-        if self.smoke_evidence.actual_model != expected:
+        if not self.smoke_evidence.actual_model.startswith(expected):
             raise ValueError("smoke evidence actual model differs from provider audit")
         return self
 
@@ -211,7 +218,7 @@ class AutonomousBudget(_StrictModel):
 class AutonomousEvaluationPolicy(_StrictModel):
     holdout_overall_accuracy_min: float = Field(gt=0.5, le=1.0)
     holdout_genre_accuracy_min: float = Field(ge=0.5, le=1.0)
-    pairwise_position_consistency_min: float = Field(gt=0.5, le=1.0)
+    pairwise_position_consistency_min: float = Field(ge=0.9, le=1.0)
     hard_fact_conflicts_allowed: Literal[0]
     manual_routes_allowed: Literal[0]
     unarmed_required_axes_allowed: Literal[0]

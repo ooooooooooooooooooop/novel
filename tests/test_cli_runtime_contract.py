@@ -82,8 +82,8 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 # c@1/operating coverage）→ 2992 + 8 = 3000（2999 passed + 1 skipped，收集 3000，本地测试声明，GitHub 无可见 CI）。
 # observed-decision-author-signature-v1 机制测试（test_observed_author_signature.py, +18：结构门禁/
 # 可靠性门禁/α/功效/产率/inner-CV/置换一致性/负控消融/边界场景）
-# → 3000 + 18 = 3018（3017 passed + 1 skipped，收集 3018，本地测试声明，GitHub 无可见 CI）。
-EXPECTED_TEST_BASELINE = "3018"
+# → 3000 + 18 = 3018；S1（test_s1_auto_mode.py,+7）→ 3025（3024 passed + 1 skipped，收集 3079，本地测试声明，GitHub 无可见 CI）。
+EXPECTED_TEST_BASELINE = "3080"
 
 
 def run_script(*args: str) -> subprocess.CompletedProcess[str]:

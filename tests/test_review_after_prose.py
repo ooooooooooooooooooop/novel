@@ -399,6 +399,9 @@ def test_review_parse_response_applies_misinformation_updates():
         ],
     })
     ReviewUnit().parse_response(response, character_models=[c])
+    fenced = "先核对正文后给出严格结果。\n```json\n" + response + "\n```"
+    issues, reminders, route = ReviewUnit().parse_response(fenced)
+    assert issues == [] and reminders == [] and route == "pass"
     assert "以为墨痕只是砚台沾的灰" not in c.misinformation
     assert "确认自己看见的是旧字" in c.misinformation
     assert "怀疑自己看错了" not in c.misinformation

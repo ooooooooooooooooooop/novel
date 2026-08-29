@@ -16,11 +16,41 @@ def _manifest(**overrides) -> RunManifest:
         status="committed",
         chapter_ref="chapter_1",
         chapter_number=1,
-        artifacts={"chapters/chapter_1.txt": "a" * 64},
+        draft_hash="b" * 64,
+        facts_package_hash="c" * 64,
+        state_before_hash="d" * 64,
+        state_after_hash="e" * 64,
+        frame_hash="f" * 64,
+        chapter_artifact="chapters/chapter_1.txt",
+        draft_artifact="output/compose/prose_history/draft_chapter_1.txt",
+        state_artifact="output/compose/state.json",
+        frame_artifact="output/compose/frames.json",
+        artifacts={
+            "chapters/chapter_1.txt": "b" * 64,
+            "output/compose/prose_history/draft_chapter_1.txt": "b" * 64,
+            "output/compose/state.json": "e" * 64,
+            "output/compose/frames.json": "f" * 64,
+        },
+        review_route="pass",
         created_at_utc="2026-08-10T00:00:00+00:00",
         committed_at_utc="2026-08-10T00:00:00+00:00",
     )
     base.update(overrides)
+    if base.get("kind", "run") == "run" and base.get("status") == "committed":
+        number = base.get("chapter_number") or 1
+        chapter_path = f"chapters/chapter_{number}.txt"
+        draft_path = f"output/compose/prose_history/draft_chapter_{number}.txt"
+        base["chapter_artifact"] = chapter_path
+        base["draft_artifact"] = draft_path
+        artifacts = dict(base["artifacts"])
+        artifacts.pop("chapters/chapter_1.txt", None)
+        artifacts.pop("output/compose/prose_history/draft_chapter_1.txt", None)
+        artifacts[chapter_path] = base["draft_hash"]
+        artifacts[draft_path] = base["draft_hash"]
+        base["artifacts"] = artifacts
+        if number > 1:
+            base.setdefault("prev_chapter_ref", f"chapter_{number - 1}")
+            base.setdefault("prev_chapter_hash", "9" * 64)
     return RunManifest(**base)
 
 
@@ -93,7 +123,10 @@ def test_five_state_transition_table():
 
 def test_next_chapter_number_from_chain_head():
     assert _manifest(chapter_number=23).next_chapter_number() == 24
-    assert _manifest(chapter_number=None).next_chapter_number() == 1
+    assert _manifest(
+        kind="seed", run_id="migrate-v2-compose", mode="migrate",
+        chapter_ref=None, chapter_number=None, seeded=True, seeded_from_flow="2",
+    ).next_chapter_number() == 1
     # 非 committed 不推号
     m = _manifest(status="draft", chapter_number=5)
     assert m.next_chapter_number() is None

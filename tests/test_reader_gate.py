@@ -16,6 +16,8 @@ from src.boundary_control.reader_gate import (
     load_reader_reports,
     load_recent_chapters,
     _repeated_loop_second_issues,
+    _style_drift_issues,
+    _window_replay_issues,
 )
 from src.object_state.readercontract import ReaderContract
 from src.object_state.readerreport import ReaderExperienceReport, ReaderDimension
@@ -138,11 +140,49 @@ class TestDeterministicRules:
         issues = _repeated_loop_second_issues(draft, [prev], "chapter_2")
         assert issues and issues[0].is_blocking()
         assert issues[0].issue_type == "redundancy"
+        style_issues = _style_drift_issues(
+            "他意识到真相，并用不是失败而是代价作了解释性收尾。",
+            ["雨落在石阶。她推门进去。"],
+            "chapter_2",
+        )
+        assert style_issues and style_issues[0].issue_type == "style_drift"
+        assert _style_drift_issues(
+            "风停后，她把证据交出去。", ["雨落在石阶。她推门进去。"], "chapter_2"
+        ) == []
+        self._assert_window_scene_replay_blocks_within_four_chapters()
+        self._assert_window_repeated_ending_blocks_but_new_ending_passes()
 
     def test_repeated_loop_different_core_passes(self):
         prev = "上一章他终于明白一切真相。"
         draft = "本章他终于明白凶手另有其人。"
         assert _repeated_loop_second_issues(draft, [prev], "chapter_2") == []
+
+    def _assert_window_scene_replay_blocks_within_four_chapters(self):
+        previous = [
+            "第一章别处。",
+            "第二章别处。",
+            "第三章别处。",
+            "林川推开仓门，因此灯火熄灭。众人转身离去。",
+        ]
+        draft = "新的开头。林川推开仓门，因此灯火熄灭。新的结尾。"
+        issues = _window_replay_issues(
+            draft, previous, "chapter_5", ["林川"]
+        )
+        assert any(i.issue_id == "iss_q4_window_scene_replay" for i in issues)
+        assert all(i.is_blocking() for i in issues)
+
+    def _assert_window_repeated_ending_blocks_but_new_ending_passes(self):
+        previous = [
+            "前情一。旧结尾甲。",
+            "前情二。旧结尾乙。",
+            "前情三。旧结尾丙。",
+            "行动发生。门外的脚步停住了。真正的名单仍在火里。",
+        ]
+        repeated = "全新开头。不同事件。门外的脚步停住了。真正的名单仍在火里。"
+        issues = _window_replay_issues(repeated, previous, "chapter_5")
+        assert any(i.issue_id == "iss_q4_window_ending_replay" for i in issues)
+        fresh = "全新开头。不同事件。她把名单交给证人。审讯在天亮前开始。"
+        assert _window_replay_issues(fresh, previous, "chapter_5") == []
 
     def test_contract_drift_blocks(self):
         v = ReaderQualityGatePolicy().evaluate(
@@ -193,6 +233,16 @@ class TestReportArmedRules:
             serial_report=_serial_report("process_text", "objective", "weak"),
         )
         assert v.route == "block"
+        weak_without_findings = _serial_report("process_text", "objective", "weak")
+        weak_without_findings.findings = []
+        fallback = ReaderQualityGatePolicy().evaluate(
+            draft_text="正文。",
+            reconcile_issues=[],
+            prev_chapters=["前章。"],
+            serial_report=weak_without_findings,
+        )
+        assert fallback.route == "block"
+        assert any(i.issue_id == "iss_q4_serial_overall_weak" for i in fallback.issues)
 
     def test_serial_aesthetic_manual(self):
         v = ReaderQualityGatePolicy().evaluate(
@@ -248,6 +298,7 @@ class TestCommitGateChain:
             output_dir=out, chapters_dir=chapters,
             draft_text="主角决定追查，结果发现了新证据。",
             facts=None, characters=None, chapter_ref="chapter_1",
+            require_campaign_evidence=False,
         )
         assert verdict.route == "pass"
         assert package is not None
@@ -263,6 +314,7 @@ class TestCommitGateChain:
             output_dir=out, chapters_dir=chapters,
             draft_text="他坐着，看着窗外，喝了一口水。",
             facts=None, characters=None, chapter_ref="chapter_1",
+            require_campaign_evidence=False,
         )
         assert verdict.route == "block"
         assert any(i.issue_type == "weak_progression" for i in verdict.issues)
@@ -302,6 +354,7 @@ class TestCausalDefenseInGateChain:
             characters=None,
             chapter_ref="chapter_1",
             causal_objects=causal_objects,
+            require_campaign_evidence=False,
         )
 
     def test_erased_event_blocks_with_causal_objects(self, tmp_path):
