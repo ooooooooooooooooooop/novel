@@ -29,7 +29,7 @@ The current acceptable production use is internal operator-in-the-loop productio
 - `DirectAPI provider calling is not implemented`
 - UI automation and `closed-loop automation remains disallowed`
 
-This checklist defines when the project can be treated as production-ready for a tier. It does not declare DirectAPI, UI, or automatic closed-loop execution ready.
+This checklist (2026-07-28 original; restructured 2026-08-30) defines the evidence bar a tier must meet; certification itself is recorded only in dated release records and `current_state.json`. It does not declare DirectAPI, UI, or automatic closed-loop execution ready.
 
 ## Tier 0: Local Operator Production
 
@@ -117,7 +117,7 @@ Until those exist, closed-loop automation remains disallowed.
 
 ## Release Check Sequence
 
-Before calling any tier production-ready:
+Before calling any tier production-ready (certification is dated and recorded — see the 2026-07-28 tier0 declaration below):
 
 1. Run a clean full pytest.
 2. Confirm the current baseline is documented.

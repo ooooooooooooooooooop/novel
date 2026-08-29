@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This contract defines the evidence record required before a local staged CLI v0 build can be treated as Tier 0 production-ready.
+This contract defines the evidence record format for a local staged CLI v0 build. It does not by itself certify any tier: certification claims live only in `current_state.json` (machine-generated attestation) and in dated historical release records.
 
 It records the tested command set, immutable checkpoint, canary result, full pytest result, and known limitations without claiming DirectAPI provider calling, retry, fallback provider behavior, UI automation, or closed-loop workflow advancement.
 

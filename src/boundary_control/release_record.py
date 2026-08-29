@@ -26,7 +26,39 @@ from src.boundary_control.serialization import (
 )
 from src.object_state.audit_report import AuditReport
 
-TIER0_RELEASE_RECORD_SCHEMA_VERSION = 1
+# schema v2（状态真源收敛 2026-08-30）：新记录必须使用结构化 full_pytest_result；
+# schema v1 记录是不可变历史产物，只能经 validate_legacy_tier0_release_record 的
+# 字节级白名单校验。
+TIER0_RELEASE_RECORD_SCHEMA_VERSION = 2
+# canary evidence 是独立 schema：其版本演进与 release record 解耦（冻结历史证据
+# 停留在 v1，字节级白名单锁定）。
+TIER0_CANARY_EVIDENCE_SCHEMA_VERSION = 1
+TIER0_PYTEST_RESULT_FIELDS = (
+    "passed",
+    "skipped",
+    "failed",
+    "errors",
+    "collected",
+)
+# 不可变历史记录字节级白名单：canonical_path → {blob_sha256(sha256 of git blob
+# bytes), tag, git_commit, baseline_tests_passing, full_pytest_result}。只有这些
+# 精确识别的冻结历史证据才允许 EOL 兼容比对；新证据一律使用 LF 规范哈希。
+TIER0_LEGACY_FROZEN_RECORDS = {
+    "docs/00_project/releases/tier0-release.json": {
+        "blob_sha256": "7f0a48b6f740e142e546553f8d37dc82ded1f379e4fe31510453407cf60809ca",
+        "tag": "v0.1.2-tier0",
+        "git_commit": "3287e0feb20691a0add37d1eec7173664beb3172",
+        "baseline_tests_passing": 2301,
+        "full_pytest_result": "2301 passed",
+    },
+    "docs/00_project/releases/q1-release.json": {
+        "blob_sha256": "dd1f5de570564dddd9a459326c874bf52daf09a75ff87fce92426d0f1269d14e",
+        "tag": "v0.1.3-q1",
+        "git_commit": "9777087",
+        "baseline_tests_passing": 2460,
+        "full_pytest_result": "2460 passed",
+    },
+}
 TIER0_RELEASE_RECORD_TYPE = "tier0_release_record"
 TIER0_CANARY_EVIDENCE_TYPE = "tier0_canary_evidence"
 TIER0_PRODUCTION_TIER = "local_staged_cli_v0"
@@ -275,6 +307,92 @@ def _sha256_file(path: Path) -> str:
         for chunk in iter(lambda: handle.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def _sha256_file_lf(path: Path) -> str:
+    """规范 LF 哈希：sha256 over LF-normalized bytes（新证据的规范形态）.
+
+    Git blob 语义（仓库证据 blob 均为 LF）与平台无关；新证据钉死与校验都用本
+    函数，任何平台/检出行尾策略产生的 CRLF 都不影响判定。
+    """
+    return hashlib.sha256(
+        path.read_bytes().replace(b"\r\n", b"\n")
+    ).hexdigest()
+
+
+def _legacy_evidence_hash_matches(path: Path, expected: str) -> bool:
+    """冻结历史证据专用：原始字节或任一行尾传输变体匹配即通过。
+
+    只允许用于 TIER0_LEGACY_FROZEN_RECORDS 精确识别的冻结历史证据（其钉死
+    哈希是 Windows 生成时的 CRLF 原始字节）；内容有任何实质变化仍然拒绝。
+    """
+    raw = path.read_bytes()
+    if hashlib.sha256(raw).hexdigest() == expected:
+        return True
+    lf = raw.replace(b"\r\n", b"\n")
+    crlf = raw.replace(b"\n", b"\r\n")
+    for variant in (lf, crlf):
+        if hashlib.sha256(variant).hexdigest() == expected:
+            return True
+    return False
+
+
+def _git_blob_bytes(repo_root: Path, path: str) -> bytes:
+    proc = subprocess.run(
+        ["git", "-C", str(repo_root), "cat-file", "blob", f"HEAD:{path}"],
+        capture_output=True,
+        check=True,
+    )
+    return proc.stdout
+
+
+def validate_legacy_tier0_release_record(
+    record_path: str,
+    *,
+    repo_root: str | Path = ".",
+) -> dict[str, object]:
+    """不可变历史 release 记录的字节级白名单校验（唯一 legacy 通道）.
+
+    接受条件（全部满足）：canonical_path 命中 TIER0_LEGACY_FROZEN_RECORDS；
+    当前 HEAD 中该文件的 git blob 字节 sha256 与白名单一致（字节冻结）；
+    payload 的 tag / git_commit / baseline / result 行与白名单一致。任何其他
+    路径、任何新造的 "N passed" 记录都不得经由本通道。
+    """
+    canonical = record_path.replace("\\", "/")
+    while canonical.startswith("./"):
+        canonical = canonical[2:]
+    entry = TIER0_LEGACY_FROZEN_RECORDS.get(canonical)
+    if entry is None:
+        raise ValueError(
+            f"legacy release record not whitelisted: {canonical} (legacy 'N "
+            "passed' semantics are closed; new records must use schema v2)"
+        )
+    root = Path(repo_root)
+    blob = _git_blob_bytes(root, canonical)
+    actual = hashlib.sha256(blob).hexdigest()
+    if actual != entry["blob_sha256"]:
+        raise ValueError(
+            f"legacy release record bytes drifted: {canonical} expected "
+            f"{entry['blob_sha256'][:12]} got {actual[:12]}"
+        )
+    payload = json.loads(blob.decode("utf-8"))
+    if payload.get("release_tag_or_checkpoint", payload.get("git_tag")) != entry["tag"]:
+        raise ValueError(
+            f"legacy release record tag mismatch for {canonical}: expected "
+            f"{entry['tag']}"
+        )
+    if payload.get("git_commit") != entry["git_commit"]:
+        raise ValueError(
+            f"legacy release record git_commit mismatch for {canonical}: "
+            f"expected {entry['git_commit']}"
+        )
+    if payload.get("baseline_tests_passing") != entry["baseline_tests_passing"] or (
+        payload.get("full_pytest_result") != entry["full_pytest_result"]
+    ):
+        raise ValueError(
+            f"legacy release record baseline/result mismatch for {canonical}"
+        )
+    return payload
 
 
 def _read_json_object(path: Path, label: str) -> dict[str, Any]:
@@ -579,10 +697,18 @@ def _require_non_negative_int(value: object, label: str) -> int:
 def validate_tier0_release_record(
     payload: object,
     *,
-    expected_baseline: int,
+    expected_collected_tests: int,
     record_path: str | None = None,
 ) -> dict[str, object]:
-    """Validate a Tier 0 release record payload and return it unchanged."""
+    """Validate a Tier 0 release record payload (schema v2, honest form only).
+
+    状态真源收敛 2026-08-30：
+    - 仅接受 schema v2 的结构化 full_pytest_result
+      {"passed","skipped","failed","errors","collected"}；failed 与 errors 必须为 0，
+      五项合计自洽，collected 必须等于仓库唯一 collected 合同。
+    - 遗留形态 "N passed" 在本函数中一律拒绝；不可变历史记录只能经
+      :func:`validate_legacy_tier0_release_record` 的字节级白名单校验。
+    """
 
     if not isinstance(payload, dict):
         raise ValueError("Tier 0 release record payload must be an object")
@@ -590,15 +716,18 @@ def validate_tier0_release_record(
         raise ValueError("Tier 0 release record payload keys must be strings")
     _validate_exact_fields(payload)
     if (
-        not isinstance(expected_baseline, int)
-        or isinstance(expected_baseline, bool)
-        or expected_baseline <= 0
+        not isinstance(expected_collected_tests, int)
+        or isinstance(expected_collected_tests, bool)
+        or expected_collected_tests <= 0
     ):
-        raise ValueError("expected_baseline must be a positive integer")
+        raise ValueError("expected_collected_tests must be a positive integer")
     if payload["schema_version"] != TIER0_RELEASE_RECORD_SCHEMA_VERSION:
         raise ValueError(
             "unsupported Tier 0 release record schema_version: "
-            f"{payload['schema_version']}"
+            f"{payload['schema_version']} (expected "
+            f"{TIER0_RELEASE_RECORD_SCHEMA_VERSION}; schema 1 records are "
+            "immutable historical artifacts and only validate via "
+            "validate_legacy_tier0_release_record)"
         )
     if payload["type"] != TIER0_RELEASE_RECORD_TYPE:
         raise ValueError(f"unsupported Tier 0 release record type: {payload['type']}")
@@ -632,40 +761,49 @@ def validate_tier0_release_record(
         payload["full_pytest_command"],
         "Tier 0 release record full_pytest_command",
     )
-    # 双形态语义（状态真源收敛 2026-08-30）：
-    # - 遗留形态 "N passed"：仅供不可变历史 release 记录自校验（其时 passed==collected）。
-    # - 诚实形态 "P passed, S skipped (collected C)"：新记录必须用此形态，
-    #   强制内部一致性 baseline_tests_passing==P 且 P+S==C；collected 不得再写成 passing。
-    _legacy = f"{expected_baseline} passed"
-    _honest_re = re.compile(
-        r"^(0|[1-9]\d*) passed, (0|[1-9]\d*) skipped \(collected (0|[1-9]\d*)\)$"
-    )
-    result_line = payload["full_pytest_result"]
-    if result_line == _legacy:
-        if payload["baseline_tests_passing"] != expected_baseline:
+    # schema v2：full_pytest_result 必须是结构化结果对象；字符串形态（含遗留
+    # "N passed"）一律拒绝。
+    result = payload["full_pytest_result"]
+    if not isinstance(result, dict):
+        raise ValueError(
+            "Tier 0 release record full_pytest_result must be a structured "
+            'object with passed/skipped/failed/errors/collected; legacy "N passed" '
+            "strings are rejected (immutable historical records use "
+            "validate_legacy_tier0_release_record)"
+        )
+    if tuple(result) != TIER0_PYTEST_RESULT_FIELDS:
+        raise ValueError(
+            "Tier 0 release record full_pytest_result fields must be exactly "
+            f"{TIER0_PYTEST_RESULT_FIELDS}"
+        )
+    for key, value in result.items():
+        if not isinstance(value, int) or isinstance(value, bool) or value < 0:
             raise ValueError(
-                "Tier 0 release record baseline_tests_passing must match expected "
-                f"baseline {expected_baseline}"
+                f"Tier 0 release record full_pytest_result.{key} must be a "
+                "non-negative integer"
             )
-    else:
-        m = _honest_re.fullmatch(result_line)
-        if m is None:
-            raise ValueError(
-                "Tier 0 release record full_pytest_result must be the full pytest "
-                'summary line: "P passed, S skipped (collected C)" (or the legacy '
-                f'"{_legacy}" for immutable historical records)'
-            )
-        passed, skipped, collected = (int(g) for g in m.groups())
-        if payload["baseline_tests_passing"] != passed:
-            raise ValueError(
-                "Tier 0 release record baseline_tests_passing must equal the passed "
-                f"count in full_pytest_result ({passed})"
-            )
-        if passed + skipped != collected:
-            raise ValueError(
-                "Tier 0 release record full_pytest_result is inconsistent: "
-                f"passed({passed}) + skipped({skipped}) must equal collected({collected})"
-            )
+    if result["failed"] != 0 or result["errors"] != 0:
+        raise ValueError(
+            "Tier 0 release record full_pytest_result must record failed=0 and "
+            f"errors=0, got {result['failed']}/{result['errors']}"
+        )
+    if result["passed"] + result["skipped"] + result["failed"] + result["errors"] != (
+        result["collected"]
+    ):
+        raise ValueError(
+            "Tier 0 release record full_pytest_result is inconsistent: "
+            "passed+skipped+failed+errors must equal collected"
+        )
+    if payload["baseline_tests_passing"] != result["passed"]:
+        raise ValueError(
+            "Tier 0 release record baseline_tests_passing must equal the passed "
+            f"count ({result['passed']})"
+        )
+    if result["collected"] != expected_collected_tests:
+        raise ValueError(
+            "Tier 0 release record full_pytest_result.collected must equal the "
+            f"repository collected contract ({expected_collected_tests})"
+        )
     if payload["canary_runbook"] != TIER0_CANARY_RUNBOOK:
         raise ValueError(
             "Tier 0 release record canary_runbook must be "
@@ -740,7 +878,7 @@ def validate_tier0_canary_evidence(payload: object) -> dict[str, object]:
     if any(not isinstance(key, str) for key in payload):
         raise ValueError("Tier 0 canary evidence payload keys must be strings")
     _validate_exact_canary_evidence_fields(payload)
-    if payload["schema_version"] != TIER0_RELEASE_RECORD_SCHEMA_VERSION:
+    if payload["schema_version"] != TIER0_CANARY_EVIDENCE_SCHEMA_VERSION:
         raise ValueError(
             "unsupported Tier 0 canary evidence schema_version: "
             f"{payload['schema_version']}"
@@ -914,8 +1052,18 @@ def validate_tier0_canary_evidence_artifacts(
     payload: object,
     *,
     artifact_root: str | Path = ".",
+    frozen_legacy: bool = False,
 ) -> None:
-    """Validate that listed Tier 0 canary final artifacts exist as files."""
+    """Validate that listed Tier 0 canary final artifacts exist as files.
+
+    frozen_legacy=True 仅用于 TIER0_LEGACY_FROZEN_RECORDS 白名单内的不可变历史
+    证据（其钉死哈希为 CRLF 原始字节）——此时允许行尾变体匹配；新证据一律
+    规范 LF 哈希（_sha256_file_lf），不接受任意 EOL 变体。
+    """
+    def _match(path: Path, expected: str) -> bool:
+        if frozen_legacy:
+            return _legacy_evidence_hash_matches(path, expected)
+        return _sha256_file_lf(path) == expected
 
     evidence = validate_tier0_canary_evidence(payload)
     artifact_paths = _require_unique_string_list(
@@ -947,8 +1095,7 @@ def validate_tier0_canary_evidence_artifacts(
         if not resolved.is_file():
             missing.append(item)
             continue
-        actual_hash = _sha256_file(resolved)
-        if actual_hash != evidence["final_artifact_sha256"][item]:
+        if not _match(resolved, evidence["final_artifact_sha256"][item]):
             hash_mismatches.append(item)
             continue
         artifact_payloads[artifact_name] = _validate_final_artifact_shape(
@@ -981,8 +1128,7 @@ def validate_tier0_canary_evidence_artifacts(
             "Tier 0 canary evidence missing gate result file: "
             f"{gate_result_ref}"
         )
-    gate_result_hash = _sha256_file(gate_result_path)
-    if gate_result_hash != evidence["gate_result_sha256"]:
+    if not _match(gate_result_path, evidence["gate_result_sha256"]):
         raise ValueError(
             "Tier 0 canary evidence gate result sha256 mismatch: "
             f"{gate_result_ref}"
@@ -1055,7 +1201,7 @@ def build_tier0_canary_evidence(
         resolved = _resolve_artifact_ref(item, root)
         if not resolved.is_file():
             raise ValueError(f"missing Tier 0 canary final artifact file: {item}")
-        final_artifact_sha256[item] = _sha256_file(resolved)
+        final_artifact_sha256[item] = _sha256_file_lf(resolved)
 
     route_handoff_path = _resolve_artifact_ref(
         _canary_artifact_ref(normalized_workspace, "route_handoff.json"),
@@ -1101,7 +1247,7 @@ def build_tier0_canary_evidence(
         )
 
     payload: dict[str, object] = {
-        "schema_version": TIER0_RELEASE_RECORD_SCHEMA_VERSION,
+        "schema_version": TIER0_CANARY_EVIDENCE_SCHEMA_VERSION,
         "type": TIER0_CANARY_EVIDENCE_TYPE,
         "release_id": _require_release_id(release_id, "release_id"),
         "canary_result": "pass",
@@ -1158,8 +1304,15 @@ def validate_tier0_release_record_git_checkpoint(
     payload: object,
     *,
     repo_root: str | Path = ".",
+    record_path: str | None = None,
+    require_record_in_checkpoint: bool = False,
 ) -> None:
-    """Validate that the release checkpoint exists and binds to git_commit."""
+    """Validate that the release checkpoint exists and binds to git_commit.
+
+    ``require_record_in_checkpoint=True`` 时额外要求记录文件在该 checkpoint 的
+    tree 中已存在——防止"checkpoint 早已打标、记录事后补造"的回填伪造
+    （状态真源收敛 2026-08-30 反例 #5）。
+    """
 
     if not isinstance(payload, dict):
         raise ValueError("Tier 0 release record payload must be an object")
@@ -1175,6 +1328,22 @@ def validate_tier0_release_record_git_checkpoint(
         raise ValueError(
             "Tier 0 release record git_commit must exist in the repository"
         )
+    if require_record_in_checkpoint:
+        if record_path is None:
+            raise ValueError("require_record_in_checkpoint needs record_path")
+        canonical = record_path.replace("\\", "/")
+        while canonical.startswith("./"):
+            canonical = canonical[2:]
+        probe = subprocess.run(
+            ["git", "-C", str(repo_root), "cat-file", "-e",
+             f"{checkpoint}:{canonical}"],
+            capture_output=True, text=True,
+        )
+        if probe.returncode != 0:
+            raise ValueError(
+                "Tier 0 release record must exist in the checkpoint tree: "
+                f"{canonical} not found in {checkpoint[:12]}"
+            )
     if TIER0_GIT_COMMIT_PATTERN.fullmatch(checkpoint):
         if checkpoint != git_commit:
             raise ValueError(
@@ -1193,6 +1362,24 @@ def validate_tier0_release_record_git_checkpoint(
             "Tier 0 release record release_tag_or_checkpoint tag must resolve "
             "to git_commit"
         )
+    if require_record_in_checkpoint:
+        if record_path is None:
+            raise ValueError(
+                "require_record_in_checkpoint needs record_path"
+            )
+        canonical = record_path.replace("\\", "/")
+        while canonical.startswith("./"):
+            canonical = canonical[2:]
+        probe = subprocess.run(
+            ["git", "-C", str(repo_root), "cat-file", "-e",
+             f"{checkpoint}:{canonical}"],
+            capture_output=True, text=True,
+        )
+        if probe.returncode != 0:
+            raise ValueError(
+                "Tier 0 release record must exist in the checkpoint tree: "
+                f"{canonical} not found in {checkpoint[:12]}"
+            )
 
 
 def build_tier0_release_record(
@@ -1201,17 +1388,19 @@ def build_tier0_release_record(
     created_at_utc: str,
     release_tag_or_checkpoint: str,
     git_commit: str,
-    full_pytest_result: str,
+    full_pytest_result: dict[str, int],
     full_pytest_command: str,
+    expected_collected_tests: int,
     record_path: str,
     canary_evidence_path: str | None = None,
     canary_gate_result_path: str | None = None,
 ) -> dict[str, object]:
-    """Build and validate a Tier 0 release record payload.
+    """Build and validate a Tier 0 release record payload (schema v2).
 
-    ``full_pytest_result`` 必须是真实 full pytest 汇总行（诚实形态
-    "P passed, S skipped (collected C)"）；baseline_tests_passing 由该行解析，
-    不得再以 collected 冒充 passing（状态真源收敛 2026-08-30）。
+    ``full_pytest_result`` 必须是结构化结果对象
+    {"passed","skipped","failed","errors","collected"}，failed/errors 为 0，
+    五项合计自洽，collected 必须等于 expected_collected_tests（仓库唯一
+    collected 合同）；collected 不得写成 passing（状态真源收敛 2026-08-30）。
     """
 
     evidence_paths = [
@@ -1230,21 +1419,20 @@ def build_tier0_release_record(
         )
     evidence_paths.append(_require_non_empty_string(record_path, "record_path"))
 
-    result_line = _require_non_empty_string(
-        full_pytest_result,
-        "full_pytest_result",
-    )
-    m = re.fullmatch(
-        r"(0|[1-9]\d*) passed, (0|[1-9]\d*) skipped \(collected (0|[1-9]\d*)\)",
-        result_line,
-    )
-    if m is None:
+    if not isinstance(full_pytest_result, dict):
         raise ValueError(
-            "full_pytest_result must be the full pytest summary line "
-            '"P passed, S skipped (collected C)"; collected must not be '
-            "written as passing"
+            "full_pytest_result must be a structured object "
+            "{passed, skipped, failed, errors, collected}"
         )
-    baseline_tests_passing = int(m.group(1))
+    result = dict(full_pytest_result)
+    result.setdefault("failed", 0)
+    result.setdefault("errors", 0)
+    if tuple(result) != TIER0_PYTEST_RESULT_FIELDS:
+        raise ValueError(
+            "full_pytest_result fields must be exactly "
+            f"{TIER0_PYTEST_RESULT_FIELDS}"
+        )
+    baseline_tests_passing = result["passed"]
     payload: dict[str, object] = {
         "schema_version": TIER0_RELEASE_RECORD_SCHEMA_VERSION,
         "type": TIER0_RELEASE_RECORD_TYPE,
@@ -1264,7 +1452,7 @@ def build_tier0_release_record(
             full_pytest_command,
             "full_pytest_command",
         ),
-        "full_pytest_result": result_line,
+        "full_pytest_result": result,
         "canary_runbook": TIER0_CANARY_RUNBOOK,
         "canary_result": "pass",
         "canary_commands": list(TIER0_REQUIRED_CANARY_COMMANDS),
@@ -1279,7 +1467,7 @@ def build_tier0_release_record(
     }
     validate_tier0_release_record(
         payload,
-        expected_baseline=baseline_tests_passing,
+        expected_collected_tests=expected_collected_tests,
         record_path=record_path,
     )
     return payload
@@ -1291,12 +1479,24 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("record", help="Tier 0 release record JSON path")
     parser.add_argument(
-        "--expected-baseline",
+        "--expected-collected-tests",
+        dest="expected_collected_tests",
         required=True,
         type=int,
         help=(
-            "expected collected test count for legacy-record validation; "
-            "honest-form records self-validate via full_pytest_result"
+            "repository collected contract (single source: "
+            "tests/test_cli_runtime_contract.py::EXPECTED_COLLECTED_TESTS); "
+            "v2 records must record collected == this value"
+        ),
+    )
+    parser.add_argument(
+        "--legacy",
+        action="store_true",
+        help=(
+            "validate an immutable historical record via the byte-level "
+            "whitelist (TIER0_LEGACY_FROZEN_RECORDS); only whitelisted "
+            "canonical paths are accepted, and 'N passed' strings remain "
+            "rejected everywhere else"
         ),
     )
     parser.add_argument(
@@ -1472,12 +1672,31 @@ def main(argv: list[str] | None = None) -> int:
                 canary_gate_result_path = validate_tier0_canary_evidence(
                     canary_evidence
                 )["gate_result_path"]
+            m_result = re.fullmatch(
+                r"(0|[1-9]\d*) passed, (0|[1-9]\d*) skipped "
+                r"\(collected (0|[1-9]\d*)\)",
+                args.full_pytest_result or "",
+            )
+            if m_result is None:
+                raise ValueError(
+                    "--full-pytest-result must be the real full pytest summary "
+                    'line "P passed, S skipped (collected C)"; legacy "N passed" '
+                    "is rejected"
+                )
+            structured_result = {
+                "passed": int(m_result.group(1)),
+                "skipped": int(m_result.group(2)),
+                "failed": 0,
+                "errors": 0,
+                "collected": int(m_result.group(3)),
+            }
             payload = build_tier0_release_record(
                 release_id=args.release_id,
                 created_at_utc=args.created_at_utc,
                 release_tag_or_checkpoint=args.release_tag_or_checkpoint,
                 git_commit=args.git_commit,
-                full_pytest_result=args.full_pytest_result,
+                full_pytest_result=structured_result,
+                expected_collected_tests=args.expected_collected_tests,
                 full_pytest_command=args.full_pytest_command,
                 record_path=record_path,
                 canary_evidence_path=args.canary_evidence,
@@ -1498,6 +1717,7 @@ def main(argv: list[str] | None = None) -> int:
                     validate_tier0_canary_evidence_artifacts(
                         canary_evidence,
                         artifact_root=args.canary_artifact_root,
+                        frozen_legacy=args.legacy,
                     )
             output_path = Path(args.record)
             if output_path.exists():
@@ -1527,12 +1747,18 @@ def main(argv: list[str] | None = None) -> int:
                 "--generate-canary-evidence: "
                 f"{', '.join(extra_canary_generation_fields)}"
             )
-        payload = json.loads(Path(args.record).read_text(encoding="utf-8"))
-        validate_tier0_release_record(
-            payload,
-            expected_baseline=args.expected_baseline,
-            record_path=args.record_path or args.record,
-        )
+        if args.legacy:
+            payload = validate_legacy_tier0_release_record(
+                args.record,
+                repo_root=args.repo_root,
+            )
+        else:
+            payload = json.loads(Path(args.record).read_text(encoding="utf-8"))
+            validate_tier0_release_record(
+                payload,
+                expected_collected_tests=args.expected_collected_tests,
+                record_path=args.record_path or args.record,
+            )
         if args.require_evidence_files:
             validate_tier0_release_record_evidence_files(
                 payload,
@@ -1556,6 +1782,7 @@ def main(argv: list[str] | None = None) -> int:
                 validate_tier0_canary_evidence_artifacts(
                     canary_evidence,
                     artifact_root=args.canary_artifact_root,
+                    frozen_legacy=args.legacy,
                 )
     except Exception as exc:
         print(f"{failure_subject} FAIL: {exc}")

@@ -1,27 +1,92 @@
 {
-  "repository_head": "c4453d335e79c283233279c55d8511458dc1753c",
-  "head_parent": "dc0b137a2cd03f24ee1bde211d40f0520b6623ee",
-  "collected_tests": 3090,
-  "full_pytest_result": "3089 passed, 1 skipped (collected 3090)",
-  "canary_result": "PASS (Tier 0 three-flow canary regression: PASS)",
-  "last_validated_commit": "dc0b137a2cd03f24ee1bde211d40f0520b6623ee",
+  "attestation_version": 1,
+  "subject_commit": "ba1624d6a1ff10b49a369d5333ccb0d13741844c",
+  "subject_tree": "eb869aade17a048a0ae0c30c3ef9159e65331b60",
+  "state_generated_at": "2026-08-29T20:57:20Z",
+  "profiles": {
+    "public_clean": {
+      "profile": "public_clean",
+      "status": "UNVERIFIED",
+      "python_version": "3.11.9",
+      "pytest_version": "pytest 9.1.1",
+      "platform": "Windows-10-10.0.26200-SP0",
+      "collected_tests": 3102,
+      "pytest": {
+        "command": "not run (quick mode never reuses prior results)",
+        "exit_code": null,
+        "results": null,
+        "completed_at": null,
+        "result_artifact_sha256": null
+      },
+      "canary": {
+        "command": "C:\\Users\\admin\\Desktop\\novel-main\\.venv\\Scripts\\python.exe scripts/tier0_canary_regression.py",
+        "exit_code": 0,
+        "verdict": "PASS",
+        "detail": "",
+        "completed_at": "2026-08-29T20:42:39Z"
+      },
+      "skip_manifest": {},
+      "skip_manifest_sha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+      "subject_commit": "4c457b48b3541e52b26df14896b5bbb49b10df1e",
+      "subject_tree": "d2d1e0e0a9d3c5a34e7b21bc95380ef761b7ebf1",
+      "output_tail": ""
+    },
+    "operator": {
+      "profile": "operator",
+      "status": "FAIL",
+      "python_version": "3.11.9",
+      "pytest_version": "pytest 9.1.1",
+      "platform": "Windows-10-10.0.26200-SP0",
+      "collected_tests": 3102,
+      "pytest": {
+        "command": "C:\\Users\\admin\\Desktop\\novel-main\\.venv\\Scripts\\python.exe -m pytest tests -q --tb=no -p no:cacheprovider --basetemp .pytest-tmp-attest-operator",
+        "exit_code": 1,
+        "results": {
+          "passed": 0,
+          "skipped": 0,
+          "failed": 0,
+          "errors": 0,
+          "collected": 3102
+        },
+        "completed_at": "2026-08-29T21:06:42Z",
+        "result_artifact_sha256": "666b30cdf41c3d05011326fb9e41e0ba2ea87281af26519e11f55c3006ce48c8"
+      },
+      "canary": {
+        "command": "C:\\Users\\admin\\Desktop\\novel-main\\.venv\\Scripts\\python.exe scripts/tier0_canary_regression.py",
+        "exit_code": 0,
+        "verdict": "PASS",
+        "detail": "Tier 0 three-flow canary regression: PASS",
+        "completed_at": "2026-08-29T21:06:49Z"
+      },
+      "skip_manifest": {},
+      "skip_manifest_sha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+      "subject_commit": "ba1624d6a1ff10b49a369d5333ccb0d13741844c",
+      "subject_tree": "eb869aade17a048a0ae0c30c3ef9159e65331b60",
+      "output_tail": "2 failed, 3099 passed, 1 skipped in 551.41s (0:09:11)"
+    }
+  },
+  "overall_status": "FAIL",
+  "collected_tests_contract": "tests/test_cli_runtime_contract.py::EXPECTED_COLLECTED_TESTS",
+  "last_validated_commit": null,
+  "last_validated_tree": null,
   "last_certified_checkpoint": {
-    "tag": "v0.1.3-q1",
-    "commit": "ff66b9b24e8fb5099ab3c1b2bfda3b6e60e46fa2"
+    "status": "PASS",
+    "records": {
+      "docs/00_project/releases/tier0-release.json": {
+        "status": "PASS",
+        "baseline_tests_passing": 2301,
+        "tag": "v0.1.2-tier0"
+      },
+      "docs/00_project/releases/q1-release.json": {
+        "status": "PASS",
+        "baseline_tests_passing": 2460,
+        "tag": "v0.1.3-q1"
+      }
+    }
   },
-  "validation_timestamp": "2026-08-29T17:53:26Z",
   "evidence_paths": {
-    "canary_aggregation": "docs/00_project/releases/tier0-three-flow-canary-aggregation.json",
-    "tier0_release_record": "docs/00_project/releases/tier0-release.json",
-    "q1_release_record": "docs/00_project/releases/q1-release.json",
-    "generator": "scripts/generate_current_state.py",
-    "canary_gate": "scripts/tier0_canary_regression.py"
-  },
-  "operator_assets_present": {
-    "reference_texts/a1_benchmark": true,
-    "runtime/refs/deepseek_active": true,
-    "runtime/refs/cpa_active/s7/final_evidence_anchor.json": true,
-    "runtime/refs/cpa_active/canary_policy_s6_cpa.json": true
-  },
-  "commits_behind": 0
+    "docs/00_project/releases/tier0-release.json": "3312773a6645a52899a231fe90fab0c35b0ba11f",
+    "docs/00_project/releases/q1-release.json": "fe9469d11f4dab8246eed5e27858c15e3dd8aaaf",
+    "docs/00_project/releases/tier0-three-flow-canary-aggregation.json": "8b88e145d51c1755cdf7955a029d73c7b3da69cb"
+  }
 }

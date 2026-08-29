@@ -1,5 +1,11 @@
 # Automatic Novel Narrative System · 自动小说叙事系统
 
+<!-- state:current -->
+**当前状态（唯一机器真源：`current_state.json`）**：默认标记 `CURRENT_HEAD_UNVERIFIED`——
+任何提交的验证资格不自动延续；attestation 记录以 json 为准。本区块禁止数字声明与历史资格。
+<!-- /state:current -->
+
+
 An automatic novel narrative system that parses narrative structure, maintains narrative state, plans story progression, and reviews generated results.
 
 一个自动小说叙事系统：解析叙事结构、维护叙事状态、规划故事推进、审查生成结果。

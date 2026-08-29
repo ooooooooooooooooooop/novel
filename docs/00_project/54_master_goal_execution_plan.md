@@ -11,7 +11,7 @@
   - P0–P7 包定义与验收标准：`52_mastery_upgrade_plan.md`
   - A1 资格化原始清单：`48_a1_autonomous_production_handoff.md`
   - 创作能动性三机制：`53_creative_agency_design.md`
-  - 当前真实状态：`03_current_status.md` §0（commit `b464a8a`；pytest 3024 passed + 1 skipped，收集 3079，本地测试声明，GitHub 无可见 CI）
+  - 当前真实状态：仓库根 `current_state.json`（机器生成 attestation，唯一真源）；本文件其余数字均为对应日期的历史验收记录
   - 范围红线：`01_scope_and_boundaries.md`；自动化/DirectAPI 历史边界：`28_directapi_boundary_note.md`、`29_automation_readiness_boundary.md`
 - `49_next_phase_plan.md` 为历史排期文档，其 G7 恢复类文字已冻结，一切以 52/03/本文件为准。
 

@@ -1,6 +1,12 @@
 # AGENTS.md
 
 ## Project
+
+<!-- state:current -->
+**当前状态（唯一机器真源：`current_state.json`）**：默认标记 `CURRENT_HEAD_UNVERIFIED`——
+任何提交的验证资格不自动延续；attestation 记录（subject_commit / results / canary /
+last_validated_commit）以 json 为准。本区块禁止出现数字声明与历史资格。
+<!-- /state:current -->
 Automatic Novel Narrative System
 
 ## Current Status Pointer (2026-08-29)

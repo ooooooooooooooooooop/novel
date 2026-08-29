@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "type": "tier0_release_record",
   "production_tier": "local_staged_cli_v0",
   "release_id": "tier0-canary-20260706",
@@ -8,7 +8,13 @@
   "git_commit": "0123456789abcdef0123456789abcdef01234567",
   "baseline_tests_passing": 2499,
   "full_pytest_command": "python -m pytest -q --basetemp .pytest-tmp-current-tier0-release-evidence-full -p no:cacheprovider",
-  "full_pytest_result": "2499 passed, 1 skipped (collected 2500)",
+  "full_pytest_result": {
+    "passed": 2499,
+    "skipped": 1,
+    "failed": 0,
+    "errors": 0,
+    "collected": 2500
+  },
   "canary_runbook": "docs/00_project/31_tier0_canary_runbook.md",
   "canary_result": "pass",
   "canary_commands": [

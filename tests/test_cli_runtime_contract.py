@@ -85,7 +85,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 # （scripts/generate_current_state.py），文档不得各自维护数字或提交哈希。
 # 历史演进（仅 collected 口径，供追溯）：
 #   … 3018 → 3025 → … → 3079 → 3080（S1–S7 + S6 运行期加固）。
-EXPECTED_COLLECTED_TESTS = "3090"
+EXPECTED_COLLECTED_TESTS = "3102"
 
 
 def run_script(*args: str) -> subprocess.CompletedProcess[str]:
@@ -829,7 +829,7 @@ def test_tier0_release_record_contract():
         "evidence_paths",
     )
     assert tuple(example) == expected_fields
-    assert example["schema_version"] == 1
+    assert example["schema_version"] == 2
     assert example["type"] == "tier0_release_record"
     assert example["production_tier"] == "local_staged_cli_v0"
     assert example["release_id"] == "tier0-canary-20260706"
@@ -839,14 +839,17 @@ def test_tier0_release_record_contract():
         "python -m pytest -q --basetemp .pytest-tmp-current-tier0-release-"
     )
     assert example["full_pytest_command"].endswith("-p no:cacheprovider")
-    # 诚实形态（状态真源收敛 2026-08-30）：示例用自洽的模板数字，P == baseline 且
-    # P + S == C；collected 不得写成 passing。真实数字唯一来源是 current_state.json。
-    m = re.fullmatch(
-        r"(\d+) passed, (\d+) skipped \(collected (\d+)\)",
-        example["full_pytest_result"],
-    )
-    assert m, example["full_pytest_result"]
-    passed, skipped, collected = (int(g) for g in m.groups())
+    # schema v2（状态真源收敛 2026-08-30）：示例用自洽的模板数字，结构化结果
+    # P == baseline、P + S + failed + errors == C；collected 不得写成 passing。
+    # 真实数字唯一来源是 current_state.json。
+    result = example["full_pytest_result"]
+    assert tuple(result) == (
+        "passed", "skipped", "failed", "errors", "collected",
+    ), result
+    passed = result["passed"]
+    skipped = result["skipped"]
+    collected = result["collected"]
+    assert result["failed"] == 0 and result["errors"] == 0
     assert example["baseline_tests_passing"] == passed
     assert passed + skipped == collected
     assert example["canary_runbook"] == "docs/00_project/31_tier0_canary_runbook.md"

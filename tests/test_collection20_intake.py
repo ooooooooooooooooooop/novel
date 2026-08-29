@@ -67,3 +67,18 @@ def test_collection20_intake_is_neutral_and_idempotent(tmp_path: Path) -> None:
 
     with pytest.raises(ValueError, match="outside the repository"):
         run_intake(source, repo, repo / "identity.json", expected_txt_count=3)
+
+
+def test_txt_discovery_is_case_insensitive(tmp_path: Path) -> None:
+    """Linux 大小写回归：.TXT/.Txt 必须被 suffix.lower() 发现（状态真源收敛 2026-08-30）."""
+    (tmp_path / "A.TXT").write_text("x", encoding="utf-8")
+    (tmp_path / "b.Txt").write_text("x", encoding="utf-8")
+    (tmp_path / "c.txt").write_text("x", encoding="utf-8")
+    (tmp_path / "d.jpg").write_bytes(b"not prose")
+
+    from scripts import collection20_intake
+
+    found = collection20_intake._txt_files(tmp_path, recursive=False)
+    assert [p.name for p in found] == ["A.TXT", "b.Txt", "c.txt"]
+    recursive = collection20_intake._txt_files(tmp_path, recursive=True)
+    assert {p.name for p in recursive} == {"A.TXT", "b.Txt", "c.txt"}

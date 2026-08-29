@@ -78,7 +78,11 @@ def _iter_work_dirs(root: Path) -> list[tuple[str, Path]]:
     for genre_dir in sorted((item for item in root.iterdir() if item.is_dir()), key=lambda p: p.name):
         def visit(candidate: Path) -> None:
             direct_txt = [item for item in candidate.iterdir() if item.is_file() and item.suffix.lower() == ".txt"]
-            chapter_txt = list((candidate / "chapters").glob("*.txt")) if (candidate / "chapters").is_dir() else []
+            chapter_txt = [
+                item
+                for item in (candidate / "chapters").iterdir()
+                if item.is_file() and item.suffix.lower() == ".txt"
+            ] if (candidate / "chapters").is_dir() else []
             if direct_txt or chapter_txt:
                 result.append((genre_dir.name, candidate))
                 return
@@ -88,12 +92,21 @@ def _iter_work_dirs(root: Path) -> list[tuple[str, Path]]:
     return result
 
 
+def _txt_files(directory: Path, recursive: bool) -> list[Path]:
+    """文本文件发现统一走 suffix.lower()——Windows 大小写不敏感文件系统曾掩盖
+    glob("*.txt") 在 Linux 上漏掉 .TXT/.Txt 的事实（状态真源收敛 2026-08-30）。"""
+    iterator = directory.rglob("*") if recursive else directory.iterdir()
+    return sorted(
+        item for item in iterator if item.is_file() and item.suffix.lower() == ".txt"
+    )
+
+
 def _files_for_work(work_dir: Path) -> tuple[list[Path], str]:
     chapters = work_dir / "chapters"
-    chapter_files = sorted(chapters.glob("*.txt")) if chapters.is_dir() else []
+    chapter_files = _txt_files(chapters, recursive=False) if chapters.is_dir() else []
     if chapter_files:
         return chapter_files, "existing_chapters"
-    return sorted(work_dir.rglob("*.txt")), "split_source"
+    return _txt_files(work_dir, recursive=True), "split_source"
 
 
 def _read_collection_text(path: Path) -> str:

@@ -2,6 +2,12 @@
 
 ## Purpose
 
+<!-- state:current -->
+**当前状态（唯一机器真源：`current_state.json`）**：默认标记 `CURRENT_HEAD_UNVERIFIED`——
+任何提交的验证资格不自动延续；attestation 记录（subject_commit / results / canary /
+last_validated_commit）以 json 为准。本区块禁止出现数字声明与历史资格。
+<!-- /state:current -->
+
 This file gives a newly opened agent a fast snapshot of what is already done, what is still unstable, and what work is most reasonable next.
 
 Update this file after each meaningful round of project-shaping work.
@@ -10,12 +16,10 @@ Update this file after each meaningful round of project-shaping work.
 
 ## 0. 状态主入口快照（2026-08-17，R0–R9 终审缺陷彻底闭环与真实状态推演强化）
 
-> 本节是本仓库**当前真实状态**的唯一优先入口。下方历史章节只描述对应时间点的状态。
-> **状态真源（2026-08-30 起）**：仓库根 `current_state.json`（机器生成，
-> `scripts/generate_current_state.py`）——repository_head / collected_tests /
-> full_pytest_result / canary_result / last_validated_commit /
-> last_certified_checkpoint / validation_timestamp 全部由实跑产生；本节与 json
-> 冲突时以 json 为准。collected 不得写成 passed。
+> 本节是人类可读的**引用门面**：当前验证资格的唯一机器真源是仓库根
+> `current_state.json`（attestation 协议，`scripts/generate_current_state.py` 生成）。
+> 下方历史章节只描述对应时间点的状态；与本 json 冲突时以 json 为准。
+> collected 不得写成 passed。
 
 ### 0.1 真实基线
 
@@ -47,7 +51,7 @@ Update this file after each meaningful round of project-shaping work.
 
 1. **R0: 状态真源与测试基线彻底统一（2026-08-17 时点）**
    - R0 时点验证提交为 `b464a8a`（现为当前 HEAD 的较早祖先）；`157914ed` 是 `b464a8a` 的父提交——两者均为历史事实，不构成当前 HEAD 的验证声明。
-- R0 当期全量回归为 `3079 passed + 1 skipped (collected 3080)`（历史记录）；现行唯一真源为 `current_state.json`。
+- R0 当期（2026-08-17）全量回归为 `2947 passed`（当期真实值，见 2026-08-17 事迹记录；后期 3079/3080 属其它时点，不得倒灌进 R0）；现行唯一真源为 `current_state.json`。
 
 2. **R3: 状态驱动的多步动态推演引擎（真实 staged rollout）**
    - 现有确定性投影正式命名 `deterministic_scenario_projection`（保留为快速风险探测）。
@@ -262,7 +266,7 @@ Known limitations declared for Tier 0 (must hold for any future work that treats
 Current transition status:
 
 - `implementation_planning_sufficient`
-- `end_to_end_validated`（历史切片时期表述；当前资格见 `current_state.json`）
+- 历史切片时期（2026-07-27 记录）表述为 `end_to_end_validated`；当前资格见 `current_state.json`
 
 Must inherit unchanged:
 
