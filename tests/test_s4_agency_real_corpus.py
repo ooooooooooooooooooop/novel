@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -80,8 +81,11 @@ def test_script_rejects_bad_path() -> None:
 
 
 def test_load_records_parses_real_choice_ledger() -> None:
-    """集成测试：真实 ChoiceLedger 路径（可本地重跑，非硬编码）."""
-    path = Path("novels/碑下-treat-a/output/extend/choice_ledger.json")
+    """集成测试：真实 ChoiceLedger 路径经环境变量提供（隐私纪律：真实工作区路径不入仓库）."""
+    raw = os.environ.get("NOVEL_S4_REAL_LEDGER", "").strip()
+    if not raw:
+        return  # 本地重跑：NOVEL_S4_REAL_LEDGER=<真实 ChoiceLedger 路径>
+    path = Path(raw)
     if not path.exists():
         # 离线环境跳过
         return
