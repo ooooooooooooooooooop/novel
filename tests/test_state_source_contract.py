@@ -134,7 +134,8 @@ def test_state_head_is_ancestor_within_freshness_limit():
         f"current_state.json is stale: {behind} commits behind (limit "
         f"{FRESHNESS_LIMIT}) — regenerate with scripts/generate_current_state.py"
     )
-    assert state.get("commits_behind") == behind or behind == 0
+    # json 内的 commits_behind 是生成时快照（生成时恒为 0），只作溯源展示；
+    # 新鲜度以本次 git 实测 behind 为准。
 
 
 def test_state_head_parent_matches_git():

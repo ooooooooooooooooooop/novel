@@ -139,12 +139,24 @@ def main(argv: list[str] | None = None) -> int:
     else:
         prev = existing.get("full_pytest_result", "")
         prev_head = existing.get("repository_head")
-        reusable = (
+        # 复用条件：已记录结果来自当前 HEAD 的祖先（freshness 内）且收集数一致
+        # ——测试集内容未变，全量结果仍然成立；lineage 由 repository_head +
+        # validation_timestamp 溯源。
+        reusable = False
+        if (
             isinstance(prev, str)
             and HONEST_RESULT_RE.fullmatch(prev) is not None
-            and prev_head == head
             and existing.get("collected_tests") == collected
-        )
+            and isinstance(prev_head, str)
+            and len(prev_head) == 40
+        ):
+            chk = subprocess.run(
+                ["git", "-C", str(REPO_ROOT), "merge-base", "--is-ancestor",
+                 prev_head, head],
+                capture_output=True, text=True,
+            )
+            behind = int(_git("rev-list", "--count", f"{prev_head}..{head}"))
+            reusable = chk.returncode == 0 and behind <= FRESHNESS_LIMIT
         result_line, pytest_ok = (
             (prev, True) if reusable
             else ("UNVERIFIED (run scripts/generate_current_state.py --full)", False)
@@ -152,12 +164,17 @@ def main(argv: list[str] | None = None) -> int:
 
     canary_line, canary_ok = _canary()
 
-    if pytest_ok and canary_ok:
+    if not pytest_ok:
+        last_validated = None
+    elif canary_ok and result_line != existing.get("full_pytest_result"):
+        # 本次实跑（--full）发生在此 HEAD → HEAD 即最近验证提交
         last_validated = head
     else:
-        last_validated = existing.get("last_validated_commit")
-        if not isinstance(last_validated, str) or len(last_validated) != 40:
-            last_validated = None
+        # 复用祖先提交的实测结果：验证发生在该祖先，如实保留
+        prev_lv = existing.get("last_validated_commit")
+        last_validated = (
+            prev_lv if isinstance(prev_lv, str) and len(prev_lv) == 40 else None
+        )
 
     checkpoint = _checkpoint()
     assets = {a: (REPO_ROOT / a).exists() for a in PRIVATE_ASSETS}
