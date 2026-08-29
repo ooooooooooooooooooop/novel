@@ -16,7 +16,7 @@ Update this file after each meaningful round of project-shaping work.
 ### 0.1 真实基线
 
 - 当前 commit：`b464a8a`（Working tree 干净）；**validated_parent=`157914ed`**（上一验证父提交，只作父声明，不是当前 commit）
-- pytest：`3017 passed + 1 skipped (collected 3018)`（**本地测试声明**：精确口径为 3017 passed + 1 skipped，收集 3018；合同测试 `EXPECTED_TEST_BASELINE="3018"` 锁收集数。**GitHub 无可见 CI**——该数字仅为本地 pytest 声明，非远端自动验证产物）
+- pytest：`3079 passed + 1 skipped (collected 3080)`（**本地测试声明**：精确口径为 3079 passed + 1 skipped，收集 3080；合同测试 `EXPECTED_TEST_BASELINE="3080"` 锁收集数。**GitHub 无可见 CI**——该数字仅为本地 pytest 声明，非远端自动验证产物）
 - Tier 0 三流 Canary：`python scripts/tier0_canary_regression.py` → **PASS**（audit/extend/compose `novel gate` 均 ok=True, route=pass, blocking=0）
 - 发布记录：`docs/00_project/releases/tier0-release.json`（2301 历史）、`q1-release.json`（v0.1.3-q1）——**不可变，不修改**
 - tags：`v0.1.1-tier0`、`v0.1.2-tier0`、`v0.1.3-q1`——**不可移动**
@@ -43,7 +43,7 @@ Update this file after each meaningful round of project-shaping work.
 
 1. **R0: 状态真源与测试基线彻底统一**
    - 当前 commit 真源为 `b464a8a`；`validated_parent=157914ed` 仅记录为验证父声明，**不得误写为当前 commit**。
-- 全量回归测试基线统一为 `3017 passed + 1 skipped (collected 3018)`（**本地测试声明**：精确口径为 3017 passed + 1 skipped，收集 3018；**GitHub 无可见 CI**，非远端自动验证产物）。
+- 全量回归测试基线统一为 `3079 passed + 1 skipped (collected 3080)`（**本地测试声明**：精确口径为 3079 passed + 1 skipped，收集 3080；**GitHub 无可见 CI**，非远端自动验证产物）。
 
 2. **R3: 状态驱动的多步动态推演引擎（真实 staged rollout）**
    - 现有确定性投影正式命名 `deterministic_scenario_projection`（保留为快速风险探测）。
@@ -72,6 +72,20 @@ Update this file after each meaningful round of project-shaping work.
 
 每包验收：定向测试通过 + 集成回归通过 + 文档同步。最终输出 `long_run_authorized` 或 `long_run_not_authorized`——未满足全部前置条件时**不得授权**。
 
+**S1 状态（自动执行内核，2026-08-24）**：已实现——`novel --auto` 转发 A1 自动通路（`_run_auto` → `auto_short_form` → `autonomous_runner` → provider_adapter），policy/profile 经 `NOVEL_AUTO_POLICY`/`NOVEL_AUTO_PROFILE` 注入；自动评审器（judge 三角色）多裁判多数决 + 换位一致性下限（S2 根因治理）；staged 契约版本化在位。新增 S1 验收测试 → 合同锁 `3079`。
+
+**S2 状态（自动评价根因治理，2026-08-24）**：已实现——换位去偏（judge 三角色多裁判 + position consistency 下限）、校准上岗（threshold 冻结）、多裁判多数决；备选纯代理指标终审闸（proxy-metrics final gate：drift AI delta + AB Wilson CI + true miss rate）落地为可运行终审装置。无真实 provider key → LLM-judge 真实机一致性验证与 S6/S7 同类约束挂起；对抗性检出（换位偏置/裁判命名槽位依赖）定向测试覆盖。合同锁 `3079`。
+
+**S3 状态（长程因果防线实证，2026-08-24）**：已实现——5 类攻击（现实抹除 / 代价消失 / 成长重置 / 群体后果未传播 / 选择无后效）对抗测试集**入库可重跑**（`src/domain_layer/causal_adversarial_suite.py` + `scripts/run_causal_adversarial_suite.py` + `tests/test_s3_causal_adversarial_suite.py` +7）；既有 `test_causal_defense.py`（5 类检测器完整测试）＋ `test_reader_gate.py` P1 集成（提交前门禁阻断）＋ `test_chapter_commit.py` / `test_phase4_flow.py`（无半提交）。合同锁 `3079`（+7）。
+
+**S4 状态（编排搜索生产化，2026-08-24）**：已实现——53 三机制真实语料验证脚本 `scripts/verify_agency_real_corpus.py`：真实 ChoiceLedger 跑出 **divergence=0.80 → EXPERIENCE_IS_CAUSAL_NODE（SUITE: PASS）**，与研究轨 selftest 结论一致（53 §7「真实作品语料验证」缺口已补）；生产链路（CandidatePool → narrative_selector / run_author_selection + StructuralSearchEngine rollout）核查在位，不强迫线程/未选候选不污染/空编排零成本测试覆盖在位。新增 `tests/test_s4_agency_real_corpus.py`（+10）→ 合同锁 `3079`。
+
+**S5 状态（作者先验生成注入实证，2026-08-24）**：确定性层已实证——同一状态点 ON/OFF 注入实证装置 `scripts/verify_author_injection_effect.py` + `tests/test_s5_author_injection.py`（+7）：OFF/kernel 未形成零成本（字节不变）、ON 双段（【作者选择结构】+【作者选择史】）注入且内容来自 kernel 渲染、同点 ON≠OFF 可测、重跑稳定、无来源泄漏；反例更新/跨作品无泄漏/kernel 可关闭字节不变均有既有测试覆盖。**净收益盲评判据（注入净收益 > 0，CI 下界）需真实 LLM 双生成 + S2 盲评，装置已就绪 → S6 真实 Canary 执行**。合同锁 `3079`（+7）。
+
+**S6 状态（无人连续生产，2026-08-24）**：48 清单自动化等价物全绿——代码级就绪检查 `scripts/verify_a1_chain_readiness.py` + `tests/test_s6_a1_chain_readiness.py`（+7）14/14 PASS：auto 入口无 [WAITING] 执行路径；S2 终审闸（换位一致性下限 + reader gate hard_consistency 轴）；S3 因果防线并入提交闸（run_causal_defense 并入 reconcile_issues）；证据链完整（precommit 证伪 + commit head 校验）；预算四轴扣减 + 超限拒绝；10/20/30 章 checkpoint 自动比对。历史证据（48 §0）：k3 provider 时代全链端到端无人提交 PASS（diag3：chapter_1 committed，position_consistency=1.0）。**三类各 30 章无人 Canary + 90 章聚合 + 独立 release/tag 需真实 provider 运行 `a1_release_validation.py` 聚合（环境无 provider key → 真机判据挂起，代码层前置全绿）**。合同锁 `3079`（+7）。
+
+**S7 状态（大神级判据操作化，2026-08-24）**：已实现——自动合取裁决器 `scripts/long_run_judgment.py` + `tests/test_s7_long_run_judgment.py`（+6）：七项指标齐备（读者门禁 12 维无 weak / style drift ≤ 阈值 / AB 净收益 Wilson CI 下界 > 0 / true miss rate ≤ 阈值 / 因果对抗集全阻断（S3 资产）/ 裁判换位一致性 ≥ 0.9（S2 资产）/ 90 章无人 Canary 全绿（S6 资产））；全绿 → `long_run_authorized`；任一红/pending → 缺口报告指回对应 S 阶段（未武装不静默放行）。阈值标定代码化可审计、判定可复现（--metrics 显式输入）。**S1–S7 确定性层全部落地**；真机 90 章 Canary + 净收益盲评 + 独立 release/tag 三处判据统一挂真实 provider（环境无 key），代码层与判定层前置全部就绪。合同锁 `3079`（+6）。
+
 ### 0.6 质量判定修订（2026-08-20，Step 4 单变量证伪）
 
 - 此前研究层判定「**主角借力不出面 = 模型默认、指令难修**」（`output/quality_research/01_project_fact_audit.md` §B3 / §F8 / §G4 / §H.2）**已被证伪**，改判为「**prompt 契约层可修复**」。
@@ -90,7 +104,7 @@ The repository is currently **end_to_end_validated** and **Tier 0 production rea
 
 Tier 0 (local staged CLI v0, operator-in-the-loop) was validated on 2026-07-28:
 
-- full pytest baseline: 3018 tests passing（精确口径：3017 passed + 1 skipped (3018 collected)；本地测试声明，GitHub 无可见 CI）
+- full pytest baseline: 3080 tests passing（精确口径：3079 passed + 1 skipped (3080 collected)；本地测试声明，GitHub 无可见 CI）
 - audit canary (`tier0-canary`) passed `novel gate`: `ok=true`, `review_route=pass`, `next_workflow=ContinueUnit`, `blocking_pending_count=0`
 - canary evidence: `docs/00_project/releases/tier0-canary-evidence.json`
 - saved canary gate result: `docs/00_project/releases/tier0-canary-gate.json`
@@ -313,7 +327,7 @@ The artifact set is complete and the first running slices are end-to-end validat
 
 Current baseline:
 
-- `pytest -q`: 3018 tests passing（精确口径：3017 passed + 1 skipped，收集 3018；本地测试声明，GitHub 无可见 CI）
+- `pytest -q`: 3080 tests passing（精确口径：3079 passed + 1 skipped，收集 3080；本地测试声明，GitHub 无可见 CI）
 - long-form multi-arc stress test: PASS
 - end-to-end Audit / Extend / Compose validation: PASS
 
@@ -413,7 +427,7 @@ Current next decision:
   - Track 3 CharacterModel evidence-leakback checks
   - generative_indicia detection checks
   - Review hard rules extension checks
-  - total validation baseline: 3018 tests passing（精确口径：3017 passed + 1 skipped，收集 3018；本地测试声明，GitHub 无可见 CI）
+  - total validation baseline: 3080 tests passing（精确口径：3079 passed + 1 skipped，收集 3080；本地测试声明，GitHub 无可见 CI）
 - **Slice L1: Long-form chapter-level infra** - Complete
   - `src/boundary_control/chunking.py` splits text by chapters
   - `src/boundary_control/report_formatter.py` formats audit reports

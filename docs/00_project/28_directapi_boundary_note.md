@@ -4,6 +4,8 @@
 
 DirectAPI provider calling is not implemented.
 
+2026-08-24（S1，54 计划）：`novel audit/extend/compose` 支持 `--auto` 标志，转发 A1 自动通路（`auto_short_form` + `autonomous_runner` + `provider_adapter`）。`--auto` 需通过环境变量 `NOVEL_AUTO_POLICY` / `NOVEL_AUTO_PROFILE` 指定 A1 冻结证据文件。staged 默认行为（无 `--auto`）不变，3042 合同锁不动。
+
 The default v0 runtime remains staged file exchange through
 `FileExchangeInterface` and the `novel` CLI.
 
