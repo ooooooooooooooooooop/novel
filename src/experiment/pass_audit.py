@@ -22,6 +22,8 @@ import json
 from pathlib import Path
 from typing import Callable
 
+from src.workflow_action.json_repair import parse_json
+
 JudgeFn = Callable[[str], str]
 
 # 与 Review 失败类型字典对齐的自由 issue_type 词汇（judge 可自由使用）
@@ -62,7 +64,9 @@ class PassAuditUnit:
         )
 
     def parse_audit(self, response: str) -> dict:
-        data = json.loads(response)
+        # 与 judge/plan 解析同一容错层（围栏/前导散文/裸引号——见 json_repair 模块
+        # 文档的实测缺陷记录）；干净 JSON 在 parse_json 首选路径下逐字节等价。
+        data = parse_json(response)
         if not isinstance(data, dict):
             raise ValueError("audit response must be a JSON object")
         clean = data.get("clean")
