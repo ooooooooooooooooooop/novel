@@ -15,7 +15,7 @@ Update this file after each meaningful round of project-shaping work.
 
 ### 0.1 真实基线
 
-- 当前 commit：`b464a8a`（Working tree 干净）；**validated_parent=`157914ed`**（上一验证父提交，只作父声明，不是当前 commit）
+- 当前 commit：2026-08-29 收尾序列（S1–S7 代码承载 `f0f6993` → 研究脚本 `3614552` → 文档同步 `150fb55` → 状态收尾）；**validated_parent=`157914ed`**（上一验证父提交，只作父声明，不是当前 commit）
 - pytest：`3079 passed + 1 skipped (collected 3080)`（**本地测试声明**：精确口径为 3079 passed + 1 skipped，收集 3080；合同测试 `EXPECTED_TEST_BASELINE="3080"` 锁收集数。**GitHub 无可见 CI**——该数字仅为本地 pytest 声明，非远端自动验证产物）
 - Tier 0 三流 Canary：`python scripts/tier0_canary_regression.py` → **PASS**（audit/extend/compose `novel gate` 均 ok=True, route=pass, blocking=0）
 - 发布记录：`docs/00_project/releases/tier0-release.json`（2301 历史）、`q1-release.json`（v0.1.3-q1）——**不可变，不修改**
@@ -25,7 +25,7 @@ Update this file after each meaningful round of project-shaping work.
 
 - **Tier 0**：人工/Codex 分阶段生产（operator-in-the-loop staged CLI）——**验证通过，生产就绪**
 - **Q1**：连续生产、Reader Gate、事务提交与崩溃恢复——**验证通过（v0.1.3-q1）**
-- **A1**：自动调用与单章自动生产链**已存在**，但 **G7 自动审美终端资格失败**、G8 无人 Canary 未授权——**未获得生产资格**（详见 §1.5 与 `48_a1_autonomous_production_handoff.md`）
+- **A1**：自动调用与单章自动生产链**已存在**，S6 90 章无人 Canary 已 **certified（90/90，2026-08-28）**，但 S7 七指标合取 **3 绿 / 4 红 → `long_run_not_authorized`**——**仍未获得生产资格**（详见 §0.7 与 `runtime/refs/cpa_active/HANDOFF_S6_S7.md`，后者为 gitignored 运营侧交接）
 - **大神级系统**：**尚处建设阶段**——P0–P7 全链路架构已搭建，R0–R9 终审整改已彻底闭环。**不得声称已达大神级**；最终是否达大神级必须由系统外隐藏来源人类长期阅读实验验证。
 - **作者类模型（ADR-15，研究性）**：`Author` 支持一作者一份中性实例，确定性方法层统计与 staged 选择模式推断分离；`novel corpus-author-model` 支持 N 语料的批量提取 API，实例产物位于 gitignored `author_models/`，不具备生产门禁或自动终审资格。
 
@@ -95,6 +95,17 @@ Update this file after each meaningful round of project-shaping work.
 - **诚实边界（不得越读）**：被证伪的是「**指令不能改变输出方向**」，**不是**「该漂移已在成稿层修复」——n=2 截点、单判官、单生成模型，**流水线级回归盲评未做**。**布局深度未被本实验覆盖，原「模型默认」判定保留**，且同样从未被单变量实验检验过。
 - **基线影响（已完成全量复核）**：该修复新增 1 个测试函数（`tests/test_continuation_offstage.py`）；全量 pytest 实机复核结果为 `1 failed, 2968 passed, 1 skipped`，唯一失败即合同锁漂移（`tests/test_cli_runtime_contract.py::test_collected_test_baseline_matches_contract`）；连同结构搜索 T3 阶段一新增（`tests/test_structural_search_t3_phase1.py` +6），本轮新增测试合计 +7，修正合同锁后 §0.1 基线更新为 `2969 passed + 1 skipped (collected 2970)`，合同锁 `EXPECTED_TEST_BASELINE="2970"`（口径不变：本地测试声明，GitHub 无可见 CI）。发布记录、tag、G7 失败记录均未改动。
 - **基线影响（2026-08-21 复核）**：作者语料采样粒度修复新增 12 个测试函数（`tests/test_corpus_author_model.py`）；全量 pytest 实机复核结果为 `1 failed, 2980 passed, 1 skipped`，唯一失败仍为合同锁漂移（`tests/test_cli_runtime_contract.py::test_collected_test_baseline_matches_contract`，collect-only 实际 2982）；修正合同锁后 §0.1 基线更新为 `2982 passed + 1 skipped (collected 2983)`，合同锁 `EXPECTED_TEST_BASELINE="2983"`，`docs/00_project/tier0_release_record.example.json` 同步 2982（口径不变：本地测试声明，GitHub 无可见 CI）。发布记录、tag、G7 失败记录均未改动。
+
+### 0.7 S6/S7 真机终态（2026-08-29 同步；取代 §0.5 S5/S6/S7 状态块中「挂起（环境无 provider key）」表述）
+
+> 证据真源（gitignored 运营侧）：`runtime/refs/cpa_active/`——`s6_canary_aggregate.json`、`s7/s7_judgment.json`、`s7/s7_metrics_evidence.json`、`HANDOFF_S6_S7.md`、`s7_gap_closure/checkpoint.md`。本节只写判定与缺口，不复制隐私细节。
+
+- **S6 90 章无人 Canary：certified（90/90）**——三类（contemporary_officialdom / mythic_fantasy / historical_strategy）各 30/30 章提交（2026-08-24 起跑、2026-08-27 23:32 offdom 收官），聚合 `certified=True`。运行期两处机制修复已并入 `autonomous_runner.py`（无效 state ref 确定性重映射；提交门禁改传选中 PlotUnit 而非历史全量 PU），全量测试锁定。
+- **S7 真机裁决（2026-08-28）：`long_run_not_authorized`，无 pending**——3 绿：AB 净收益（Wilson CI [0.508, 0.851]）、因果对抗集（10/10 阻断）、90 章 Canary；4 红：三类读者 overall 均 weak（weak findings 6/4/6）、hist AI-indicia drift ratio 2.258 > 1.2、合并 true miss rate 0.767 > 0.20（n=30）、Gemini 换位一致性 0.505 < 0.9（n=103）。
+- **缺口闭环进行中（`s7_gap_closure/checkpoint.md` CP1–CP9）**——CP1 长程连续性根因修复（driver 状态选择改数值序 + frames 继承）；CP2 Frame 连续性 + judge 严格解析 + 违规 claim 物化为 canonical provenance；prospective4 已归档为盲终审前旧证据；swap4 12/12 一致。**CP9（当前阻塞）：prospective5（3 类 × 5 章）因上游 `gemini-3.7-flash-high` 通道 503 全部 0 章提交**（2026-08-29 11:52 复测仍 503：`auth_unavailable`，antigravity 服务/配额故障）；不得改冻结模型/阈值/换模型伪绿，恢复条件＝该通道回 200 后重跑三路 prospective5 + swap5，四指标全绿后再跑 90 章 `s7-canary5-*` 与最终七指标裁决。
+- **A1 生产资格判定：未授权（诚实维持）**——S6 canary 全绿是必要非充分；生产资格唯一出口是 S7 七指标全绿 → `long_run_authorized`。不因 canary certified 而提前宣告。
+- **2026-08-29 收尾**：S1–S7 代码与文档在途改动分逻辑提交入库（`f0f6993`/`3614552`/`150fb55`）；26 个 `_tmp_*` 临时脚本与外部 `dsh-compaction-basic-convergence/` 移出仓库；全量 pytest 于收尾代码态实测 `3079 passed + 1 skipped (collected 3080)`、三流 Canary 回归 PASS、S6 链路就绪 14/14 PASS。
+- **2026-08-29 单命令聚合判定：`withheld`（诚实维持）**——`a1_release_validation.py`：G8 PASS（90/90）、pytest 3079+1、隐私红线零错误；G0/G3/G7 因 48 时代证据文件缺失失败（`.taskflow` g0/g3 报告与 `a1-calibrate/calibrate-auto` holdout 均不存在——该证据链未随 cpa_active 时代迁移）。**同轮查明并修复：脚本 `FROZEN_RELEASES` 常量仍锚定历史重写前孤儿锚点（`91ab4e6` 已成孤儿对象），已重锚定至 2026-08-06 认证的现役产物（`v0.1.2-tier0`→`3287e0f`、两记录现哈希），冻结语义保留。**故 S6 独立 release/tag **不签发**：既不手工造记录，也不在 G0/G3/G7 证据链重构前放行——重构该证据链（或裁决以 cpa_active 时代证据重定义三门禁）属运营决策，登记为待办。
 
 ---
 

@@ -46,16 +46,22 @@ TASKFLOW_RUNTIME = (
 )
 CALIBRATE_EVIDENCE = REPO_ROOT / "novels" / "a1-calibrate" / "output" / "calibrate-auto"
 
+# Frozen-release anchors (re-anchored 2026-08-29 to the sanctioned 2026-08-06
+# re-certification state: v0.1.2-tier0 is an annotated tag rebuilt onto the
+# rewritten checkpoint 3287e0f — see commit a05b978 "release 记录 git_commit
+# 重定位至重写后 checkpoint 3287e0f" and 03_current_status.md §1; the
+# pre-rewrite anchor 91ab4e6 is an orphaned object).  From now on these bytes
+# and tag targets are the frozen baseline: any further change fails G9.
 FROZEN_RELEASES = {
     "tier0": {
         "record": REPO_ROOT / "docs" / "00_project" / "releases" / "tier0-release.json",
-        "record_sha256": "37cd67f0e61c20e659a5dd9b711758fd72bd860577bde80415ef97530a539f83",
+        "record_sha256": "7e76ae341bb3c4b85d89d792e80f157493d51f2b19a3122bed49298fbc658fbb",
         "tag": "v0.1.2-tier0",
-        "tag_commit": "91ab4e6df0ea1ed976472390686491528b798e75",
+        "tag_commit": "3287e0feb20691a0add37d1eec7173664beb3172",
     },
     "q1": {
         "record": REPO_ROOT / "docs" / "00_project" / "releases" / "q1-release.json",
-        "record_sha256": "1df8571dcf0d8202982164c8d0a56a28811402f7096ddbc704373401dfedaba8",
+        "record_sha256": "dd1f5de570564dddd9a459326c874bf52daf09a75ff87fce92426d0f1269d14e",
         "tag": "v0.1.3-q1",
         "tag_commit": "ff66b9b24e8fb5099ab3c1b2bfda3b6e60e46fa2",
     },

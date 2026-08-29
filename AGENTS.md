@@ -3,12 +3,13 @@
 ## Project
 Automatic Novel Narrative System
 
-## Current Status Pointer (2026-08-16)
+## Current Status Pointer (2026-08-29)
 
-- 当前状态唯一权威入口：`docs/00_project/03_current_status.md` §0（能力边界 / G7 退役 / 五层评价）。
-- 大神级升级计划：`docs/00_project/52_mastery_upgrade_plan.md`（P0–P7）。
-- A1 自动调用与单章自动生产链已存在但**未获生产资格**；G7 自动审美资格失败、已退役为研究性子能力。
-- 测试基线：**3080 tests passing**（精确口径：**3079 passed + 1 skipped（收集 3080）**；**本地测试声明**，GitHub 无可见 CI；本地上次基线 2947 passed 为 2026-08-17 R0–R9 事迹）。
+- 当前状态唯一权威入口：`docs/00_project/03_current_status.md` §0（§0.7 为 S6/S7 真机终态）。
+- 大神级升级计划：`docs/00_project/52_mastery_upgrade_plan.md`（P0–P7）；总目标执行计划：`docs/00_project/54_master_goal_execution_plan.md`（S1–S7，确定性层已全部落地）。
+- **S6 90 章无人 Canary certified（90/90，2026-08-28）**；S7 七指标合取 **3 绿 / 4 红 → `long_run_not_authorized`**——A1 仍未获生产资格；缺口闭环 prospective5 因上游 `gemini-3.7-flash-high` 503 停摆（外部故障，非代码）。
+- G7 自动审美资格失败、已退役为研究性子能力（失败记录不可变）。
+- 测试基线：**3080 tests passing**（精确口径：**3079 passed + 1 skipped（收集 3080）**；**本地测试声明**，GitHub 无可见 CI；2026-08-29 收尾态实测复验）。
 
 ## Current Phase
 Tier 0 production ready — three-flow daily-production hardened (2026-07-29). End-to-end validated, Codex-native orchestration. All three slices (`audit_short_form`, `extend_short_form`, `compose_short_form`) are code-complete and validated, and each has a real staged Codex canary passing `novel gate`.
