@@ -55,6 +55,24 @@ def _sha256(path: Path) -> str:
     return h.hexdigest()
 
 
+def _hash_matches(path: Path, expected: str) -> bool:
+    """行尾不变式的证据哈希比对（状态真源收敛 2026-08-30）。
+
+    钉死哈希是证据生成时的原始字节；不同 git 检出行尾策略（autocrlf/eol）会把
+    同一内容检出为不同字节，造成假漂移。接受原始字节或任一行尾传输变体的匹配；
+    内容本身有任何变化仍然 FAIL。
+    """
+    raw = path.read_bytes()
+    if _sha256(path) == expected:
+        return True
+    lf = raw.replace(b"\r\n", b"\n")
+    crlf = raw.replace(b"\n", b"\r\n")
+    for variant in (lf, crlf):
+        if hashlib.sha256(variant).hexdigest() == expected:
+            return True
+    return False
+
+
 def _run_gate(novel: str) -> dict:
     proc = subprocess.run(
         [sys.executable, "-m", "src.novel_cli", "gate", novel, "--json"],
@@ -88,9 +106,10 @@ def _check_artifacts(flow: str, workspace_artifacts: dict) -> list[str]:
         if not p.exists():
             failures.append(f"missing artifact {rel_path}")
             continue
-        actual = _sha256(p)
-        if actual != expected_hash:
-            failures.append(f"drift {rel_path}: expected {expected_hash} got {actual}")
+        if not _hash_matches(p, expected_hash):
+            failures.append(
+                f"drift {rel_path}: expected {expected_hash} got {_sha256(p)}"
+            )
     return failures
 
 
@@ -111,8 +130,8 @@ def main() -> int:
         if not gate_path.exists():
             artifact_failures.append(f"missing gate file {agg['flows'][flow]['gate_result_path']}")
         else:
-            gate_disk = _sha256(gate_path)
-            if gate_disk != agg["flows"][flow]["gate_result_sha256"]:
+            if not _hash_matches(gate_path, agg["flows"][flow]["gate_result_sha256"]):
+                gate_disk = _sha256(gate_path)
                 artifact_failures.append(
                     f"drift gate file {agg['flows'][flow]['gate_result_path']}: "
                     f"expected {agg['flows'][flow]['gate_result_sha256']} got {gate_disk}"

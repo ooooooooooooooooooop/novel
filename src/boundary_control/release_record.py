@@ -121,6 +121,7 @@ TIER0_GENERATE_REQUIRED_FIELDS = (
     "release_tag_or_checkpoint",
     "git_commit",
     "full_pytest_command",
+    "full_pytest_result",
 )
 TIER0_CANARY_GENERATE_REQUIRED_FIELDS = (
     "release_id",
@@ -631,17 +632,40 @@ def validate_tier0_release_record(
         payload["full_pytest_command"],
         "Tier 0 release record full_pytest_command",
     )
-    if payload["baseline_tests_passing"] != expected_baseline:
-        raise ValueError(
-            "Tier 0 release record baseline_tests_passing must match expected "
-            f"baseline {expected_baseline}"
-        )
-    expected_pytest_result = f"{expected_baseline} passed"
-    if payload["full_pytest_result"] != expected_pytest_result:
-        raise ValueError(
-            "Tier 0 release record full_pytest_result must be "
-            f"{expected_pytest_result}"
-        )
+    # 双形态语义（状态真源收敛 2026-08-30）：
+    # - 遗留形态 "N passed"：仅供不可变历史 release 记录自校验（其时 passed==collected）。
+    # - 诚实形态 "P passed, S skipped (collected C)"：新记录必须用此形态，
+    #   强制内部一致性 baseline_tests_passing==P 且 P+S==C；collected 不得再写成 passing。
+    _legacy = f"{expected_baseline} passed"
+    _honest_re = re.compile(
+        r"^(0|[1-9]\d*) passed, (0|[1-9]\d*) skipped \(collected (0|[1-9]\d*)\)$"
+    )
+    result_line = payload["full_pytest_result"]
+    if result_line == _legacy:
+        if payload["baseline_tests_passing"] != expected_baseline:
+            raise ValueError(
+                "Tier 0 release record baseline_tests_passing must match expected "
+                f"baseline {expected_baseline}"
+            )
+    else:
+        m = _honest_re.fullmatch(result_line)
+        if m is None:
+            raise ValueError(
+                "Tier 0 release record full_pytest_result must be the full pytest "
+                'summary line: "P passed, S skipped (collected C)" (or the legacy '
+                f'"{_legacy}" for immutable historical records)'
+            )
+        passed, skipped, collected = (int(g) for g in m.groups())
+        if payload["baseline_tests_passing"] != passed:
+            raise ValueError(
+                "Tier 0 release record baseline_tests_passing must equal the passed "
+                f"count in full_pytest_result ({passed})"
+            )
+        if passed + skipped != collected:
+            raise ValueError(
+                "Tier 0 release record full_pytest_result is inconsistent: "
+                f"passed({passed}) + skipped({skipped}) must equal collected({collected})"
+            )
     if payload["canary_runbook"] != TIER0_CANARY_RUNBOOK:
         raise ValueError(
             "Tier 0 release record canary_runbook must be "
@@ -1177,13 +1201,18 @@ def build_tier0_release_record(
     created_at_utc: str,
     release_tag_or_checkpoint: str,
     git_commit: str,
-    expected_baseline: int,
+    full_pytest_result: str,
     full_pytest_command: str,
     record_path: str,
     canary_evidence_path: str | None = None,
     canary_gate_result_path: str | None = None,
 ) -> dict[str, object]:
-    """Build and validate a Tier 0 release record payload."""
+    """Build and validate a Tier 0 release record payload.
+
+    ``full_pytest_result`` 必须是真实 full pytest 汇总行（诚实形态
+    "P passed, S skipped (collected C)"）；baseline_tests_passing 由该行解析，
+    不得再以 collected 冒充 passing（状态真源收敛 2026-08-30）。
+    """
 
     evidence_paths = [
         *TIER0_REQUIRED_EVIDENCE_PATHS,
@@ -1201,6 +1230,21 @@ def build_tier0_release_record(
         )
     evidence_paths.append(_require_non_empty_string(record_path, "record_path"))
 
+    result_line = _require_non_empty_string(
+        full_pytest_result,
+        "full_pytest_result",
+    )
+    m = re.fullmatch(
+        r"(0|[1-9]\d*) passed, (0|[1-9]\d*) skipped \(collected (0|[1-9]\d*)\)",
+        result_line,
+    )
+    if m is None:
+        raise ValueError(
+            "full_pytest_result must be the full pytest summary line "
+            '"P passed, S skipped (collected C)"; collected must not be '
+            "written as passing"
+        )
+    baseline_tests_passing = int(m.group(1))
     payload: dict[str, object] = {
         "schema_version": TIER0_RELEASE_RECORD_SCHEMA_VERSION,
         "type": TIER0_RELEASE_RECORD_TYPE,
@@ -1215,12 +1259,12 @@ def build_tier0_release_record(
             "release_tag_or_checkpoint",
         ),
         "git_commit": _require_non_empty_string(git_commit, "git_commit"),
-        "baseline_tests_passing": expected_baseline,
+        "baseline_tests_passing": baseline_tests_passing,
         "full_pytest_command": _require_non_empty_string(
             full_pytest_command,
             "full_pytest_command",
         ),
-        "full_pytest_result": f"{expected_baseline} passed",
+        "full_pytest_result": result_line,
         "canary_runbook": TIER0_CANARY_RUNBOOK,
         "canary_result": "pass",
         "canary_commands": list(TIER0_REQUIRED_CANARY_COMMANDS),
@@ -1235,7 +1279,7 @@ def build_tier0_release_record(
     }
     validate_tier0_release_record(
         payload,
-        expected_baseline=expected_baseline,
+        expected_baseline=baseline_tests_passing,
         record_path=record_path,
     )
     return payload
@@ -1250,7 +1294,17 @@ def main(argv: list[str] | None = None) -> int:
         "--expected-baseline",
         required=True,
         type=int,
-        help="expected full pytest passing count",
+        help=(
+            "expected collected test count for legacy-record validation; "
+            "honest-form records self-validate via full_pytest_result"
+        ),
+    )
+    parser.add_argument(
+        "--full-pytest-result",
+        help=(
+            'real full pytest summary line "P passed, S skipped (collected C)" '
+            "required for --generate; collected must not be written as passing"
+        ),
     )
     parser.add_argument(
         "--record-path",
@@ -1348,6 +1402,7 @@ def main(argv: list[str] | None = None) -> int:
                 ("--release-tag-or-checkpoint", args.release_tag_or_checkpoint),
                 ("--git-commit", args.git_commit),
                 ("--full-pytest-command", args.full_pytest_command),
+                ("--full-pytest-result", args.full_pytest_result),
                 ("--require-evidence-files", args.require_evidence_files),
                 ("--require-git-checkpoint", args.require_git_checkpoint),
                 ("--canary-evidence", args.canary_evidence),
@@ -1422,7 +1477,7 @@ def main(argv: list[str] | None = None) -> int:
                 created_at_utc=args.created_at_utc,
                 release_tag_or_checkpoint=args.release_tag_or_checkpoint,
                 git_commit=args.git_commit,
-                expected_baseline=args.expected_baseline,
+                full_pytest_result=args.full_pytest_result,
                 full_pytest_command=args.full_pytest_command,
                 record_path=record_path,
                 canary_evidence_path=args.canary_evidence,

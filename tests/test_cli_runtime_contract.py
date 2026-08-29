@@ -80,10 +80,12 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 # → 2983 + 9 = 2992（2991 passed + 1 skipped，收集 2992，本地测试声明，GitHub 无可见 CI）。
 # v8 双平面裁决测试（test_authormodel_v3.py,+8：双平面/backoff/泄漏隔离/覆盖率/选择性风险/
 # c@1/operating coverage）→ 2992 + 8 = 3000（2999 passed + 1 skipped，收集 3000，本地测试声明，GitHub 无可见 CI）。
-# observed-decision-author-signature-v1 机制测试（test_observed_author_signature.py, +18：结构门禁/
-# 可靠性门禁/α/功效/产率/inner-CV/置换一致性/负控消融/边界场景）
-# → 3000 + 18 = 3018；S1（test_s1_auto_mode.py,+7）→ 3025（3024 passed + 1 skipped，收集 3079，本地测试声明，GitHub 无可见 CI）。
-EXPECTED_TEST_BASELINE = "3080"
+# 状态真源收敛（2026-08-30）：本常量只锁 COLLECTED 测试数，不再表述/推断 passing 数。
+# passing / skipped / canary / 验证资格一律以机器生成的 current_state.json 为准
+# （scripts/generate_current_state.py），文档不得各自维护数字或提交哈希。
+# 历史演进（仅 collected 口径，供追溯）：
+#   … 3018 → 3025 → … → 3079 → 3080（S1–S7 + S6 运行期加固）。
+EXPECTED_COLLECTED_TESTS = "3090"
 
 
 def run_script(*args: str) -> subprocess.CompletedProcess[str]:
@@ -108,7 +110,7 @@ def test_collected_test_baseline_matches_contract():
     assert result.returncode == 0, result.stdout + result.stderr
     match = re.search(r"(\d+) tests collected", result.stdout)
     assert match, f"could not parse collect count: {result.stdout!r}"
-    assert match.group(1) == EXPECTED_TEST_BASELINE
+    assert match.group(1) == EXPECTED_COLLECTED_TESTS
 
 
 def test_audit_output_dir_waiting_isolated(tmp_path):
@@ -385,28 +387,23 @@ def test_deployment_docs_are_consistent():
     ).read_text(encoding="utf-8")
 
     for text in (readme, agents, brief, scope, quickstart, status):
-        assert "tests passing" in text
+        # 状态真源收敛（2026-08-30）：文档不得再用 "N tests passing" 表述（collected
+        # 曾被写成 passing）；数字唯一真源是机器生成的 current_state.json。
+        assert "tests passing" not in text, "docs must not claim passing counts"
         assert "DirectAPI" in text
 
-    counts = {
-        label: set(re.findall(r"(\d+) tests passing", text))
-        for label, text in {
-            "README.md": readme,
-            "AGENTS.md": agents,
-            "00_project_brief.md": brief,
-            "01_scope_and_boundaries.md": scope,
-            "02_agent_quickstart.md": quickstart,
-            "03_current_status.md": status,
-        }.items()
-    }
-    assert counts == {
-        "README.md": {EXPECTED_TEST_BASELINE},
-        "AGENTS.md": {EXPECTED_TEST_BASELINE},
-        "00_project_brief.md": {EXPECTED_TEST_BASELINE},
-        "01_scope_and_boundaries.md": {EXPECTED_TEST_BASELINE},
-        "02_agent_quickstart.md": {EXPECTED_TEST_BASELINE},
-        "03_current_status.md": {EXPECTED_TEST_BASELINE},
-    }
+    for label, text in {
+        "README.md": readme,
+        "AGENTS.md": agents,
+        "00_project_brief.md": brief,
+        "01_scope_and_boundaries.md": scope,
+        "02_agent_quickstart.md": quickstart,
+        "03_current_status.md": status,
+    }.items():
+        assert "current_state.json" in text, (
+            f"{label} must reference the machine-generated state source"
+        )
+        assert not re.search(r"\d+ tests passing", text), label
 
     assert "Codex-native staged CLI" in decision
     assert "DirectAPI implementation" in decision
@@ -716,7 +713,8 @@ def test_production_readiness_checklist_contract():
         "audit log",
         "release tag",
         "clean full pytest",
-        f"{int(EXPECTED_TEST_BASELINE) - 1} passed + 1 skipped ({EXPECTED_TEST_BASELINE} collected)",
+        "full_pytest_result",
+        "skipped (collected",
     ]
 
     for phrase in required_phrases:
@@ -837,12 +835,20 @@ def test_tier0_release_record_contract():
     assert example["release_id"] == "tier0-canary-20260706"
     assert example["created_at_utc"] == "2026-07-06T00:00:00Z"
     assert example["git_commit"] == "0123456789abcdef0123456789abcdef01234567"
-    assert example["baseline_tests_passing"] == int(EXPECTED_TEST_BASELINE)
     assert example["full_pytest_command"].startswith(
         "python -m pytest -q --basetemp .pytest-tmp-current-tier0-release-"
     )
     assert example["full_pytest_command"].endswith("-p no:cacheprovider")
-    assert example["full_pytest_result"] == f"{EXPECTED_TEST_BASELINE} passed"
+    # 诚实形态（状态真源收敛 2026-08-30）：示例用自洽的模板数字，P == baseline 且
+    # P + S == C；collected 不得写成 passing。真实数字唯一来源是 current_state.json。
+    m = re.fullmatch(
+        r"(\d+) passed, (\d+) skipped \(collected (\d+)\)",
+        example["full_pytest_result"],
+    )
+    assert m, example["full_pytest_result"]
+    passed, skipped, collected = (int(g) for g in m.groups())
+    assert example["baseline_tests_passing"] == passed
+    assert passed + skipped == collected
     assert example["canary_runbook"] == "docs/00_project/31_tier0_canary_runbook.md"
     assert example["canary_result"] == "pass"
     assert example["staged_runtime"] == "FileExchangeInterface"

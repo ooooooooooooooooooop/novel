@@ -10,14 +10,18 @@ Update this file after each meaningful round of project-shaping work.
 
 ## 0. 状态主入口快照（2026-08-17，R0–R9 终审缺陷彻底闭环与真实状态推演强化）
 
-> 本节是本仓库**当前真实状态**的唯一优先入口。下方历史章节只描述对应时间点的状态，
-> 以本节为准。数字均为实机验证，不把 collected 写成 passed。
+> 本节是本仓库**当前真实状态**的唯一优先入口。下方历史章节只描述对应时间点的状态。
+> **状态真源（2026-08-30 起）**：仓库根 `current_state.json`（机器生成，
+> `scripts/generate_current_state.py`）——repository_head / collected_tests /
+> full_pytest_result / canary_result / last_validated_commit /
+> last_certified_checkpoint / validation_timestamp 全部由实跑产生；本节与 json
+> 冲突时以 json 为准。collected 不得写成 passed。
 
 ### 0.1 真实基线
 
-- 当前 commit：2026-08-29 收尾序列（S1–S7 代码承载 `f0f6993` → 研究脚本 `3614552` → 文档同步 `150fb55` → 状态收尾）；**validated_parent=`157914ed`**（上一验证父提交，只作父声明，不是当前 commit）
-- pytest：`3079 passed + 1 skipped (collected 3080)`（**本地测试声明**：精确口径为 3079 passed + 1 skipped，收集 3080；合同测试 `EXPECTED_TEST_BASELINE="3080"` 锁收集数。**GitHub 无可见 CI**——该数字仅为本地 pytest 声明，非远端自动验证产物）
-- Tier 0 三流 Canary：`python scripts/tier0_canary_regression.py` → **PASS**（audit/extend/compose `novel gate` 均 ok=True, route=pass, blocking=0）
+- 当前 commit / head_parent / last_validated_commit：以 `current_state.json` 为唯一真源（机器生成）。历史提交角色见下文 R0 条目的日期化表述。
+- pytest：以 `current_state.json` 的 `collected_tests` 与 `full_pytest_result` 为唯一真源（诚实形态 `P passed, S skipped (collected C)`）。合同测试 `EXPECTED_COLLECTED_TESTS` 只锁 collected。公开 checkout 会对私有资产依赖测试显式跳过，两种 checkout 口径都记录在 json。
+- Tier 0 三流 Canary：以 `current_state.json` 的 `canary_result` 为准（机器生成，含 validation_timestamp；不作为无日期的常驻声明）
 - 发布记录：`docs/00_project/releases/tier0-release.json`（2301 历史）、`q1-release.json`（v0.1.3-q1）——**不可变，不修改**
 - tags：`v0.1.1-tier0`、`v0.1.2-tier0`、`v0.1.3-q1`——**不可移动**
 
@@ -41,9 +45,9 @@ Update this file after each meaningful round of project-shaping work.
 
 本轮整改彻底消除了系统中的伪造漏洞、协议矛盾与未决回退逻辑，重点闭环 4 大整改包：
 
-1. **R0: 状态真源与测试基线彻底统一**
-   - 当前 commit 真源为 `b464a8a`；`validated_parent=157914ed` 仅记录为验证父声明，**不得误写为当前 commit**。
-- 全量回归测试基线统一为 `3079 passed + 1 skipped (collected 3080)`（**本地测试声明**：精确口径为 3079 passed + 1 skipped，收集 3080；**GitHub 无可见 CI**，非远端自动验证产物）。
+1. **R0: 状态真源与测试基线彻底统一（2026-08-17 时点）**
+   - R0 时点验证提交为 `b464a8a`（现为当前 HEAD 的较早祖先）；`157914ed` 是 `b464a8a` 的父提交——两者均为历史事实，不构成当前 HEAD 的验证声明。
+- R0 当期全量回归为 `3079 passed + 1 skipped (collected 3080)`（历史记录）；现行唯一真源为 `current_state.json`。
 
 2. **R3: 状态驱动的多步动态推演引擎（真实 staged rollout）**
    - 现有确定性投影正式命名 `deterministic_scenario_projection`（保留为快速风险探测）。
@@ -111,11 +115,11 @@ Update this file after each meaningful round of project-shaping work.
 
 ## 1. Current State
 
-The repository is currently **end_to_end_validated** and **Tier 0 production ready — three-flow daily-production hardened**.
+**当前验证资格由 `current_state.json`（机器生成）唯一承载，不因历史里程碑自动延续。**
 
-Tier 0 (local staged CLI v0, operator-in-the-loop) was validated on 2026-07-28:
+历史里程碑：Tier 0 (local staged CLI v0, operator-in-the-loop) was validated on 2026-07-28 and re-certified 2026-08-06 (immutable checkpoint `v0.1.2-tier0`):
 
-- full pytest baseline: 3080 tests passing（精确口径：3079 passed + 1 skipped (3080 collected)；本地测试声明，GitHub 无可见 CI）
+- 2026-07-28 当时 full pytest baseline: `2301 passed`（见 tier0-release.json；当前数字演进见 git 历史与 `current_state.json`）
 - audit canary (`tier0-canary`) passed `novel gate`: `ok=true`, `review_route=pass`, `next_workflow=ContinueUnit`, `blocking_pending_count=0`
 - canary evidence: `docs/00_project/releases/tier0-canary-evidence.json`
 - saved canary gate result: `docs/00_project/releases/tier0-canary-gate.json`
@@ -227,7 +231,7 @@ Current phase judgment:
 - harness framing: stable
 - implementation-planning output set: complete
 - implementation unit boundaries: clear enough for current slices
-- current implementation status: `end_to_end_validated`
+- current implementation status: 以 `current_state.json` 为唯一真源（本字段为历史切片时期表述）
 - default next action: use the unified `novel` entry for staged multi-novel runs; decide next orchestration follow-up only when a new workflow gap appears
 
 This means the project is no longer blocked on missing design pieces or first running slices.
@@ -258,7 +262,7 @@ Known limitations declared for Tier 0 (must hold for any future work that treats
 Current transition status:
 
 - `implementation_planning_sufficient`
-- `end_to_end_validated`
+- `end_to_end_validated`（历史切片时期表述；当前资格见 `current_state.json`）
 
 Must inherit unchanged:
 
@@ -338,7 +342,7 @@ The artifact set is complete and the first running slices are end-to-end validat
 
 Current baseline:
 
-- `pytest -q`: 3080 tests passing（精确口径：3079 passed + 1 skipped，收集 3080；本地测试声明，GitHub 无可见 CI）
+- `pytest -q`: 见 `current_state.json`（机器生成）
 - long-form multi-arc stress test: PASS
 - end-to-end Audit / Extend / Compose validation: PASS
 
@@ -438,7 +442,7 @@ Current next decision:
   - Track 3 CharacterModel evidence-leakback checks
   - generative_indicia detection checks
   - Review hard rules extension checks
-  - total validation baseline: 3080 tests passing（精确口径：3079 passed + 1 skipped，收集 3080；本地测试声明，GitHub 无可见 CI）
+  - total validation baseline: 见 `current_state.json`（机器生成）
 - **Slice L1: Long-form chapter-level infra** - Complete
   - `src/boundary_control/chunking.py` splits text by chapters
   - `src/boundary_control/report_formatter.py` formats audit reports

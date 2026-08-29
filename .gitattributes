@@ -1,0 +1,5 @@
+# Immutable canary evidence: hash-pinned bytes, never line-ending munged on checkout
+novels/tier0-canary/** -text
+novels/tier0-extend-canary/** -text
+novels/tier0-compose-canary/** -text
+docs/00_project/releases/** -text

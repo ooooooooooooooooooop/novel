@@ -9,10 +9,10 @@ Automatic Novel Narrative System
 - 大神级升级计划：`docs/00_project/52_mastery_upgrade_plan.md`（P0–P7）；总目标执行计划：`docs/00_project/54_master_goal_execution_plan.md`（S1–S7，确定性层已全部落地）。
 - **S6 90 章无人 Canary certified（90/90，2026-08-28）**；S7 七指标合取 **3 绿 / 4 红 → `long_run_not_authorized`**——A1 仍未获生产资格；缺口闭环 prospective5 因上游 `gemini-3.7-flash-high` 503 停摆（外部故障，非代码）。
 - G7 自动审美资格失败、已退役为研究性子能力（失败记录不可变）。
-- 测试基线：**3080 tests passing**（精确口径：**3079 passed + 1 skipped（收集 3080）**；**本地测试声明**，GitHub 无可见 CI；2026-08-29 收尾态实测复验）。
+- 测试基线：状态真源：以仓库根 `current_state.json`（机器生成，`scripts/generate_current_state.py`）为唯一权威——记录 collected / passing / skipped / canary / 验证资格与 validation_timestamp。公开 checkout 缺运营侧私有资产时，依赖资产的测试显式跳过（原因机器可读），不宣称无条件全绿。
 
 ## Current Phase
-Tier 0 production ready — three-flow daily-production hardened (2026-07-29). End-to-end validated, Codex-native orchestration. All three slices (`audit_short_form`, `extend_short_form`, `compose_short_form`) are code-complete and validated, and each has a real staged Codex canary passing `novel gate`.
+Current Phase: S7 缺口闭环（prospective5 死锁定格，待用户决策，见 runtime 侧战役日志）。Tier 0 判定是历史 checkpoint（2026-07-28 首判、2026-08-06 重认证，tag `v0.1.2-tier0`），不自动延续到当前 HEAD；当前验证资格以 `current_state.json` 为唯一真源。三个实现切片（audit/extend/compose）代码完成，各自曾有真实 staged Codex canary 通过 `novel gate`（历史证据）。
 Foundation gate, transition-planning sufficiency, and implementation-planning sufficiency have passed.
 v0 deployment shape decision (Codex-native staged CLI) is adopted.
 This is a phase boundary, not a permanent repository boundary.
@@ -115,7 +115,7 @@ Do not optimize for:
 - Slice 3 (`compose_short_form`): code complete, default WorkSpec validated, end-to-end PASS
 - LLM layer split: workflow units expose `build_prompt()` and `parse_response()`; scripts do not call LLMs internally
 - Long-form multi-arc stress test: PASS
-- No-regression tests: 3080 tests passing（精确口径：3079 passed + 1 skipped，收集 3080；本地测试声明，GitHub 无可见 CI）
+- No-regression tests: 以 `current_state.json` 为唯一真源（collected / passing / skipped 分离，公开 checkout 的私有资产门控跳过单独计数）。
 - End-to-end Audit / Extend / Compose validation: PASS
 
 If you are asked to write code, the existing infrastructure is:

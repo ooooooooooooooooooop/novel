@@ -39,7 +39,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 # + deepseek_active bundle 重建入口（7）+ M1 生产调用链回归（1）升至 2814；
 # M1b upstream_url 调用前校验（+1 adapter）+ 2 builder 测试升至 2817；
 # M2 deepseek profile 冻结（test_build_deepseek_active_bundle.py,+4）升至 2821；与
-# test_cli_runtime_contract 的 EXPECTED_TEST_BASELINE 及
+# test_cli_runtime_contract 的 EXPECTED_COLLECTED_TESTS 及
 # tier0_release_record.example.json 保持一致。冻结的 releases/tier0-release.json
 # 用其自身记录的 baseline（2301）自校验，不随此漂移。
 # G7 计分合同封死（test_auto_calibrate.py,+4）升至 2825。
@@ -58,9 +58,10 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 # v2 出版文本代理验证器对抗性测试（test_authormodel_v3.py,+9：holdout泄漏/topic别名/候选首项/无优势/空输入不回落0.5/缺困难负样本/静默丢折/低置信度INVALID/合法小样本PASS）→ 2983 + 9 = 2992（2991 passed + 1 skipped）。
 # v8 双平面裁决测试（test_authormodel_v3.py,+8）→ 2992 + 8 = 3000 收集（2999 passed + 1 skipped）。
 # observed-decision-author-signature-v1 机制测试（test_observed_author_signature.py,+18）→ 3000 + 18 = 3018；S1（test_s1_auto_mode.py,+7）→ 3025 收集（3024 passed + 1 skipped）。
-# 与 test_cli_runtime_contract 的 EXPECTED_TEST_BASELINE 保持一致；该常量锁 collected。
-# S6 canary ch9 计划候选无效状态引用确定性重映射（test_autonomous_runner.py,+1）→ 3079 + 1 = 3080。
-EXPECTED_BASELINE = 3080
+# 状态真源收敛（2026-08-30）：本常量只锁 COLLECTED 测试数；passing/skipped 以
+# 机器生成的 current_state.json 为准，collected 不得写成 passing。
+# release_record 校验器为双形态：遗留形态 "N passed" 仅供不可变历史记录自校验。
+EXPECTED_COLLECTED_TESTS = 3080
 EXAMPLE_PATH = "docs/00_project/tier0_release_record.example.json"
 CANARY_EVIDENCE_EXAMPLE_PATH = "docs/00_project/tier0_canary_evidence.example.json"
 COMMITTED_RELEASE_RECORD_PATH = "docs/00_project/releases/tier0-release.json"
@@ -238,7 +239,7 @@ def test_tier0_release_record_example_validates():
 
     validated = validate_tier0_release_record(
         payload,
-        expected_baseline=EXPECTED_BASELINE,
+        expected_baseline=EXPECTED_COLLECTED_TESTS,
         record_path=EXAMPLE_PATH,
     )
 
@@ -792,14 +793,14 @@ def test_build_tier0_release_record_returns_valid_exact_payload():
         created_at_utc="2026-07-06T00:00:00Z",
         release_tag_or_checkpoint="tier0-v0.1.0",
         git_commit="0123456789abcdef0123456789abcdef01234567",
-        expected_baseline=EXPECTED_BASELINE,
+        full_pytest_result="2499 passed, 1 skipped (collected 2500)",
         full_pytest_command=FULL_PYTEST_COMMAND,
         record_path="docs/00_project/releases/tier0-canary-20260706.json",
     )
 
     assert tuple(payload) == TIER0_RELEASE_RECORD_FIELDS
-    assert payload["baseline_tests_passing"] == EXPECTED_BASELINE
-    assert payload["full_pytest_result"] == f"{EXPECTED_BASELINE} passed"
+    assert payload["baseline_tests_passing"] == 2499
+    assert payload["full_pytest_result"] == "2499 passed, 1 skipped (collected 2500)"
     assert "docs/00_project/releases/tier0-canary-20260706.json" in payload[
         "evidence_paths"
     ]
@@ -815,7 +816,7 @@ def test_build_tier0_release_record_includes_canary_evidence_path():
         created_at_utc="2026-07-06T00:00:00Z",
         release_tag_or_checkpoint="tier0-v0.1.0",
         git_commit="0123456789abcdef0123456789abcdef01234567",
-        expected_baseline=EXPECTED_BASELINE,
+        full_pytest_result="2499 passed, 1 skipped (collected 2500)",
         full_pytest_command=FULL_PYTEST_COMMAND,
         record_path="docs/00_project/releases/tier0-canary-20260706.json",
         canary_evidence_path="docs/00_project/releases/tier0-canary-evidence.json",
@@ -842,7 +843,7 @@ def test_build_tier0_release_record_rejects_blank_required_inputs():
             created_at_utc="2026-07-06T00:00:00Z",
             release_tag_or_checkpoint="tier0-v0.1.0",
             git_commit="0123456789abcdef0123456789abcdef01234567",
-            expected_baseline=EXPECTED_BASELINE,
+            full_pytest_result="2499 passed, 1 skipped (collected 2500)",
             full_pytest_command=FULL_PYTEST_COMMAND,
             record_path="docs/00_project/releases/tier0-canary-20260706.json",
         )
@@ -850,7 +851,7 @@ def test_build_tier0_release_record_rejects_blank_required_inputs():
 
 def test_tier0_release_record_rejects_non_object():
     with pytest.raises(ValueError, match="payload must be an object"):
-        validate_tier0_release_record([], expected_baseline=EXPECTED_BASELINE)
+        validate_tier0_release_record([], expected_baseline=EXPECTED_COLLECTED_TESTS)
 
 
 def test_tier0_release_record_rejects_unknown_fields():
@@ -858,23 +859,32 @@ def test_tier0_release_record_rejects_unknown_fields():
     payload["provider_response"] = "not allowed"
 
     with pytest.raises(ValueError, match="unknown Tier 0 release record field"):
-        validate_tier0_release_record(payload, expected_baseline=EXPECTED_BASELINE)
+        validate_tier0_release_record(payload, expected_baseline=EXPECTED_COLLECTED_TESTS)
 
 
 def test_tier0_release_record_rejects_baseline_mismatch():
     payload = _example_payload()
-    payload["baseline_tests_passing"] = EXPECTED_BASELINE - 1
+    payload["baseline_tests_passing"] = 2498
 
-    with pytest.raises(ValueError, match="baseline_tests_passing must match"):
-        validate_tier0_release_record(payload, expected_baseline=EXPECTED_BASELINE)
+    with pytest.raises(ValueError, match="baseline_tests_passing must equal the passed"):
+        validate_tier0_release_record(payload, expected_baseline=EXPECTED_COLLECTED_TESTS)
+
+
+def test_tier0_release_record_rejects_collected_as_passing():
+    """遗留 collected-当-passing 形态在非历史基线下必须被拒（状态真源收敛）."""
+    payload = _example_payload()
+    payload["full_pytest_result"] = f"{EXPECTED_COLLECTED_TESTS} passed"
+
+    with pytest.raises(ValueError, match="baseline_tests_passing must match expected baseline"):
+        validate_tier0_release_record(payload, expected_baseline=EXPECTED_COLLECTED_TESTS)
 
 
 def test_tier0_release_record_rejects_full_pytest_result_mismatch():
     payload = _example_payload()
-    payload["full_pytest_result"] = f"{EXPECTED_BASELINE - 1} passed"
+    payload["full_pytest_result"] = "2498 passed, 1 skipped (collected 2500)"
 
-    with pytest.raises(ValueError, match="full_pytest_result must be"):
-        validate_tier0_release_record(payload, expected_baseline=EXPECTED_BASELINE)
+    with pytest.raises(ValueError, match="baseline_tests_passing must equal the passed"):
+        validate_tier0_release_record(payload, expected_baseline=EXPECTED_COLLECTED_TESTS)
 
 
 def test_tier0_release_record_rejects_invalid_release_id_format():
@@ -882,7 +892,7 @@ def test_tier0_release_record_rejects_invalid_release_id_format():
     payload["release_id"] = "release-20260706"
 
     with pytest.raises(ValueError, match="tier0-canary-YYYYMMDD"):
-        validate_tier0_release_record(payload, expected_baseline=EXPECTED_BASELINE)
+        validate_tier0_release_record(payload, expected_baseline=EXPECTED_COLLECTED_TESTS)
 
 
 def test_tier0_release_record_rejects_invalid_release_id_date():
@@ -890,7 +900,7 @@ def test_tier0_release_record_rejects_invalid_release_id_date():
     payload["release_id"] = "tier0-canary-20260230"
 
     with pytest.raises(ValueError, match="valid YYYYMMDD date"):
-        validate_tier0_release_record(payload, expected_baseline=EXPECTED_BASELINE)
+        validate_tier0_release_record(payload, expected_baseline=EXPECTED_COLLECTED_TESTS)
 
 
 def test_tier0_release_record_rejects_release_id_created_at_date_mismatch():
@@ -898,15 +908,15 @@ def test_tier0_release_record_rejects_release_id_created_at_date_mismatch():
     payload["release_id"] = "tier0-canary-20260705"
 
     with pytest.raises(ValueError, match="release_id date must match"):
-        validate_tier0_release_record(payload, expected_baseline=EXPECTED_BASELINE)
+        validate_tier0_release_record(payload, expected_baseline=EXPECTED_COLLECTED_TESTS)
 
 
 def test_tier0_release_record_rejects_non_pytest_full_command():
     payload = _example_payload()
-    payload["full_pytest_command"] = f"echo {EXPECTED_BASELINE} passed"
+    payload["full_pytest_command"] = f"echo {EXPECTED_COLLECTED_TESTS} collected"
 
     with pytest.raises(ValueError, match="full pytest command"):
-        validate_tier0_release_record(payload, expected_baseline=EXPECTED_BASELINE)
+        validate_tier0_release_record(payload, expected_baseline=EXPECTED_COLLECTED_TESTS)
 
 
 def test_tier0_release_record_rejects_narrow_pytest_command():
@@ -917,7 +927,7 @@ def test_tier0_release_record_rejects_narrow_pytest_command():
     )
 
     with pytest.raises(ValueError, match="full pytest command"):
-        validate_tier0_release_record(payload, expected_baseline=EXPECTED_BASELINE)
+        validate_tier0_release_record(payload, expected_baseline=EXPECTED_COLLECTED_TESTS)
 
 
 def test_tier0_release_record_rejects_pytest_command_without_cache_isolation():
@@ -927,7 +937,7 @@ def test_tier0_release_record_rejects_pytest_command_without_cache_isolation():
     )
 
     with pytest.raises(ValueError, match="full pytest command"):
-        validate_tier0_release_record(payload, expected_baseline=EXPECTED_BASELINE)
+        validate_tier0_release_record(payload, expected_baseline=EXPECTED_COLLECTED_TESTS)
 
 
 def test_tier0_release_record_rejects_pytest_basetemp_empty_suffix():
@@ -938,7 +948,7 @@ def test_tier0_release_record_rejects_pytest_basetemp_empty_suffix():
     )
 
     with pytest.raises(ValueError, match="full pytest command"):
-        validate_tier0_release_record(payload, expected_baseline=EXPECTED_BASELINE)
+        validate_tier0_release_record(payload, expected_baseline=EXPECTED_COLLECTED_TESTS)
 
 
 def test_tier0_release_record_rejects_pytest_basetemp_path_separator():
@@ -949,7 +959,7 @@ def test_tier0_release_record_rejects_pytest_basetemp_path_separator():
     )
 
     with pytest.raises(ValueError, match="full pytest command"):
-        validate_tier0_release_record(payload, expected_baseline=EXPECTED_BASELINE)
+        validate_tier0_release_record(payload, expected_baseline=EXPECTED_COLLECTED_TESTS)
 
 
 def test_tier0_release_record_rejects_pytest_basetemp_parent_reference():
@@ -960,7 +970,7 @@ def test_tier0_release_record_rejects_pytest_basetemp_parent_reference():
     )
 
     with pytest.raises(ValueError, match="full pytest command"):
-        validate_tier0_release_record(payload, expected_baseline=EXPECTED_BASELINE)
+        validate_tier0_release_record(payload, expected_baseline=EXPECTED_COLLECTED_TESTS)
 
 
 def test_tier0_release_record_rejects_invalid_created_at_utc():
@@ -968,7 +978,7 @@ def test_tier0_release_record_rejects_invalid_created_at_utc():
     payload["created_at_utc"] = "2026-07-06 00:00:00"
 
     with pytest.raises(ValueError, match="UTC timestamp"):
-        validate_tier0_release_record(payload, expected_baseline=EXPECTED_BASELINE)
+        validate_tier0_release_record(payload, expected_baseline=EXPECTED_COLLECTED_TESTS)
 
 
 def test_tier0_release_record_rejects_invalid_git_commit_hash():
@@ -976,7 +986,7 @@ def test_tier0_release_record_rejects_invalid_git_commit_hash():
     payload["git_commit"] = "not-a-git-commit"
 
     with pytest.raises(ValueError, match="40-character lowercase hexadecimal"):
-        validate_tier0_release_record(payload, expected_baseline=EXPECTED_BASELINE)
+        validate_tier0_release_record(payload, expected_baseline=EXPECTED_COLLECTED_TESTS)
 
 
 def test_tier0_release_record_rejects_canary_command_drift():
@@ -984,7 +994,7 @@ def test_tier0_release_record_rejects_canary_command_drift():
     payload["canary_commands"][0] = "novel audit other --input canary_input.txt"
 
     with pytest.raises(ValueError, match="canary_commands must match runbook"):
-        validate_tier0_release_record(payload, expected_baseline=EXPECTED_BASELINE)
+        validate_tier0_release_record(payload, expected_baseline=EXPECTED_COLLECTED_TESTS)
 
 
 def test_tier0_release_record_rejects_provider_claims():
@@ -999,7 +1009,7 @@ def test_tier0_release_record_rejects_provider_claims():
         payload[field] = True
 
         with pytest.raises(ValueError, match=f"{field} must be false"):
-            validate_tier0_release_record(payload, expected_baseline=EXPECTED_BASELINE)
+            validate_tier0_release_record(payload, expected_baseline=EXPECTED_COLLECTED_TESTS)
 
 
 def test_tier0_release_record_rejects_missing_required_limitations():
@@ -1007,7 +1017,7 @@ def test_tier0_release_record_rejects_missing_required_limitations():
     payload["known_limitations"] = payload["known_limitations"][:-1]
 
     with pytest.raises(ValueError, match="missing required known limitation"):
-        validate_tier0_release_record(payload, expected_baseline=EXPECTED_BASELINE)
+        validate_tier0_release_record(payload, expected_baseline=EXPECTED_COLLECTED_TESTS)
 
 
 def test_tier0_release_record_rejects_duplicate_known_limitations():
@@ -1018,7 +1028,7 @@ def test_tier0_release_record_rejects_duplicate_known_limitations():
     ]
 
     with pytest.raises(ValueError, match="known_limitations entries must be unique"):
-        validate_tier0_release_record(payload, expected_baseline=EXPECTED_BASELINE)
+        validate_tier0_release_record(payload, expected_baseline=EXPECTED_COLLECTED_TESTS)
 
 
 def test_tier0_release_record_rejects_missing_evidence_paths():
@@ -1028,7 +1038,7 @@ def test_tier0_release_record_rejects_missing_evidence_paths():
     ]
 
     with pytest.raises(ValueError, match="missing required evidence path"):
-        validate_tier0_release_record(payload, expected_baseline=EXPECTED_BASELINE)
+        validate_tier0_release_record(payload, expected_baseline=EXPECTED_COLLECTED_TESTS)
 
 
 def test_tier0_release_record_rejects_duplicate_evidence_paths():
@@ -1039,7 +1049,7 @@ def test_tier0_release_record_rejects_duplicate_evidence_paths():
     ]
 
     with pytest.raises(ValueError, match="evidence_paths entries must be unique"):
-        validate_tier0_release_record(payload, expected_baseline=EXPECTED_BASELINE)
+        validate_tier0_release_record(payload, expected_baseline=EXPECTED_COLLECTED_TESTS)
 
 
 def test_tier0_release_record_rejects_required_evidence_path_order_drift():
@@ -1051,7 +1061,7 @@ def test_tier0_release_record_rejects_required_evidence_path_order_drift():
     ]
 
     with pytest.raises(ValueError, match="required evidence path order"):
-        validate_tier0_release_record(payload, expected_baseline=EXPECTED_BASELINE)
+        validate_tier0_release_record(payload, expected_baseline=EXPECTED_COLLECTED_TESTS)
 
 
 def test_tier0_release_record_rejects_record_path_not_last():
@@ -1065,7 +1075,7 @@ def test_tier0_release_record_rejects_record_path_not_last():
     with pytest.raises(ValueError, match="record path must be final"):
         validate_tier0_release_record(
             payload,
-            expected_baseline=EXPECTED_BASELINE,
+            expected_baseline=EXPECTED_COLLECTED_TESTS,
             record_path=EXAMPLE_PATH,
         )
 
@@ -1076,7 +1086,7 @@ def test_tier0_release_record_requires_record_path_when_given():
     with pytest.raises(ValueError, match="missing required evidence path"):
         validate_tier0_release_record(
             payload,
-            expected_baseline=EXPECTED_BASELINE,
+            expected_baseline=EXPECTED_COLLECTED_TESTS,
             record_path="docs/00_project/releases/tier0-release.json",
         )
 
@@ -1085,7 +1095,7 @@ def test_tier0_release_record_evidence_files_accepts_example():
     payload = _example_payload()
     validate_tier0_release_record(
         payload,
-        expected_baseline=EXPECTED_BASELINE,
+        expected_baseline=EXPECTED_COLLECTED_TESTS,
         record_path=EXAMPLE_PATH,
     )
 
@@ -1116,7 +1126,7 @@ def test_tier0_release_record_git_checkpoint_accepts_commit_checkpoint():
         created_at_utc="2026-07-06T00:00:00Z",
         release_tag_or_checkpoint=head,
         git_commit=head,
-        expected_baseline=EXPECTED_BASELINE,
+        full_pytest_result="2499 passed, 1 skipped (collected 2500)",
         full_pytest_command=FULL_PYTEST_COMMAND,
         record_path="docs/00_project/releases/tier0-canary-20260706.json",
     )
@@ -1160,7 +1170,7 @@ def test_tier0_release_record_cli_accepts_example():
             "src.boundary_control.release_record",
             EXAMPLE_PATH,
             "--expected-baseline",
-            str(EXPECTED_BASELINE),
+            str(EXPECTED_COLLECTED_TESTS),
         ],
         cwd=PROJECT_ROOT,
         capture_output=True,
@@ -1179,7 +1189,7 @@ def test_tier0_release_record_cli_requires_existing_evidence_files():
             "src.boundary_control.release_record",
             EXAMPLE_PATH,
             "--expected-baseline",
-            str(EXPECTED_BASELINE),
+            str(EXPECTED_COLLECTED_TESTS),
             "--require-evidence-files",
             "--evidence-root",
             ".",
@@ -1201,7 +1211,7 @@ def test_tier0_release_record_cli_accepts_canary_evidence():
             "src.boundary_control.release_record",
             EXAMPLE_PATH,
             "--expected-baseline",
-            str(EXPECTED_BASELINE),
+            str(EXPECTED_COLLECTED_TESTS),
             "--canary-evidence",
             CANARY_EVIDENCE_EXAMPLE_PATH,
         ],
@@ -1231,7 +1241,7 @@ def test_tier0_release_record_cli_accepts_canary_artifact_files(tmp_path):
             "src.boundary_control.release_record",
             str(record_path),
             "--expected-baseline",
-            str(EXPECTED_BASELINE),
+            str(EXPECTED_COLLECTED_TESTS),
             "--record-path",
             EXAMPLE_PATH,
             "--canary-evidence",
@@ -1260,7 +1270,7 @@ def test_tier0_release_record_cli_accepts_combined_production_validation(tmp_pat
         created_at_utc="2026-07-06T00:00:00Z",
         release_tag_or_checkpoint=head,
         git_commit=head,
-        expected_baseline=EXPECTED_BASELINE,
+        full_pytest_result="2499 passed, 1 skipped (collected 2500)",
         full_pytest_command=FULL_PYTEST_COMMAND,
         record_path=str(record_path),
         canary_evidence_path=str(canary_path),
@@ -1276,7 +1286,7 @@ def test_tier0_release_record_cli_accepts_combined_production_validation(tmp_pat
             "src.boundary_control.release_record",
             str(record_path),
             "--expected-baseline",
-            str(EXPECTED_BASELINE),
+            str(EXPECTED_COLLECTED_TESTS),
             "--record-path",
             str(record_path),
             "--require-evidence-files",
@@ -1306,7 +1316,7 @@ def test_committed_release_record_combined_validation():
     依赖实际提交的 canary 产物（Step 6 恢复）与新 tag（Step 7 打标）；
     在旧记录/旧证据修复前预期失败（过渡态），修复后必须转绿。
     存档记录是 v0.1.2-tier0 的冻结证据，用其自身记录的 baseline 校验
-    （证据不随当前测试基线漂移；新建记录才用 EXPECTED_BASELINE）。
+    （证据不随当前测试基线漂移；新建记录用 build_tier0_release_record + 诚实形态 full_pytest_result）。
     """
     assert (PROJECT_ROOT / COMMITTED_RELEASE_RECORD_PATH).exists()
     committed_baseline = int(
@@ -1368,7 +1378,7 @@ def test_tier0_canary_evidence_cli_generates_from_workspace_artifacts(tmp_path):
             "src.boundary_control.release_record",
             str(output_path),
             "--expected-baseline",
-            str(EXPECTED_BASELINE),
+            str(EXPECTED_COLLECTED_TESTS),
             "--generate-canary-evidence",
             "--release-id",
             "tier0-canary-20260706",
@@ -1409,7 +1419,7 @@ def test_tier0_canary_evidence_cli_generation_refuses_existing_file(tmp_path):
             "src.boundary_control.release_record",
             str(output_path),
             "--expected-baseline",
-            str(EXPECTED_BASELINE),
+            str(EXPECTED_COLLECTED_TESTS),
             "--generate-canary-evidence",
             "--release-id",
             "tier0-canary-20260706",
@@ -1438,7 +1448,7 @@ def test_tier0_release_record_cli_rejects_canary_artifacts_without_evidence():
             "src.boundary_control.release_record",
             EXAMPLE_PATH,
             "--expected-baseline",
-            str(EXPECTED_BASELINE),
+            str(EXPECTED_COLLECTED_TESTS),
             "--require-canary-artifacts",
         ],
         cwd=PROJECT_ROOT,
@@ -1473,7 +1483,7 @@ def test_tier0_release_record_cli_rejects_canary_artifact_outside_workspace(tmp_
             "src.boundary_control.release_record",
             str(record_path),
             "--expected-baseline",
-            str(EXPECTED_BASELINE),
+            str(EXPECTED_COLLECTED_TESTS),
             "--record-path",
             EXAMPLE_PATH,
             "--canary-evidence",
@@ -1510,7 +1520,7 @@ def test_tier0_release_record_cli_rejects_canary_artifact_hash_mismatch(tmp_path
             "src.boundary_control.release_record",
             str(record_path),
             "--expected-baseline",
-            str(EXPECTED_BASELINE),
+            str(EXPECTED_COLLECTED_TESTS),
             "--record-path",
             EXAMPLE_PATH,
             "--canary-evidence",
@@ -1554,7 +1564,7 @@ def test_tier0_release_record_cli_rejects_canary_artifact_shape_mismatch(tmp_pat
             "src.boundary_control.release_record",
             str(record_path),
             "--expected-baseline",
-            str(EXPECTED_BASELINE),
+            str(EXPECTED_COLLECTED_TESTS),
             "--record-path",
             EXAMPLE_PATH,
             "--canary-evidence",
@@ -1597,7 +1607,7 @@ def test_tier0_release_record_cli_rejects_canary_artifact_semantic_mismatch(tmp_
             "src.boundary_control.release_record",
             str(record_path),
             "--expected-baseline",
-            str(EXPECTED_BASELINE),
+            str(EXPECTED_COLLECTED_TESTS),
             "--record-path",
             EXAMPLE_PATH,
             "--canary-evidence",
@@ -1623,7 +1633,7 @@ def test_tier0_release_record_cli_requires_git_checkpoint(tmp_path):
         created_at_utc="2026-07-06T00:00:00Z",
         release_tag_or_checkpoint=head,
         git_commit=head,
-        expected_baseline=EXPECTED_BASELINE,
+        full_pytest_result="2499 passed, 1 skipped (collected 2500)",
         full_pytest_command=FULL_PYTEST_COMMAND,
         record_path=str(record_path),
     )
@@ -1636,7 +1646,7 @@ def test_tier0_release_record_cli_requires_git_checkpoint(tmp_path):
             "src.boundary_control.release_record",
             str(record_path),
             "--expected-baseline",
-            str(EXPECTED_BASELINE),
+            str(EXPECTED_COLLECTED_TESTS),
             "--require-git-checkpoint",
             "--repo-root",
             ".",
@@ -1651,14 +1661,16 @@ def test_tier0_release_record_cli_requires_git_checkpoint(tmp_path):
 
 
 def test_tier0_release_record_cli_rejects_baseline_mismatch():
+    # 遗留形态（不可变历史记录 tier0-release.json，baseline 2301）仍然强制
+    # expected_baseline 逐字匹配；诚实形态则自校验、不参与外部 baseline。
     result = subprocess.run(
         [
             sys.executable,
             "-m",
             "src.boundary_control.release_record",
-            EXAMPLE_PATH,
+            "docs/00_project/releases/tier0-release.json",
             "--expected-baseline",
-            str(EXPECTED_BASELINE - 1),
+            "2302",
         ],
         cwd=PROJECT_ROOT,
         capture_output=True,
@@ -1666,7 +1678,7 @@ def test_tier0_release_record_cli_rejects_baseline_mismatch():
     )
 
     assert result.returncode == 1
-    assert "baseline_tests_passing must match" in result.stdout
+    assert "full_pytest_result must be the full pytest summary line" in result.stdout
 
 
 def test_tier0_release_record_cli_rejects_invalid_git_commit_hash(tmp_path):
@@ -1682,7 +1694,7 @@ def test_tier0_release_record_cli_rejects_invalid_git_commit_hash(tmp_path):
             "src.boundary_control.release_record",
             str(record_path),
             "--expected-baseline",
-            str(EXPECTED_BASELINE),
+            str(EXPECTED_COLLECTED_TESTS),
             "--record-path",
             EXAMPLE_PATH,
         ],
@@ -1706,7 +1718,7 @@ def test_tier0_release_record_cli_rejects_invalid_json(tmp_path):
             "src.boundary_control.release_record",
             str(record_path),
             "--expected-baseline",
-            str(EXPECTED_BASELINE),
+            str(EXPECTED_COLLECTED_TESTS),
         ],
         cwd=PROJECT_ROOT,
         capture_output=True,
@@ -1727,7 +1739,7 @@ def test_tier0_release_record_cli_rejects_missing_file(tmp_path):
             "src.boundary_control.release_record",
             str(record_path),
             "--expected-baseline",
-            str(EXPECTED_BASELINE),
+            str(EXPECTED_COLLECTED_TESTS),
         ],
         cwd=PROJECT_ROOT,
         capture_output=True,
@@ -1752,7 +1764,7 @@ def test_tier0_release_record_cli_uses_explicit_record_path_binding(tmp_path):
             "src.boundary_control.release_record",
             str(record_path),
             "--expected-baseline",
-            str(EXPECTED_BASELINE),
+            str(EXPECTED_COLLECTED_TESTS),
             "--record-path",
             "docs/00_project/releases/tier0-release.json",
         ],
@@ -1776,7 +1788,9 @@ def test_tier0_release_record_cli_generates_record(tmp_path):
             "src.boundary_control.release_record",
             str(record_path),
             "--expected-baseline",
-            str(EXPECTED_BASELINE),
+            str(EXPECTED_COLLECTED_TESTS),
+            "--full-pytest-result",
+            "2499 passed, 1 skipped (collected 2500)",
             "--record-path",
             logical_record_path,
             "--generate",
@@ -1801,7 +1815,7 @@ def test_tier0_release_record_cli_generates_record(tmp_path):
     payload = json.loads(record_path.read_text(encoding="utf-8"))
     validate_tier0_release_record(
         payload,
-        expected_baseline=EXPECTED_BASELINE,
+        expected_baseline=EXPECTED_COLLECTED_TESTS,
         record_path=logical_record_path,
     )
 
@@ -1822,7 +1836,9 @@ def test_tier0_release_record_cli_generates_record_with_canary_evidence(tmp_path
             "src.boundary_control.release_record",
             str(record_path),
             "--expected-baseline",
-            str(EXPECTED_BASELINE),
+            str(EXPECTED_COLLECTED_TESTS),
+            "--full-pytest-result",
+            "2499 passed, 1 skipped (collected 2500)",
             "--record-path",
             logical_record_path,
             "--generate",
@@ -1865,7 +1881,9 @@ def test_tier0_release_record_cli_rejects_generate_with_evidence_file_check(tmp_
             "src.boundary_control.release_record",
             str(record_path),
             "--expected-baseline",
-            str(EXPECTED_BASELINE),
+            str(EXPECTED_COLLECTED_TESTS),
+            "--full-pytest-result",
+            "2499 passed, 1 skipped (collected 2500)",
             "--generate",
             "--release-id",
             "tier0-canary-20260706",
@@ -1900,7 +1918,9 @@ def test_tier0_release_record_cli_generate_refuses_existing_file(tmp_path):
             "src.boundary_control.release_record",
             str(record_path),
             "--expected-baseline",
-            str(EXPECTED_BASELINE),
+            str(EXPECTED_COLLECTED_TESTS),
+            "--full-pytest-result",
+            "2499 passed, 1 skipped (collected 2500)",
             "--generate",
             "--release-id",
             "tier0-canary-20260706",
@@ -1932,7 +1952,7 @@ def test_tier0_release_record_cli_generate_requires_metadata(tmp_path):
             "src.boundary_control.release_record",
             str(record_path),
             "--expected-baseline",
-            str(EXPECTED_BASELINE),
+            str(EXPECTED_COLLECTED_TESTS),
             "--generate",
         ],
         cwd=PROJECT_ROOT,
