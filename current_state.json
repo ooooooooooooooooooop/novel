@@ -1,74 +1,213 @@
 {
   "attestation_version": 1,
-  "subject_commit": "ba1624d6a1ff10b49a369d5333ccb0d13741844c",
-  "subject_tree": "eb869aade17a048a0ae0c30c3ef9159e65331b60",
-  "state_generated_at": "2026-08-29T20:57:20Z",
+  "subject_commit": "6c0727da9893c3c5cf545653de6d69a3a244d0a8",
+  "subject_tree": "503fb19058c70d5f6bdf75efb4c6b20cc9494df6",
+  "state_generated_at": "2026-08-29T21:09:23Z",
   "profiles": {
     "public_clean": {
       "profile": "public_clean",
-      "status": "UNVERIFIED",
+      "status": "PASS",
       "python_version": "3.11.9",
       "pytest_version": "pytest 9.1.1",
       "platform": "Windows-10-10.0.26200-SP0",
       "collected_tests": 3102,
       "pytest": {
-        "command": "not run (quick mode never reuses prior results)",
-        "exit_code": null,
-        "results": null,
-        "completed_at": null,
-        "result_artifact_sha256": null
-      },
-      "canary": {
-        "command": "C:\\Users\\admin\\Desktop\\novel-main\\.venv\\Scripts\\python.exe scripts/tier0_canary_regression.py",
+        "command": "C:\\Users\\admin\\Desktop\\novel-main\\.venv\\Scripts\\python.exe -m pytest tests -q --tb=no -p no:cacheprovider --basetemp .pytest-tmp-attest-public_clean",
         "exit_code": 0,
-        "verdict": "PASS",
-        "detail": "",
-        "completed_at": "2026-08-29T20:42:39Z"
-      },
-      "skip_manifest": {},
-      "skip_manifest_sha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
-      "subject_commit": "4c457b48b3541e52b26df14896b5bbb49b10df1e",
-      "subject_tree": "d2d1e0e0a9d3c5a34e7b21bc95380ef761b7ebf1",
-      "output_tail": ""
-    },
-    "operator": {
-      "profile": "operator",
-      "status": "FAIL",
-      "python_version": "3.11.9",
-      "pytest_version": "pytest 9.1.1",
-      "platform": "Windows-10-10.0.26200-SP0",
-      "collected_tests": 3102,
-      "pytest": {
-        "command": "C:\\Users\\admin\\Desktop\\novel-main\\.venv\\Scripts\\python.exe -m pytest tests -q --tb=no -p no:cacheprovider --basetemp .pytest-tmp-attest-operator",
-        "exit_code": 1,
         "results": {
-          "passed": 0,
-          "skipped": 0,
+          "passed": 3086,
+          "skipped": 16,
           "failed": 0,
           "errors": 0,
           "collected": 3102
         },
-        "completed_at": "2026-08-29T21:06:42Z",
-        "result_artifact_sha256": "666b30cdf41c3d05011326fb9e41e0ba2ea87281af26519e11f55c3006ce48c8"
+        "completed_at": "2026-08-29T21:26:27Z",
+        "result_artifact_sha256": "9e200254c88cd75173efef4b3a5a6bff35532f67d514ca7fe41b5d3b3f3c9ac0"
       },
       "canary": {
         "command": "C:\\Users\\admin\\Desktop\\novel-main\\.venv\\Scripts\\python.exe scripts/tier0_canary_regression.py",
         "exit_code": 0,
         "verdict": "PASS",
         "detail": "Tier 0 three-flow canary regression: PASS",
-        "completed_at": "2026-08-29T21:06:49Z"
+        "completed_at": "2026-08-29T21:26:34Z"
+      },
+      "skip_manifest": {
+        "profile": "public_clean",
+        "generated_at": "2026-08-29T21:25:35Z",
+        "skips": [
+          {
+            "nodeid": "tests/test_a1_release_validation.py::test_g8_zero_committed_chapters_withholds",
+            "reason_code": "missing_private_asset",
+            "required_asset": [
+              "runtime/refs/cpa_active/canary_policy_s6_cpa.json"
+            ],
+            "asset_fingerprint": {}
+          },
+          {
+            "nodeid": "tests/test_auto_calibrate.py::test_load_frozen_bench_rejects_sha256_mismatch",
+            "reason_code": "missing_private_asset",
+            "required_asset": [
+              "reference_texts/a1_benchmark"
+            ],
+            "asset_fingerprint": {}
+          },
+          {
+            "nodeid": "tests/test_build_deepseek_active_bundle.py::test_build_produces_exactly_four_bundle_files",
+            "reason_code": "missing_private_asset",
+            "required_asset": [
+              "reference_texts/a1_benchmark",
+              "runtime/refs/deepseek_active"
+            ],
+            "asset_fingerprint": {}
+          },
+          {
+            "nodeid": "tests/test_build_deepseek_active_bundle.py::test_build_is_idempotent_byte_stable",
+            "reason_code": "missing_private_asset",
+            "required_asset": [
+              "reference_texts/a1_benchmark",
+              "runtime/refs/deepseek_active"
+            ],
+            "asset_fingerprint": {}
+          },
+          {
+            "nodeid": "tests/test_build_deepseek_active_bundle.py::test_build_output_has_no_forbidden_secrets",
+            "reason_code": "missing_private_asset",
+            "required_asset": [
+              "reference_texts/a1_benchmark",
+              "runtime/refs/deepseek_active"
+            ],
+            "asset_fingerprint": {}
+          },
+          {
+            "nodeid": "tests/test_build_deepseek_active_bundle.py::test_build_requires_base_url_env",
+            "reason_code": "missing_private_asset",
+            "required_asset": [
+              "reference_texts/a1_benchmark",
+              "runtime/refs/deepseek_active"
+            ],
+            "asset_fingerprint": {}
+          },
+          {
+            "nodeid": "tests/test_build_deepseek_active_bundle.py::test_build_derives_provider_identity_from_live_db",
+            "reason_code": "missing_private_asset",
+            "required_asset": [
+              "runtime/refs/deepseek_active"
+            ],
+            "asset_fingerprint": {}
+          },
+          {
+            "nodeid": "tests/test_build_deepseek_active_bundle.py::test_build_refuses_non_deepseek_current_provider",
+            "reason_code": "missing_private_asset",
+            "required_asset": [
+              "runtime/refs/deepseek_active"
+            ],
+            "asset_fingerprint": {}
+          },
+          {
+            "nodeid": "tests/test_build_deepseek_active_bundle.py::test_build_refuses_failover_current_provider",
+            "reason_code": "missing_private_asset",
+            "required_asset": [
+              "runtime/refs/deepseek_active"
+            ],
+            "asset_fingerprint": {}
+          },
+          {
+            "nodeid": "tests/test_build_deepseek_active_bundle.py::test_build_frozen_thresholds_and_uncontaminated_split",
+            "reason_code": "missing_private_asset",
+            "required_asset": [
+              "reference_texts/a1_benchmark"
+            ],
+            "asset_fingerprint": {}
+          },
+          {
+            "nodeid": "tests/test_build_deepseek_active_bundle.py::test_build_profile_passes_provider_profile_validation",
+            "reason_code": "missing_private_asset",
+            "required_asset": [
+              "reference_texts/a1_benchmark",
+              "runtime/refs/deepseek_active"
+            ],
+            "asset_fingerprint": {}
+          },
+          {
+            "nodeid": "tests/test_build_deepseek_active_bundle.py::test_build_policy_passes_autonomous_policy_validation",
+            "reason_code": "missing_private_asset",
+            "required_asset": [
+              "reference_texts/a1_benchmark",
+              "runtime/refs/deepseek_active"
+            ],
+            "asset_fingerprint": {}
+          },
+          {
+            "nodeid": "tests/test_build_deepseek_active_bundle.py::test_build_judge_roles_disable_thinking",
+            "reason_code": "missing_private_asset",
+            "required_asset": [
+              "reference_texts/a1_benchmark",
+              "runtime/refs/deepseek_active"
+            ],
+            "asset_fingerprint": {}
+          },
+          {
+            "nodeid": "tests/test_build_deepseek_active_bundle.py::test_build_active_selector_points_only_deepseek",
+            "reason_code": "missing_private_asset",
+            "required_asset": [
+              "reference_texts/a1_benchmark",
+              "runtime/refs/deepseek_active"
+            ],
+            "asset_fingerprint": {}
+          },
+          {
+            "nodeid": "tests/test_s7_long_run_judgment.py::test_green_report_excludes_gaps",
+            "reason_code": "missing_private_asset",
+            "required_asset": [
+              "runtime/refs/cpa_active/s7/final_evidence_anchor.json"
+            ],
+            "asset_fingerprint": {}
+          }
+        ]
+      },
+      "skip_manifest_sha256": "2c4c18de676a3c06b2de197d43a4cff1df6e805fae9e5a5432d0c6c5ab738ff5",
+      "subject_commit": "6c0727da9893c3c5cf545653de6d69a3a244d0a8",
+      "subject_tree": "503fb19058c70d5f6bdf75efb4c6b20cc9494df6",
+      "output_tail": "3086 passed, 16 skipped in 480.19s (0:08:00)"
+    },
+    "operator": {
+      "profile": "operator",
+      "status": "PASS",
+      "python_version": "3.11.9",
+      "pytest_version": "pytest 9.1.1",
+      "platform": "Windows-10-10.0.26200-SP0",
+      "collected_tests": 3102,
+      "pytest": {
+        "command": "C:\\Users\\admin\\Desktop\\novel-main\\.venv\\Scripts\\python.exe -m pytest tests -q --tb=no -p no:cacheprovider --basetemp .pytest-tmp-attest-operator",
+        "exit_code": 0,
+        "results": {
+          "passed": 3101,
+          "skipped": 1,
+          "failed": 0,
+          "errors": 0,
+          "collected": 3102
+        },
+        "completed_at": "2026-08-29T21:17:44Z",
+        "result_artifact_sha256": "5b30e06496cd745d0fa743059c57ee803f6c43777facc8ac449b5e21f193f258"
+      },
+      "canary": {
+        "command": "C:\\Users\\admin\\Desktop\\novel-main\\.venv\\Scripts\\python.exe scripts/tier0_canary_regression.py",
+        "exit_code": 0,
+        "verdict": "PASS",
+        "detail": "Tier 0 three-flow canary regression: PASS",
+        "completed_at": "2026-08-29T21:17:51Z"
       },
       "skip_manifest": {},
       "skip_manifest_sha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
-      "subject_commit": "ba1624d6a1ff10b49a369d5333ccb0d13741844c",
-      "subject_tree": "eb869aade17a048a0ae0c30c3ef9159e65331b60",
-      "output_tail": "2 failed, 3099 passed, 1 skipped in 551.41s (0:09:11)"
+      "subject_commit": "6c0727da9893c3c5cf545653de6d69a3a244d0a8",
+      "subject_tree": "503fb19058c70d5f6bdf75efb4c6b20cc9494df6",
+      "output_tail": "3101 passed, 1 skipped in 483.55s (0:08:03)"
     }
   },
-  "overall_status": "FAIL",
+  "overall_status": "PASS",
   "collected_tests_contract": "tests/test_cli_runtime_contract.py::EXPECTED_COLLECTED_TESTS",
-  "last_validated_commit": null,
-  "last_validated_tree": null,
+  "last_validated_commit": "6c0727da9893c3c5cf545653de6d69a3a244d0a8",
+  "last_validated_tree": "503fb19058c70d5f6bdf75efb4c6b20cc9494df6",
   "last_certified_checkpoint": {
     "status": "PASS",
     "records": {
