@@ -172,7 +172,7 @@ def _ignored_allowed(rel: str, bundle_rel: str) -> bool:
     if rel.startswith((".venv/", ".pytest-tmp-", ".pytest-tmp/",
                        ".pytest_cache/")):
         return True
-    if ".egg-info" in segs:
+    if any(seg.endswith(".egg-info") for seg in segs):
         return True
     for ws in ("reference_texts/a1_benchmark/",
                "runtime/refs/deepseek_active/",
