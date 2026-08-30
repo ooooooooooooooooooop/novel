@@ -31,7 +31,7 @@ The purpose of this file is to reduce that drift.
 ## 2. Current Operating Assumption
 
 The repository has completed foundation design and is now in bounded-implementation validation.
-Three entry scripts (`audit_short_form`, `extend_short_form`, `compose_short_form`) were code-complete and end-to-end validated as of 2026-07-29.
+Three entry scripts (`audit_short_form`, `extend_short_form`, `compose_short_form`) reached their 2026-07-29 milestone (record: `docs/00_project/releases/tier0-release.json`, tag `v0.1.2-tier0`); current qualification: `current_state.json`.
 
 That means the main job of an agent is:
 

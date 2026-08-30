@@ -2,20 +2,20 @@
 
 ## Project
 
-<!-- state:current -->
-**当前状态（唯一机器真源：`current_state.json`）**：默认标记 `CURRENT_HEAD_UNVERIFIED`——
-任何提交的验证资格不自动延续；attestation 记录（subject_commit / results / canary /
-last_validated_commit）以 json 为准。本区块禁止出现数字声明与历史资格。
-<!-- /state:current -->
 Automatic Novel Narrative System
 
-## Current Status Pointer (2026-08-29)
+## Current Status Pointer (2026-08-30)
 
-- 当前状态唯一权威入口：`docs/00_project/03_current_status.md` §0（§0.7 为 S6/S7 真机终态）。
-- 大神级升级计划：`docs/00_project/52_mastery_upgrade_plan.md`（P0–P7）；总目标执行计划：`docs/00_project/54_master_goal_execution_plan.md`（S1–S7，确定性层已全部落地）。
-- **S6 90 章无人 Canary certified（90/90，2026-08-28）**；S7 七指标合取 **3 绿 / 4 红 → `long_run_not_authorized`**——A1 仍未获生产资格；缺口闭环 prospective5 因上游 `gemini-3.7-flash-high` 503 停摆（外部故障，非代码）。
-- G7 自动审美资格失败、已退役为研究性子能力（失败记录不可变）。
-- 测试基线：状态真源：以仓库根 `current_state.json`（机器生成，`scripts/generate_current_state.py`）为唯一权威——记录 collected / passing / skipped / canary / 验证资格与 validation_timestamp。公开 checkout 缺运营侧私有资产时，依赖资产的测试显式跳过（原因机器可读），不宣称无条件全绿。
+- 当前验证资格唯一机器真源：仓库根 `current_state.json`（第四轮 attestation 协议）。
+- 历史 tier 判定与验收叙事已移出本文（见 `docs/00_project/releases/`、
+  `30_production_readiness_checklist.md`、`40_session_handoff.md` 的带日期记录）。
+- 测试基线：`current_state.json` 的 `collected_tests` 与
+  `tests/test_cli_runtime_contract.py::EXPECTED_COLLECTED_TESTS` 唯一锁定。
+
+<!-- state:current -->
+**当前状态（唯一机器真源：`current_state.json`）**：默认标记 `CURRENT_HEAD_UNVERIFIED`——
+carrier 提交不可自证；subject 资格以 json 的 `subject_overall_status` 为准。
+<!-- /state:current -->
 
 ## Current Phase
 Current Phase: S7 缺口闭环（prospective5 死锁定格，待用户决策，见 runtime 侧战役日志）。Tier 0 判定是历史 checkpoint（2026-07-28 首判、2026-08-06 重认证，tag `v0.1.2-tier0`），不自动延续到当前 HEAD；当前验证资格以 `current_state.json` 为唯一真源。三个实现切片（audit/extend/compose）代码完成，各自曾有真实 staged Codex canary 通过 `novel gate`（历史证据）。
