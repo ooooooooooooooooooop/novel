@@ -57,7 +57,8 @@ def test_neg_runner_preflight_rejects_root_untracked_conftest(tmp_path):
     (tmp_path / "tracked.txt").write_text("x", encoding="utf-8")
     subprocess.run(["git", "-C", str(tmp_path), "add", "tracked.txt"],
                    capture_output=True, check=True)
-    subprocess.run(["git", "-C", str(tmp_path), "commit", "-qm", "init"],
+    subprocess.run(["git", "-C", str(tmp_path), "-c", "user.email=t@t",
+                    "-c", "user.name=t", "commit", "-qm", "init"],
                    capture_output=True, check=True)
     (tmp_path / "conftest.py").write_text(
         "import pytest\n"
@@ -75,7 +76,8 @@ def test_neg_runner_preflight_rejects_foreign_ignored_input(tmp_path):
     (tmp_path / ".gitignore").write_text("plugins/\n", encoding="utf-8")
     subprocess.run(["git", "-C", str(tmp_path), "add", ".gitignore"],
                    capture_output=True, check=True)
-    subprocess.run(["git", "-C", str(tmp_path), "commit", "-qm", "init"],
+    subprocess.run(["git", "-C", str(tmp_path), "-c", "user.email=t@t",
+                    "-c", "user.name=t", "commit", "-qm", "init"],
                    capture_output=True, check=True)
     (tmp_path / "plugins").mkdir()
     (tmp_path / "plugins" / "evil_plugin.py").write_text("", encoding="utf-8")

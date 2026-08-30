@@ -241,14 +241,11 @@ def test_runner_untracked_stray_allows_only_bundle_ancestry(tmp_path):
     from scripts.run_attestation_bundle import _untracked_stray
     subprocess.run(["git", "-C", str(tmp_path), "init", "-q"],
                    capture_output=True, check=True)
-    subprocess.run(["git", "-C", str(tmp_path), "config", "user.email", "t@t"],
-                   capture_output=True, check=True)
-    subprocess.run(["git", "-C", str(tmp_path), "config", "user.name", "t"],
-                   capture_output=True, check=True)
     (tmp_path / "tracked.txt").write_text("x", encoding="utf-8")
     subprocess.run(["git", "-C", str(tmp_path), "add", "tracked.txt"],
                    capture_output=True, check=True)
-    subprocess.run(["git", "-C", str(tmp_path), "commit", "-qm", "init"],
+    subprocess.run(["git", "-C", str(tmp_path), "-c", "user.email=t@t",
+                    "-c", "user.name=t", "commit", "-qm", "init"],
                    capture_output=True, check=True)
     bundle_rel = "state_artifacts/abc123456789/operator"
     bundle_dir = tmp_path / bundle_rel

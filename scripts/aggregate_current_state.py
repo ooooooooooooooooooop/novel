@@ -263,7 +263,8 @@ def _resolve_bundle_path(raw: str | Path, label: str, repo_root: Path) -> Path:
     指向仓库外（第六轮 C：路径锚定 REPO_ROOT + 拒绝 symlink）。"""
     p_str = str(raw).replace("\\", "/")
     p = Path(p_str)
-    if p.is_absolute() or p_str.startswith("/"):
+    if p.is_absolute() or p_str.startswith("/") or re.match(
+            r"^[A-Za-z]:", p_str):
         raise Reject(f"{label} bundle path must be repo-relative: {raw!r}")
     segs = p_str.split("/")
     if any(seg in ("", ".", "..") for seg in segs):
