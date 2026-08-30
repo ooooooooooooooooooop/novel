@@ -224,6 +224,28 @@ def test_canary_artifact_sha_matches_git_blob():
 # ---- 聚合器 bundle 路径回归（第五轮：曾有 manifest/_conftest_gated_items
 #      NameError，bundle 聚合从未端到端跑通）----
 
+def test_runner_untracked_stray_allows_only_bundle_ancestry(tmp_path):
+    """runner 未跟踪杂散检查（第五轮反例：staging 父目录被误判为 stray）."""
+    from scripts.run_attestation_bundle import _untracked_stray
+    subprocess.run(["git", "-C", str(tmp_path), "init", "-q"],
+                   capture_output=True, check=True)
+    subprocess.run(["git", "-C", str(tmp_path), "config", "user.email", "t@t"],
+                   capture_output=True, check=True)
+    subprocess.run(["git", "-C", str(tmp_path), "config", "user.name", "t"],
+                   capture_output=True, check=True)
+    (tmp_path / "tracked.txt").write_text("x", encoding="utf-8")
+    subprocess.run(["git", "-C", str(tmp_path), "add", "tracked.txt"],
+                   capture_output=True, check=True)
+    subprocess.run(["git", "-C", str(tmp_path), "commit", "-qm", "init"],
+                   capture_output=True, check=True)
+    bundle_rel = "state_artifacts/abc123456789/operator"
+    bundle_dir = tmp_path / bundle_rel
+    bundle_dir.mkdir(parents=True)
+    (bundle_dir / "profile-attestation.json").write_text("{}", encoding="utf-8")
+    (tmp_path / "stray.log").write_text("junk", encoding="utf-8")
+    stray = _untracked_stray(tmp_path, bundle_rel)
+    assert stray == ["stray.log"], stray
+
 def _synthetic_public_clean_bundle(tmp_path: Path) -> tuple[Path, dict]:
     """构造与真实 runner 输出同构的 public_clean 合成 bundle，返回 (bundle, section).
 

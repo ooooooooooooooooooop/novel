@@ -105,8 +105,12 @@ def _tracked_changes(checkout: Path) -> list[str]:
 
 
 def _untracked_stray(checkout: Path, bundle_rel: str) -> list[str]:
+    # --untracked-files=all：逐文件列出未跟踪文件，避免 git 把整个
+    # state_artifacts/<subject>/ 目录折叠为一个 "??" 条目而误判 bundle 自身
+    # 为杂散（第五轮反例：staging 目录被当成 stray）。
     proc = subprocess.run(
-        ["git", "-C", str(checkout), "status", "--porcelain"],
+        ["git", "-C", str(checkout), "status", "--porcelain",
+         "--untracked-files=all"],
         capture_output=True, text=True,
     )
     stray = []
