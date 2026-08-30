@@ -31,7 +31,7 @@ Update this file after each meaningful round of project-shaping work.
 
 ### 0.2 能力边界（冻结）
 
-- **Tier 0**：人工/Codex 分阶段生产（operator-in-the-loop staged CLI）——**验证通过，生产就绪**
+- **Tier 0**（2026-07-28 历史判定，tag `v0.1.2-tier0`）：人工/Codex 分阶段生产（operator-in-the-loop staged CLI）——**验证通过，生产就绪**
 - **Q1**：连续生产、Reader Gate、事务提交与崩溃恢复——**验证通过（v0.1.3-q1）**
 - **A1**：自动调用与单章自动生产链**已存在**，S6 90 章无人 Canary 已 **certified（90/90，2026-08-28）**，但 S7 七指标合取 **3 绿 / 4 红 → `long_run_not_authorized`**——**仍未获得生产资格**（详见 §0.7 与 `runtime/refs/cpa_active/HANDOFF_S6_S7.md`，后者为 gitignored 运营侧交接）
 - **大神级系统**：**尚处建设阶段**——P0–P7 全链路架构已搭建，R0–R9 终审整改已彻底闭环。**不得声称已达大神级**；最终是否达大神级必须由系统外隐藏来源人类长期阅读实验验证。
@@ -328,7 +328,7 @@ These are the areas most likely to create drift if future work treats the curren
 ## 9. Next-Step Plan
 
 The current next-step plan is no longer "produce implementation-planning artifacts."
-The artifact set is complete and the first running slices are end-to-end validated.
+The artifact set is complete and the first running slices were end-to-end validated (2026-07-28 records; current qualification: `current_state.json`).
 
 ### 9.1 Use the implementation-planning entry as the phase anchor
 

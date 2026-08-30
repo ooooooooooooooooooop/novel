@@ -28,7 +28,7 @@ This repository is building the conceptual foundation and first running slices o
 
 ## 2. Current Phase
 
-The current phase is **end-to-end validated, Codex-native orchestration**.
+The historical phase (2026-07-28 validation) was **end-to-end validated, Codex-native orchestration**; current qualification lives only in `current_state.json`.
 
 All three running slices are code-complete and validated:
 
@@ -50,7 +50,7 @@ Validation status:
 - implementation-planning sufficiency: `pass`
 - long-form multi-arc stress test: PASS
 - no-regression tests as code: 以 `current_state.json` 为唯一真源（机器生成）
-- end-to-end Audit / Extend / Compose validation: PASS
+- end-to-end Audit / Extend / Compose validation: PASS (2026-07-28)
 
 That means:
 

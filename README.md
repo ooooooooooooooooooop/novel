@@ -28,7 +28,7 @@ The repository contains both a complete design layer (`docs/`) and a running imp
 
 All three implementation slices are code-complete; **current validation status is owned by `current_state.json`** (machine-generated at repo root) and is not inherited automatically by new commits:
 
-仓库已达 **Tier 0 生产就绪 —— 三条流水线日常生产硬化**。三个实现切片全部代码完成并通过端到端验证：
+历史判定（2026-07-28 宣布、2026-08-06 重认证，tag `v0.1.2-tier0`）：**Tier 0 生产就绪 —— 三条流水线日常生产硬化**。三个实现切片于 2026-07-29 完成代码与端到端验证：
 
 - **Audit / 审核** (`audit_short_form`): Rebuild + Review pipeline — 从已有文本重建对象状态并审查
 - **Extend / 续写** (`extend_short_form`): Rebuild + Continue + Review pipeline — 从已有文本续写
@@ -51,7 +51,7 @@ Tier 0 边界仍然生效：
 
 ## 能力级别（2026-08-16）
 
-- **Tier 0 / Q1**：验证通过、生产就绪（audit / extend / compose 三流 + Reader Gate + 事务提交 + 崩溃恢复）。
+- **Tier 0 / Q1（2026-07-28 / 2026-08-10 历史判定）**：验证通过、生产就绪（audit / extend / compose 三流 + Reader Gate + 事务提交 + 崩溃恢复）。
 - **A1**：自动调用与单章自动生产链已存在，但 **G7 自动审美资格失败、G8 无人 Canary 未授权**——未达生产资格。
 - **大神级系统**：施工中。G7 已退役为研究性子能力；自动评价按五层分工（确定性硬门禁 → 专门轴 → 匿名成对盲评 → PASS 漏检审计 → 系统外人类盲评）。详见 `docs/00_project/03_current_status.md` §0 与 `docs/00_project/52_mastery_upgrade_plan.md`。
 

@@ -55,7 +55,9 @@ CALIBRATE_EVIDENCE = REPO_ROOT / "novels" / "a1-calibrate" / "output" / "calibra
 FROZEN_RELEASES = {
     "tier0": {
         "record": REPO_ROOT / "docs" / "00_project" / "releases" / "tier0-release.json",
-        "record_sha256": "7e76ae341bb3c4b85d89d792e80f157493d51f2b19a3122bed49298fbc658fbb",
+        # Git blob sha256（状态真源收敛 2026-08-30：全仓库统一 blob 语义；
+        # 旧值 7e76ae34… 是 Windows 工作树 CRLF 原始字节，非规范形态）
+        "record_sha256": "7f0a48b6f740e142e546553f8d37dc82ded1f379e4fe31510453407cf60809ca",
         "tag": "v0.1.2-tier0",
         "tag_commit": "3287e0feb20691a0add37d1eec7173664beb3172",
     },
@@ -86,11 +88,14 @@ GATE_RESULT_PATH = TASKFLOW_RUNTIME / "a1_gate_result.json"
 
 
 def _sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
+    """Git blob 规范哈希（状态真源收敛 2026-08-30）：经 git cat-file 读取 blob
+    字节做 sha256，与 release_record.py 的白名单语义、.gitattributes 的 -text
+    钉定一致；工作树行尾策略不再影响判定。"""
+    proc = subprocess.run(
+        ["git", "-C", str(REPO_ROOT), "cat-file", "blob", f"HEAD:{path.relative_to(REPO_ROOT).as_posix()}"],
+        capture_output=True, check=True,
+    )
+    return hashlib.sha256(proc.stdout).hexdigest()
 
 
 def _load_json(path: Path) -> dict[str, Any]:

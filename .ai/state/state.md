@@ -12,7 +12,7 @@ Automatic Novel Narrative System：解析叙事结构、维护叙事状态、规
 - **Tier 0 production-ready**（2026-07-28 判定）：local staged CLI v0，operator-in-the-loop
 - 测试基线：**3079 passed + 1 skipped（3080 collected）**，本地测试声明，GitHub 无 CI（2026-08-29 收尾态实测复验）
 - checkpoint tag：`v0.1.2-tier0`；release record：`docs/00_project/releases/tier0-release.json`
-- 三条流水线代码完成并端到端验证：`audit_short_form` / `extend_short_form` / `compose_short_form`
+- 三条流水线代码完成并于 2026-07-28 端到端验证：`audit_short_form` / `extend_short_form` / `compose_short_form`
 - 一键回归门：`python scripts/tier0_canary_regression.py`
 - **S6 90 章无人 Canary：certified（90/90，2026-08-28）**——三类各 30/30；聚合 `runtime/refs/cpa_active/s6_canary_aggregate.json`
 - **S7 真机裁决：`long_run_not_authorized`（3 绿 / 4 红，无 pending）**——判据与缺口见 `03_current_status.md` §0.7
@@ -39,7 +39,7 @@ Automatic Novel Narrative System：解析叙事结构、维护叙事状态、规
 
 ## completed_work
 
-- 三个实现切片全部端到端验证；extend/compose canary 通过 `novel gate` 四同标准
+- 2026-07-29：三个实现切片全部端到端验证；extend/compose canary 通过 `novel gate` 四同标准
 - S6 无人 Canary 90/90 章 certified（三类各 30 章，2026-08-24 至 08-28）；S7 首轮真机裁决完成（3 绿 / 4 红）
 - 缺口闭环 CP1–CP7 机制修复（driver 连续性、Frame 继承、judge 严格解析、盲终审）；swap4 12/12 一致
 - 2026-08-29：S1–S7 代码/文档收尾提交；26 个临时脚本与外部杂物移出仓库；隐私脱敏（54/CLAUDE.md）

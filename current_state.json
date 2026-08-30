@@ -1,231 +1,93 @@
 {
-  "attestation_version": 1,
-  "subject_commit": "6c0727da9893c3c5cf545653de6d69a3a244d0a8",
-  "subject_tree": "503fb19058c70d5f6bdf75efb4c6b20cc9494df6",
-  "state_generated_at": "2026-08-29T21:09:23Z",
+  "attestation_version": 2,
+  "subject_commit": null,
+  "subject_tree": null,
+  "repository_head": null,
+  "attestation_commit": null,
+  "head_status": "UNVERIFIED",
+  "subject_status": "UNVERIFIED",
+  "state_generated_at": "2026-08-30T02:27:25Z",
   "profiles": {
     "public_clean": {
       "profile": "public_clean",
-      "status": "PASS",
+      "status": "UNVERIFIED",
       "python_version": "3.11.9",
-      "pytest_version": "pytest 9.1.1",
+      "pytest_version": null,
       "platform": "Windows-10-10.0.26200-SP0",
-      "collected_tests": 3102,
+      "collected_tests": 3105,
       "pytest": {
-        "command": "C:\\Users\\admin\\Desktop\\novel-main\\.venv\\Scripts\\python.exe -m pytest tests -q --tb=no -p no:cacheprovider --basetemp .pytest-tmp-attest-public_clean",
-        "exit_code": 0,
-        "results": {
-          "passed": 3086,
-          "skipped": 16,
-          "failed": 0,
-          "errors": 0,
-          "collected": 3102
-        },
-        "completed_at": "2026-08-29T21:26:27Z",
-        "result_artifact_sha256": "9e200254c88cd75173efef4b3a5a6bff35532f67d514ca7fe41b5d3b3f3c9ac0"
+        "command": null,
+        "exit_code": null,
+        "results": null,
+        "parse_error": null,
+        "stdout_artifact": null,
+        "stderr_artifact": null,
+        "junit_xml_artifact": null,
+        "stdout_sha256": null,
+        "stderr_sha256": null,
+        "junit_xml_sha256": null,
+        "result_artifact_sha256": null,
+        "completed_at": null
       },
       "canary": {
-        "command": "C:\\Users\\admin\\Desktop\\novel-main\\.venv\\Scripts\\python.exe scripts/tier0_canary_regression.py",
-        "exit_code": 0,
-        "verdict": "PASS",
-        "detail": "Tier 0 three-flow canary regression: PASS",
-        "completed_at": "2026-08-29T21:26:34Z"
+        "command": null,
+        "exit_code": null,
+        "verdict": null,
+        "detail": "",
+        "stdout_artifact": null,
+        "stdout_sha256": null,
+        "completed_at": null
       },
-      "skip_manifest": {
-        "profile": "public_clean",
-        "generated_at": "2026-08-29T21:25:35Z",
-        "skips": [
-          {
-            "nodeid": "tests/test_a1_release_validation.py::test_g8_zero_committed_chapters_withholds",
-            "reason_code": "missing_private_asset",
-            "required_asset": [
-              "runtime/refs/cpa_active/canary_policy_s6_cpa.json"
-            ],
-            "asset_fingerprint": {}
-          },
-          {
-            "nodeid": "tests/test_auto_calibrate.py::test_load_frozen_bench_rejects_sha256_mismatch",
-            "reason_code": "missing_private_asset",
-            "required_asset": [
-              "reference_texts/a1_benchmark"
-            ],
-            "asset_fingerprint": {}
-          },
-          {
-            "nodeid": "tests/test_build_deepseek_active_bundle.py::test_build_produces_exactly_four_bundle_files",
-            "reason_code": "missing_private_asset",
-            "required_asset": [
-              "reference_texts/a1_benchmark",
-              "runtime/refs/deepseek_active"
-            ],
-            "asset_fingerprint": {}
-          },
-          {
-            "nodeid": "tests/test_build_deepseek_active_bundle.py::test_build_is_idempotent_byte_stable",
-            "reason_code": "missing_private_asset",
-            "required_asset": [
-              "reference_texts/a1_benchmark",
-              "runtime/refs/deepseek_active"
-            ],
-            "asset_fingerprint": {}
-          },
-          {
-            "nodeid": "tests/test_build_deepseek_active_bundle.py::test_build_output_has_no_forbidden_secrets",
-            "reason_code": "missing_private_asset",
-            "required_asset": [
-              "reference_texts/a1_benchmark",
-              "runtime/refs/deepseek_active"
-            ],
-            "asset_fingerprint": {}
-          },
-          {
-            "nodeid": "tests/test_build_deepseek_active_bundle.py::test_build_requires_base_url_env",
-            "reason_code": "missing_private_asset",
-            "required_asset": [
-              "reference_texts/a1_benchmark",
-              "runtime/refs/deepseek_active"
-            ],
-            "asset_fingerprint": {}
-          },
-          {
-            "nodeid": "tests/test_build_deepseek_active_bundle.py::test_build_derives_provider_identity_from_live_db",
-            "reason_code": "missing_private_asset",
-            "required_asset": [
-              "runtime/refs/deepseek_active"
-            ],
-            "asset_fingerprint": {}
-          },
-          {
-            "nodeid": "tests/test_build_deepseek_active_bundle.py::test_build_refuses_non_deepseek_current_provider",
-            "reason_code": "missing_private_asset",
-            "required_asset": [
-              "runtime/refs/deepseek_active"
-            ],
-            "asset_fingerprint": {}
-          },
-          {
-            "nodeid": "tests/test_build_deepseek_active_bundle.py::test_build_refuses_failover_current_provider",
-            "reason_code": "missing_private_asset",
-            "required_asset": [
-              "runtime/refs/deepseek_active"
-            ],
-            "asset_fingerprint": {}
-          },
-          {
-            "nodeid": "tests/test_build_deepseek_active_bundle.py::test_build_frozen_thresholds_and_uncontaminated_split",
-            "reason_code": "missing_private_asset",
-            "required_asset": [
-              "reference_texts/a1_benchmark"
-            ],
-            "asset_fingerprint": {}
-          },
-          {
-            "nodeid": "tests/test_build_deepseek_active_bundle.py::test_build_profile_passes_provider_profile_validation",
-            "reason_code": "missing_private_asset",
-            "required_asset": [
-              "reference_texts/a1_benchmark",
-              "runtime/refs/deepseek_active"
-            ],
-            "asset_fingerprint": {}
-          },
-          {
-            "nodeid": "tests/test_build_deepseek_active_bundle.py::test_build_policy_passes_autonomous_policy_validation",
-            "reason_code": "missing_private_asset",
-            "required_asset": [
-              "reference_texts/a1_benchmark",
-              "runtime/refs/deepseek_active"
-            ],
-            "asset_fingerprint": {}
-          },
-          {
-            "nodeid": "tests/test_build_deepseek_active_bundle.py::test_build_judge_roles_disable_thinking",
-            "reason_code": "missing_private_asset",
-            "required_asset": [
-              "reference_texts/a1_benchmark",
-              "runtime/refs/deepseek_active"
-            ],
-            "asset_fingerprint": {}
-          },
-          {
-            "nodeid": "tests/test_build_deepseek_active_bundle.py::test_build_active_selector_points_only_deepseek",
-            "reason_code": "missing_private_asset",
-            "required_asset": [
-              "reference_texts/a1_benchmark",
-              "runtime/refs/deepseek_active"
-            ],
-            "asset_fingerprint": {}
-          },
-          {
-            "nodeid": "tests/test_s7_long_run_judgment.py::test_green_report_excludes_gaps",
-            "reason_code": "missing_private_asset",
-            "required_asset": [
-              "runtime/refs/cpa_active/s7/final_evidence_anchor.json"
-            ],
-            "asset_fingerprint": {}
-          }
-        ]
-      },
-      "skip_manifest_sha256": "2c4c18de676a3c06b2de197d43a4cff1df6e805fae9e5a5432d0c6c5ab738ff5",
-      "subject_commit": "6c0727da9893c3c5cf545653de6d69a3a244d0a8",
-      "subject_tree": "503fb19058c70d5f6bdf75efb4c6b20cc9494df6",
-      "output_tail": "3086 passed, 16 skipped in 480.19s (0:08:00)"
+      "subject_commit": null,
+      "subject_tree": null,
+      "skip_manifest": {},
+      "started_at": null,
+      "completed_at": null
     },
     "operator": {
       "profile": "operator",
-      "status": "PASS",
+      "status": "UNVERIFIED",
       "python_version": "3.11.9",
-      "pytest_version": "pytest 9.1.1",
+      "pytest_version": null,
       "platform": "Windows-10-10.0.26200-SP0",
-      "collected_tests": 3102,
+      "collected_tests": 3105,
       "pytest": {
-        "command": "C:\\Users\\admin\\Desktop\\novel-main\\.venv\\Scripts\\python.exe -m pytest tests -q --tb=no -p no:cacheprovider --basetemp .pytest-tmp-attest-operator",
-        "exit_code": 0,
-        "results": {
-          "passed": 3101,
-          "skipped": 1,
-          "failed": 0,
-          "errors": 0,
-          "collected": 3102
-        },
-        "completed_at": "2026-08-29T21:17:44Z",
-        "result_artifact_sha256": "5b30e06496cd745d0fa743059c57ee803f6c43777facc8ac449b5e21f193f258"
+        "command": null,
+        "exit_code": null,
+        "results": null,
+        "parse_error": null,
+        "stdout_artifact": null,
+        "stderr_artifact": null,
+        "junit_xml_artifact": null,
+        "stdout_sha256": null,
+        "stderr_sha256": null,
+        "junit_xml_sha256": null,
+        "result_artifact_sha256": null,
+        "completed_at": null
       },
       "canary": {
-        "command": "C:\\Users\\admin\\Desktop\\novel-main\\.venv\\Scripts\\python.exe scripts/tier0_canary_regression.py",
-        "exit_code": 0,
-        "verdict": "PASS",
-        "detail": "Tier 0 three-flow canary regression: PASS",
-        "completed_at": "2026-08-29T21:17:51Z"
+        "command": null,
+        "exit_code": null,
+        "verdict": null,
+        "detail": "",
+        "stdout_artifact": null,
+        "stdout_sha256": null,
+        "completed_at": null
       },
+      "subject_commit": null,
+      "subject_tree": null,
       "skip_manifest": {},
-      "skip_manifest_sha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
-      "subject_commit": "6c0727da9893c3c5cf545653de6d69a3a244d0a8",
-      "subject_tree": "503fb19058c70d5f6bdf75efb4c6b20cc9494df6",
-      "output_tail": "3101 passed, 1 skipped in 483.55s (0:08:03)"
+      "started_at": null,
+      "completed_at": null
     }
   },
-  "overall_status": "PASS",
+  "overall_status": "UNVERIFIED",
+  "collected_tests": 3105,
   "collected_tests_contract": "tests/test_cli_runtime_contract.py::EXPECTED_COLLECTED_TESTS",
-  "last_validated_commit": "6c0727da9893c3c5cf545653de6d69a3a244d0a8",
-  "last_validated_tree": "503fb19058c70d5f6bdf75efb4c6b20cc9494df6",
+  "last_validated_commit": null,
+  "last_validated_tree": null,
   "last_certified_checkpoint": {
-    "status": "PASS",
-    "records": {
-      "docs/00_project/releases/tier0-release.json": {
-        "status": "PASS",
-        "baseline_tests_passing": 2301,
-        "tag": "v0.1.2-tier0"
-      },
-      "docs/00_project/releases/q1-release.json": {
-        "status": "PASS",
-        "baseline_tests_passing": 2460,
-        "tag": "v0.1.3-q1"
-      }
-    }
+    "status": "UNVERIFIED"
   },
-  "evidence_paths": {
-    "docs/00_project/releases/tier0-release.json": "3312773a6645a52899a231fe90fab0c35b0ba11f",
-    "docs/00_project/releases/q1-release.json": "fe9469d11f4dab8246eed5e27858c15e3dd8aaaf",
-    "docs/00_project/releases/tier0-three-flow-canary-aggregation.json": "8b88e145d51c1755cdf7955a029d73c7b3da69cb"
-  }
+  "evidence_paths": {}
 }

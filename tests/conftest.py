@@ -93,6 +93,9 @@ _TEST_GATED: dict[str, tuple[str, ...]] = {
     ),
     "tests/test_a1_release_validation.py::test_g8_zero_committed_chapters_withholds": (
         "runtime/refs/cpa_active/canary_policy_s6_cpa.json",
+        "novels/s6-canary-offdom/output",
+        "novels/s6-canary-mythic/output",
+        "novels/s6-canary-hist/output",
     ),
 }
 

@@ -31,7 +31,7 @@ The purpose of this file is to reduce that drift.
 ## 2. Current Operating Assumption
 
 The repository has completed foundation design and is now in bounded-implementation validation.
-Three entry scripts (`audit_short_form`, `extend_short_form`, `compose_short_form`) are code-complete and end-to-end validated.
+Three entry scripts (`audit_short_form`, `extend_short_form`, `compose_short_form`) were code-complete and end-to-end validated as of 2026-07-29.
 
 That means the main job of an agent is:
 

@@ -116,9 +116,9 @@ Do not optimize for:
 
 ## Implementation Status
 
-- Slice 1 (`audit_short_form`): code complete, staged Codex flow validated, end-to-end PASS
-- Slice 2 (`extend_short_form`): code complete, long-form inheritance validated, end-to-end PASS
-- Slice 3 (`compose_short_form`): code complete, default WorkSpec validated, end-to-end PASS
+- Slice 1 (`audit_short_form`): code complete, staged Codex flow validated, end-to-end PASS (2026-07-28)
+- Slice 2 (`extend_short_form`): code complete, long-form inheritance validated, end-to-end PASS (2026-07-28)
+- Slice 3 (`compose_short_form`): code complete, default WorkSpec validated, end-to-end PASS (2026-07-29)
 - LLM layer split: workflow units expose `build_prompt()` and `parse_response()`; scripts do not call LLMs internally
 - Long-form multi-arc stress test: PASS
 - No-regression tests: 以 `current_state.json` 为唯一真源（collected / passing / skipped 分离，公开 checkout 的私有资产门控跳过单独计数）。
