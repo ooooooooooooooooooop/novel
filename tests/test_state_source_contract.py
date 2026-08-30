@@ -154,7 +154,7 @@ def test_neutral_state_is_deterministically_unverified():
     if not _is_neutral(state):
         return
     assert state["subject_overall_status"] == "UNVERIFIED"
-    assert state["overall_status"] == "UNVERIFIED"
+    assert state["subject_overall_status"] == "UNVERIFIED"
     assert state["head_status"] == "UNVERIFIED"
     for name in PROFILE_NAMES:
         p = state["profiles"][name]
@@ -326,7 +326,7 @@ def test_profile_canary_matches_live_and_collected_matches_contract():
 def test_overall_status_rederived_from_profiles_and_checkpoint():
     state = _load_state()
     if _is_neutral(state):
-        assert state["overall_status"] == "UNVERIFIED"
+        assert state["subject_overall_status"] == "UNVERIFIED"
         return
     statuses = [
         state["profiles"][name]["status"] for name in PROFILE_NAMES
@@ -497,7 +497,7 @@ def test_json_field_references_exist_in_schema():
     known_fields = {
         # current_state.json schema（第四轮）
         "subject_commit", "subject_tree", "subject_checkout_head",
-        "subject_status", "subject_overall_status", "overall_status",
+        "subject_status", "subject_overall_status",
         "head_status", "profiles", "operator", "public_clean",
         "last_validated_commit", "last_validated_tree",
         "last_certified_checkpoint", "evidence_paths", "artifacts_dir",
