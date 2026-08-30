@@ -85,7 +85,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 # （scripts/run_attestation_bundle.py + scripts/aggregate_current_state.py），文档不得各自维护数字或提交哈希。
 # 历史演进（仅 collected 口径，供追溯）：
 #   … 3018 → 3025 → … → 3079 → 3080（S1–S7 + S6 运行期加固）。
-EXPECTED_COLLECTED_TESTS = "3106"
+EXPECTED_COLLECTED_TESTS = "3117"
 
 
 def run_script(*args: str) -> subprocess.CompletedProcess[str]:

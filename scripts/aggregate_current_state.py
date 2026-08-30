@@ -59,6 +59,8 @@ GATED_SKIPS = {
 SELF_REF_SKIPS = {
     "tests/test_state_source_contract.py::test_attestation_protocol_diff_only_state_files",
     "tests/test_state_source_contract.py::test_profiles_rederived_from_raw_artifacts",
+    "tests/test_state_source_contract_v5.py::test_operator_artifact_shas_match_git_blobs",
+    "tests/test_state_source_contract_v5.py::test_canary_artifact_sha_matches_git_blob",
 }
 def _norm_nodeid(nid: str) -> str:
     """JUnit 点形式与 pytest 斜杠形式统一为点形式（去 .py 后缀）."""
@@ -129,6 +131,66 @@ def _collect_count(checkout: Path) -> int:
     return int(m.group(1))
 
 
+def verify_results_identity(results: dict, collected_contract: int) -> None:
+    """结果五元组恒等式 + collected 合同（供聚合器与对抗测试共用）."""
+    if tuple(results) != RESULT_KEYS:
+        raise Reject(f"results fields must be {RESULT_KEYS}")
+    total = (results["passed"] + results["skipped"] + results["failed"]
+             + results["errors"])
+    if total != results["collected"]:
+        raise Reject(
+            f"passed({results['passed']}) + skipped({results['skipped']}) + "
+            f"failed({results['failed']}) + errors({results['errors']}) != "
+            f"collected({results['collected']})"
+        )
+    if results["collected"] != collected_contract:
+        raise Reject(
+            f"collected {results['collected']} != contract "
+            f"{collected_contract}"
+        )
+
+
+def verify_pass_semantics(section: dict) -> None:
+    """status=PASS 的完整语义（供聚合器与对抗测试共用）."""
+    if section["status"] != "PASS":
+        return
+    if section["pytest"]["exit_code"] != 0:
+        raise Reject("PASS with nonzero pytest exit")
+    r = section["pytest"]["results"]
+    if r["failed"] or r["errors"]:
+        raise Reject("PASS with failed/errors != 0")
+    if section["canary"]["exit_code"] != 0 or section["canary"]["verdict"] != "PASS":
+        raise Reject("PASS with failed canary")
+    if section["gates"]["post_tracked_changes"]:
+        raise Reject("PASS with dirty tracked worktree after run")
+    if section["gates"]["untracked_stray"]:
+        raise Reject("PASS with untracked strays")
+    if not section["gates"].get("head_unchanged"):
+        raise Reject("PASS with HEAD drift during run")
+    if not section["gates"].get("tree_unchanged"):
+        raise Reject("PASS with tree drift during run")
+    if section["external_inputs"]["pre"] != section["external_inputs"]["post"]:
+        raise Reject("PASS with external-input drift")
+
+
+def verify_merkle_inventory(inventory: dict) -> None:
+    """从 files 清单重算每个根的 Merkle（供聚合器与对抗测试共用）."""
+    for root_name, meta in inventory["roots"].items():
+        if not meta["present"]:
+            continue
+        entries = []
+        for rel, info in inventory["files"].items():
+            if rel.startswith(root_name + "/"):
+                entries.append(f"{rel}:{info['sha256']}")
+        recomputed = hashlib.sha256(
+            NL.join(sorted(entries)).encode("utf-8")).hexdigest()
+        if recomputed != meta["merkle"]:
+            raise Reject(
+                f"Merkle recompute mismatch ({root_name}): "
+                f"{meta['merkle'][:12]} vs {recomputed[:12]}"
+            )
+
+
 def _load_bundle(path: Path, expected_profile: str) -> dict:
     path = Path(path)
     att = path / "profile-attestation.json"
@@ -157,6 +219,29 @@ def _verify_profile(bundle: dict, expected_collected: int,
     files = bundle["files"]
     name = section["profile"]
 
+    # 0) subject_commit/tree 必须等于当前 HEAD 与其 tree（审计任务 B）
+    if section.get("subject_commit") != _git("rev-parse", "HEAD"):
+        raise Reject(f"{name}: bundle subject_commit != HEAD")
+    if section.get("subject_tree") != _git("rev-parse", "HEAD^{tree}"):
+        raise Reject(f"{name}: bundle subject_tree != HEAD^{{tree}}")
+
+    # 0b) 平台/autocrlf/大小写探针/私有根在场-缺席 复验（审计任务 C）
+    if name == "public_clean":
+        if section.get("platform_system") != "Linux":
+            raise Reject(f"{name}: platform_system != Linux")
+        if not section["filesystem_case_probe"].get(
+                "case_sensitive_filesystem"):
+            raise Reject(f"{name}: case probe not sensitive")
+        if section.get("core.autocrlf") != "false":
+            raise Reject(f"{name}: core.autocrlf != false")
+        for r, v in section["external_inputs"]["pre"]["roots"].items():
+            if v["present"]:
+                raise Reject(f"{name}: private root present: {r}")
+    else:
+        for r, v in section["external_inputs"]["pre"]["roots"].items():
+            if not v["present"]:
+                raise Reject(f"{name}: operator root missing: {r}")
+
     # 1) 提交的 profile-attestation.json 与内嵌 profile 段规范 JSON 完全比较
     committed = json.loads((bundle["path"] / "profile-attestation.json").read_text(
         encoding="utf-8"))
@@ -181,6 +266,7 @@ def _verify_profile(bundle: dict, expected_collected: int,
     # 3) JUnit 解析 + 交叉核对
     junit = _parse_junit(bundle["path"] / "pytest-junit.xml")
     results = section["pytest"]["results"]
+    verify_results_identity(results, expected_collected)
     if junit["counts"]["tests"] != results["collected"]:
         raise Reject(
             f"{name}: junit tests({junit['counts']['tests']}) != "
@@ -206,21 +292,21 @@ def _verify_profile(bundle: dict, expected_collected: int,
                 f"{results[key]}"
             )
 
-    # 5) PASS 语义
-    if section["status"] == "PASS":
-        if section["pytest"]["exit_code"] != 0:
-            raise Reject(f"{name}: PASS with nonzero pytest exit")
-        if results["failed"] or results["errors"]:
-            raise Reject(f"{name}: PASS with failed/errors != 0")
-        if section["canary"]["exit_code"] != 0 or section["canary"][
-                "verdict"] != "PASS":
-            raise Reject(f"{name}: PASS with failed canary")
-        if section["gates"]["post_tracked_changes"]:
-            raise Reject(f"{name}: PASS with dirty tracked worktree after run")
-        if section["external_inputs"]["identical"] is not True:
-            raise Reject(f"{name}: PASS with external-input drift")
+    # 5b) 外部输入 Merkle 直算（审计任务 C）：不信 identical 布尔
+    verify_merkle_inventory(section["external_inputs"]["pre"])
+    verify_merkle_inventory(section["external_inputs"]["post"])
+    if section["external_inputs"]["pre"] != section["external_inputs"]["post"]:
+        raise Reject(f"{name}: external-input inventory drifted pre->post")
 
-    # 6) skip 证据（审计任务 D）
+    # 5) PASS 语义（共用校验器）
+    verify_pass_semantics(section)
+
+    # 6) skip 证据（审计任务 D）：raw manifest SHA + 逐项严格映射
+    raw_manifest = bundle["path"] / "skip-manifest.json"
+    if section.get("skip_manifest_sha256") != _sha_file(raw_manifest):
+        raise Reject(f"{name}: skip-manifest.json SHA mismatch")
+    if manifest.get("unexplained"):
+        raise Reject(f"{name}: manifest carries unexplained skips")
     manifest = section["skip_manifest"]
     manifest_skips = manifest.get("skips", [])
     junit_skips = junit["skipped_nodeids"]
@@ -236,7 +322,8 @@ def _verify_profile(bundle: dict, expected_collected: int,
             raise Reject(f"{name}: unexplained junit skip: {nid}")
         if nid_norm not in manifest_ids:
             raise Reject(f"{name}: junit skip missing from manifest: {nid}")
-    gated_norm = {_norm_nodeid(g) for g in GATED_SKIPS}
+    gated_norm = {_norm_nodeid(g): set(a) for g, a in (
+        (g, assets) for g, assets in _conftest_gated_items())}
     selfref_norm = {_norm_nodeid(g) for g in SELF_REF_SKIPS}
     for s in manifest_skips:
         nid_norm = _norm_nodeid(s["nodeid"])
@@ -244,11 +331,24 @@ def _verify_profile(bundle: dict, expected_collected: int,
         if code == "missing_private_asset":
             if nid_norm not in gated_norm:
                 raise Reject(f"{name}: gated skip not in whitelist: {s['nodeid']}")
+            if set(s.get("required_asset", [])) != gated_norm[nid_norm]:
+                raise Reject(
+                    f"{name}: required_asset mismatch for {s['nodeid']}: "
+                    f"{sorted(s.get('required_asset', []))}"
+                )
         elif code == "state_neutral_placeholder":
             if nid_norm not in selfref_norm:
                 raise Reject(f"{name}: self-ref skip not in whitelist: {s['nodeid']}")
         else:
             raise Reject(f"{name}: unexpected skip reason_code {code!r}")
+
+
+def _conftest_gated_items():
+    if str(REPO_ROOT) not in sys.path:
+        sys.path.insert(0, str(REPO_ROOT))
+    from tests import conftest as c
+    for nodeid, assets in c._TEST_GATED.items():
+        yield _norm_nodeid(nodeid), assets
     internal = [
         nid for nid in junit_skips if nid in SELF_REF_SKIPS
     ]
@@ -301,7 +401,7 @@ def _neutral_payload(collected: int, subject_tree: str | None) -> dict:
                 "docs/00_project/releases/tier0-three-flow-canary-aggregation.json",
             )
         },
-        "artifacts_dir": f"state_artifacts/{subject_commit[:12]}",
+        "artifacts_dir": "state_artifacts",
         "bundles": {},
     }
 
@@ -321,7 +421,9 @@ def main(argv: list[str] | None = None) -> int:
     if args.neutral:
         collected = _collect_count(REPO_ROOT)
         payload = _neutral_payload(collected, _git("rev-parse", "HEAD^{tree}"))
-        Path(args.out).write_text(
+        out_path = Path(args.out)
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_text(
             json.dumps(payload, ensure_ascii=False, indent=2) + NL,
             encoding="utf-8")
         print("neutral UNVERIFIED state written; collected =", collected)
@@ -413,7 +515,9 @@ def main(argv: list[str] | None = None) -> int:
             "public_clean": str(pub["path"]),
         },
     }
-    Path(args.out).write_text(
+    out_file = Path(args.out)
+    out_file.parent.mkdir(parents=True, exist_ok=True)
+    out_file.write_text(
         json.dumps(payload, ensure_ascii=False, indent=2) + NL,
         encoding="utf-8")
     print(f"subject_overall_status: {overall}")

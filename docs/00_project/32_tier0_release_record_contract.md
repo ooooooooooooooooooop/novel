@@ -4,6 +4,16 @@
 
 This contract defines the evidence record format for a local staged CLI v0 build. It does not by itself certify any tier: certification claims live only in `current_state.json` (machine-generated attestation) and in dated historical release records.
 
+Schema v2 (2026-08-30): new records MUST use `schema_version: 2` with a
+structured `full_pytest_result` object `{passed, skipped, failed, errors,
+collected}` where `failed == 0`, `errors == 0`, the five values sum to
+`collected`, and `collected` equals the repository collected contract
+(`tests/test_cli_runtime_contract.py::EXPECTED_COLLECTED_TESTS`, passed to the
+CLI as `--expected-collected-tests`). Legacy `"N passed"` string records are
+rejected on the standard path; the two frozen historical records
+(`tier0-release.json`, `q1-release.json`) validate only through the byte-level
+whitelist `TIER0_LEGACY_FROZEN_RECORDS`.
+
 It records the tested command set, immutable checkpoint, canary result, full pytest result, and known limitations without claiming DirectAPI provider calling, retry, fallback provider behavior, UI automation, or closed-loop workflow advancement.
 
 ## Record File
@@ -19,16 +29,16 @@ The release record must pass `validate_tier0_release_record()` from `src/boundar
 Command:
 
 ```bash
-python -m src.boundary_control.release_record docs/00_project/tier0_release_record.example.json --expected-baseline 2837
-novel-release-record docs/00_project/tier0_release_record.example.json --expected-baseline 2837
-novel-release-record docs/00_project/tier0_release_record.example.json --expected-baseline 2837 --require-evidence-files --evidence-root .
-novel-release-record docs/00_project/tier0_release_record.example.json --expected-baseline 2837 --canary-evidence docs/00_project/tier0_canary_evidence.example.json
+python -m src.boundary_control.release_record docs/00_project/tier0_release_record.example.json --expected-collected-tests 3106
+novel-release-record docs/00_project/tier0_release_record.example.json --expected-collected-tests 3106
+novel-release-record docs/00_project/tier0_release_record.example.json --expected-collected-tests 3106 --require-evidence-files --evidence-root .
+novel-release-record docs/00_project/tier0_release_record.example.json --expected-collected-tests 3106 --canary-evidence docs/00_project/tier0_canary_evidence.example.json
 ```
 
 Generation command:
 
 ```bash
-novel-release-record docs/00_project/releases/tier0-release.json --expected-baseline 2837 --record-path docs/00_project/releases/tier0-release.json --generate --release-id tier0-canary-YYYYMMDD --created-at-utc YYYY-MM-DDTHH:MM:SSZ --release-tag-or-checkpoint <tag-or-40-character-lowercase-hex-commit> --git-commit <40-character-lowercase-hex-commit> --full-pytest-command "python -m pytest -q --basetemp .pytest-tmp-current-tier0-release-evidence-full -p no:cacheprovider" --canary-evidence docs/00_project/releases/tier0-canary-evidence.json
+novel-release-record docs/00_project/releases/tier0-release.json --expected-collected-tests 3106 --full-pytest-result "3105 passed, 1 skipped (collected 3106)" --record-path docs/00_project/releases/tier0-release.json --generate --release-id tier0-canary-YYYYMMDD --created-at-utc YYYY-MM-DDTHH:MM:SSZ --release-tag-or-checkpoint <tag-or-40-character-lowercase-hex-commit> --git-commit <40-character-lowercase-hex-commit> --full-pytest-command "python -m pytest -q --basetemp .pytest-tmp-current-tier0-release-evidence-full -p no:cacheprovider" --canary-evidence docs/00_project/releases/tier0-canary-evidence.json
 ```
 
 Generation refuses to overwrite an existing release record file. The generated payload is validated with `validate_tier0_release_record()` before it is written.
@@ -40,7 +50,7 @@ When `--generate` is combined with `--canary-evidence`, the generated release re
 Canary evidence generation command:
 
 ```bash
-novel-release-record docs/00_project/releases/tier0-canary-evidence.json --expected-baseline 2837 --generate-canary-evidence --release-id tier0-canary-YYYYMMDD --canary-workspace novels/tier0-canary --canary-gate-result docs/00_project/releases/tier0-canary-gate.json --canary-artifact-root .
+novel-release-record docs/00_project/releases/tier0-canary-evidence.json --expected-collected-tests 3106 --generate-canary-evidence --release-id tier0-canary-YYYYMMDD --canary-workspace novels/tier0-canary --canary-gate-result docs/00_project/releases/tier0-canary-gate.json --canary-artifact-root .
 ```
 
 `--generate-canary-evidence` reads existing staged final artifacts from `<workspace_path>/output/audit/`, computes `final_artifact_sha256`, records `gate_result_path` and `gate_result_sha256` for the saved `novel gate --json` result, derives `final_review_route` / `final_next_workflow` from `route_handoff.json`, derives `final_gate_ok` / `blocking_pending_count` from the saved gate result passed with `--canary-gate-result`, validates the generated object with `validate_tier0_canary_evidence()`, and then validates the listed files with `validate_tier0_canary_evidence_artifacts()` before writing. It refuses to overwrite an existing canary evidence file.
@@ -50,7 +60,7 @@ Canary evidence generation does not run the canary, call a provider, retry a fai
 For an actual release record, validate the immutable checkpoint binding:
 
 ```bash
-novel-release-record docs/00_project/releases/tier0-release.json --expected-baseline 2301 --record-path docs/00_project/releases/tier0-release.json --require-git-checkpoint --repo-root .
+novel-release-record docs/00_project/releases/tier0-release.json --expected-collected-tests 2301 --legacy --record-path docs/00_project/releases/tier0-release.json --require-git-checkpoint --repo-root .
 ```
 
 > 存档记录（`docs/00_project/releases/tier0-release.json`）是 `v0.1.2-tier0` 的冻结证据，

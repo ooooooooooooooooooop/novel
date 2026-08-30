@@ -3,3 +3,4 @@ novels/tier0-canary/** -text
 novels/tier0-extend-canary/** -text
 novels/tier0-compose-canary/** -text
 docs/00_project/releases/** -text
+state_artifacts/** -text

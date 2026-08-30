@@ -90,9 +90,17 @@ GATE_RESULT_PATH = TASKFLOW_RUNTIME / "a1_gate_result.json"
 def _sha256(path: Path) -> str:
     """Git blob 规范哈希（状态真源收敛 2026-08-30）：经 git cat-file 读取 blob
     字节做 sha256，与 release_record.py 的白名单语义、.gitattributes 的 -text
-    钉定一致；工作树行尾策略不再影响判定。"""
+    钉定一致；工作树行尾策略不再影响判定。仓库外路径（测试夹具）走磁盘字节。"""
+    try:
+        rel = path.resolve().relative_to(REPO_ROOT).as_posix()
+    except ValueError:
+        digest = hashlib.sha256()
+        with path.open("rb") as handle:
+            for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                digest.update(chunk)
+        return digest.hexdigest()
     proc = subprocess.run(
-        ["git", "-C", str(REPO_ROOT), "cat-file", "blob", f"HEAD:{path.relative_to(REPO_ROOT).as_posix()}"],
+        ["git", "-C", str(REPO_ROOT), "cat-file", "blob", f"HEAD:{rel}"],
         capture_output=True, check=True,
     )
     return hashlib.sha256(proc.stdout).hexdigest()
@@ -122,6 +130,23 @@ def _git(args: list[str]) -> str:
 def verify_frozen_releases() -> list[str]:
     """Requirement §8: existing Tier 0 tag and record bytes unchanged."""
     errors: list[str] = []
+    # 工作树门（第五轮审计任务 D）：冻结 record 的 staged/unstaged tracked
+    # dirty 必须硬失败——HEAD blob 未变但工作树被篡改时不得静默通过。
+    for name, spec in FROZEN_RELEASES.items():
+        try:
+            rel = spec["record"].resolve().relative_to(REPO_ROOT).as_posix()
+        except ValueError:
+            continue  # 测试夹具（仓库外路径）不适用工作树门
+        proc = subprocess.run(
+            ["git", "-C", str(REPO_ROOT), "status", "--porcelain",
+             "--untracked-files=no", "--", rel],
+            capture_output=True, text=True,
+        )
+        if proc.stdout.strip():
+            errors.append(
+                f"[Tier0/Q1] {name} frozen record has uncommitted worktree "
+                f"changes: {proc.stdout.strip()}"
+            )
     for name, spec in FROZEN_RELEASES.items():
         record = spec["record"]
         if not record.exists():
