@@ -1,0 +1,60 @@
+{
+  "profile": "operator",
+  "status": "PASS",
+  "checkout": "C:\\Users\\admin\\Desktop\\novel-main-operator",
+  "subject_commit": "61adbbb4d29ebdf4da89fd1f2174e313152f1cc3",
+  "subject_tree": "39723a665f74afa4c73a6a70c3f7aa5aff48af7f",
+  "python_version": "3.11.9",
+  "pytest_version": "pytest 9.1.1",
+  "platform": "Windows-10-10.0.26200-SP0",
+  "filesystem_case_probe": {
+    "a_txt_and_A_TXT_coexist": false,
+    "case_sensitive_filesystem": false
+  },
+  "core.autocrlf": "true",
+  "env": {
+    "NOVEL_TEST_PROFILE": "operator"
+  },
+  "started_at": "2026-08-30T03:24:03Z",
+  "completed_at": "2026-08-30T03:33:18Z",
+  "collected_tests": 3105,
+  "pytest": {
+    "command": "C:\\Users\\admin\\Desktop\\novel-main\\.venv\\Scripts\\python.exe -m pytest tests -q --tb=short -p no:cacheprovider --junitxml C:\\Users\\admin\\Desktop\\novel-main-operator\\state_artifacts\\61adbbb4d29e\\operator\\pytest-junit.xml",
+    "exit_code": 0,
+    "results": {
+      "passed": 3101,
+      "skipped": 4,
+      "failed": 0,
+      "errors": 0,
+      "collected": 3105
+    },
+    "parse_error": null,
+    "stdout_artifact": "pytest-stdout.txt",
+    "stderr_artifact": "pytest-stderr.txt",
+    "junit_xml_artifact": "pytest-junit.xml",
+    "stdout_sha256": "a77eb409b0fdd0ce44905ed6a17f91cf7df7a5d98c3a1ed51138189bf8c29079",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "junit_xml_sha256": "5eac95069970d07b1108ec1b27d074f03b7f12af59e89f3e5a9c5052e84be42a",
+    "result_artifact_sha256": "a40a46985cfc19f8ca0143b5074e501bbb450e734ea5aaf54c5f1fb533ab4c23",
+    "completed_at": "2026-08-30T03:33:18Z"
+  },
+  "canary": {
+    "command": "C:\\Users\\admin\\Desktop\\novel-main\\.venv\\Scripts\\python.exe scripts/tier0_canary_regression.py",
+    "exit_code": 0,
+    "verdict": "PASS",
+    "detail": "Tier 0 three-flow canary regression: PASS",
+    "stdout_artifact": "canary-stdout.txt",
+    "stdout_sha256": "845f282758ac28e5a459e264d1b84778086b00ffa41613211da2474e56a3f176",
+    "completed_at": "2026-08-30T03:33:18Z"
+  },
+  "operator_assets_present": {
+    "reference_texts/a1_benchmark": true,
+    "runtime/refs/deepseek_active": true,
+    "runtime/refs/cpa_active/s7/final_evidence_anchor.json": true,
+    "runtime/refs/cpa_active/canary_policy_s6_cpa.json": true
+  },
+  "skip_manifest": {},
+  "pre_tracked_changes": [],
+  "post_tracked_changes": [],
+  "post_untracked_outside_allowlist": []
+}
