@@ -62,6 +62,15 @@ SELF_REF_SKIPS = {
     "tests/test_state_source_contract_v5.py::test_operator_artifact_shas_match_git_blobs",
     "tests/test_state_source_contract_v5.py::test_canary_artifact_sha_matches_git_blob",
 }
+# runner 的 KNOWN_INTERNAL_SKIPS 中以 missing_private_asset 分类、但不在
+# conftest._TEST_GATED 中的内部门控测试；required_asset 以本固定映射为准
+# （与 scripts/run_attestation_bundle.py::KNOWN_INTERNAL_SKIPS 一致）。
+INTERNAL_GATED_ASSETS = {
+    "tests/test_auto_calibrate.py::test_load_frozen_bench_splits_and_disjoint_prompt_ids": (
+        "reference_texts/a1_benchmark/sources/"
+        "writing_preference_bench/split_manifest.json",
+    ),
+}
 def _norm_nodeid(nid: str) -> str:
     """JUnit 点形式与 pytest 斜杠形式统一为点形式（去 .py 后缀）."""
     path, _, name = nid.partition("::")
@@ -263,6 +272,24 @@ def _verify_profile(bundle: dict, expected_collected: int,
     if files["canary-stdout.txt"] != section["canary"]["stdout_sha256"]:
         raise Reject(f"{name}: canary-stdout.txt SHA mismatch")
 
+    # 2b) result_artifact_sha256 重推导（审计任务 C）：由 exit/结果向量独立重算
+    artifact = {
+        "pytest_exit_code": section["pytest"]["exit_code"],
+        "results": section["pytest"]["results"],
+        "canary_exit_code": section["canary"]["exit_code"],
+        "canary_verdict": section["canary"]["verdict"],
+        "parse_error": section["pytest"].get("parse_error"),
+    }
+    recomputed_artifact = _sha_bytes(
+        json.dumps(artifact, sort_keys=True, ensure_ascii=False).encode())
+    if recomputed_artifact != section["pytest"].get(
+            "result_artifact_sha256"):
+        raise Reject(
+            f"{name}: result_artifact_sha256 mismatch (recomputed "
+            f"{recomputed_artifact[:12]} != declared "
+            f"{str(section['pytest'].get('result_artifact_sha256'))[:12]})"
+        )
+
     # 3) JUnit 解析 + 交叉核对
     junit = _parse_junit(bundle["path"] / "pytest-junit.xml")
     results = section["pytest"]["results"]
@@ -301,13 +328,20 @@ def _verify_profile(bundle: dict, expected_collected: int,
     # 5) PASS 语义（共用校验器）
     verify_pass_semantics(section)
 
-    # 6) skip 证据（审计任务 D）：raw manifest SHA + 逐项严格映射
+    # 6) skip 证据（审计任务 D）：raw manifest SHA + 规范 JSON 完全一致 +
+    #    逐项严格映射
     raw_manifest = bundle["path"] / "skip-manifest.json"
     if section.get("skip_manifest_sha256") != _sha_file(raw_manifest):
         raise Reject(f"{name}: skip-manifest.json SHA mismatch")
-    if manifest.get("unexplained"):
+    raw_obj = json.loads(raw_manifest.read_text(encoding="utf-8"))
+    if raw_obj.get("unexplained"):
         raise Reject(f"{name}: manifest carries unexplained skips")
     manifest = section["skip_manifest"]
+    if json.dumps(raw_obj, sort_keys=True) != json.dumps(
+            manifest, sort_keys=True):
+        raise Reject(
+            f"{name}: raw skip-manifest.json differs from embedded section"
+        )
     manifest_skips = manifest.get("skips", [])
     junit_skips = junit["skipped_nodeids"]
     if len(manifest_skips) != len(junit_skips):
@@ -322,8 +356,7 @@ def _verify_profile(bundle: dict, expected_collected: int,
             raise Reject(f"{name}: unexplained junit skip: {nid}")
         if nid_norm not in manifest_ids:
             raise Reject(f"{name}: junit skip missing from manifest: {nid}")
-    gated_norm = {_norm_nodeid(g): set(a) for g, a in (
-        (g, assets) for g, assets in _conftest_gated_items())}
+    gated_norm = _gated_asset_map()
     selfref_norm = {_norm_nodeid(g) for g in SELF_REF_SKIPS}
     for s in manifest_skips:
         nid_norm = _norm_nodeid(s["nodeid"])
@@ -341,22 +374,22 @@ def _verify_profile(bundle: dict, expected_collected: int,
                 raise Reject(f"{name}: self-ref skip not in whitelist: {s['nodeid']}")
         else:
             raise Reject(f"{name}: unexpected skip reason_code {code!r}")
+    return section
 
 
-def _conftest_gated_items():
+def _gated_asset_map() -> dict[str, set[str]]:
+    """固定门控资产映射：conftest._TEST_GATED 全量资产 + INTERNAL_GATED_ASSETS
+    （规范化点形式 nodeid → 完整资产集），供 required_asset 逐项严格比对."""
     if str(REPO_ROOT) not in sys.path:
         sys.path.insert(0, str(REPO_ROOT))
     from tests import conftest as c
-    for nodeid, assets in c._TEST_GATED.items():
-        yield _norm_nodeid(nodeid), assets
-    internal = [
-        nid for nid in junit_skips if nid in SELF_REF_SKIPS
-    ]
-    if internal:
-        # 自引用 skip 只允许发生在 neutral 占位阶段——本聚合器要求 bundle 阶段
-        # 状态文件已是中性占位；此处仅记录。
-        section.setdefault("self_reference_skips", sorted(internal))
-    return section
+    mapping: dict[str, set[str]] = {
+        _norm_nodeid(nid): set(assets)
+        for nid, assets in c._TEST_GATED.items()
+    }
+    for nid, assets in INTERNAL_GATED_ASSETS.items():
+        mapping.setdefault(_norm_nodeid(nid), set()).update(assets)
+    return mapping
 
 
 def _neutral_payload(collected: int, subject_tree: str | None) -> dict:

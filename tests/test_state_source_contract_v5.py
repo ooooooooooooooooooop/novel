@@ -219,3 +219,189 @@ def test_canary_artifact_sha_matches_git_blob():
              f"HEAD:state_artifacts/{subject12}/{name}/canary-stdout.txt"],
             capture_output=True, check=True).stdout
         assert hashlib.sha256(blob).hexdigest() == p["canary"]["stdout_sha256"]
+
+
+# ---- 聚合器 bundle 路径回归（第五轮：曾有 manifest/_conftest_gated_items
+#      NameError，bundle 聚合从未端到端跑通）----
+
+def _synthetic_public_clean_bundle(tmp_path: Path) -> tuple[Path, dict]:
+    """构造与真实 runner 输出同构的 public_clean 合成 bundle，返回 (bundle, section).
+
+    固定契约：JUnit 20 skips（16 gated + 4 self-ref）、其余 passed，
+    collected == EXPECTED_COLLECTED_TESTS，artifact SHA/结果恒等/Merkle/
+    PASS 语义全部自洽，平台为 Linux、大小写敏感、autocrlf=false、私有根缺席。
+    """
+    import xml.etree.ElementTree as XET
+    from scripts import aggregate_current_state as agg
+    from tests.test_cli_runtime_contract import EXPECTED_COLLECTED_TESTS
+
+    gated_map = agg._gated_asset_map()
+    collected = int(EXPECTED_COLLECTED_TESTS)
+    selfref = {agg._norm_nodeid(g) for g in agg.SELF_REF_SKIPS}
+    skip_nodeids = sorted(gated_map) + sorted(selfref)
+    skips = [
+        {"nodeid": nid,
+         "reason_code": ("state_neutral_placeholder" if nid in selfref
+                         else "missing_private_asset"),
+         "required_asset": ([] if nid in selfref
+                            else sorted(gated_map[nid]))}
+        for nid in skip_nodeids
+    ]
+    n_skipped = len(skips)
+    n_passed = collected - n_skipped
+
+    bundle = tmp_path / "public_clean"
+    bundle.mkdir()
+
+    # JUnit XML：collected 个 testcase，其中 20 个 skipped
+    suite = XET.Element("testsuite", {
+        "tests": str(collected), "failures": "0", "errors": "0",
+        "skipped": str(n_skipped), "name": "pytest", "time": "1.0"})
+    seen = set()
+    for nid in skip_nodeids:
+        cls, _, name = nid.partition("::")
+        tc = XET.SubElement(suite, "testcase", {
+            "classname": cls, "name": name, "time": "0.01"})
+        XET.SubElement(tc, "skipped", {
+            "message": "synthetic skip", "type": "pytest.skip"})
+        seen.add(f"{cls}::{name}")
+    i = 0
+    while len(seen) < collected:
+        cls = f"synthetic.module.{i // 100}"
+        name = f"test_filler_{i}"
+        nodeid = f"{cls}::{name}"
+        if nodeid in seen:
+            i += 1
+            continue
+        XET.SubElement(suite, "testcase", {
+            "classname": cls, "name": name, "time": "0.01"})
+        seen.add(nodeid)
+        i += 1
+    junit_path = bundle / "pytest-junit.xml"
+    junit_path.write_bytes(
+        b'<?xml version="1.0" encoding="utf-8"?>\n'
+        + XET.tostring(suite, encoding="utf-8"))
+
+    head = subprocess.run(
+        ["git", "-C", str(PROJECT_ROOT), "rev-parse", "HEAD"],
+        capture_output=True, text=True, check=True).stdout.strip()
+    tree = subprocess.run(
+        ["git", "-C", str(PROJECT_ROOT), "rev-parse", "HEAD^{tree}"],
+        capture_output=True, text=True, check=True).stdout.strip()
+
+    def _lf(path: Path, text: str) -> str:
+        data = text.replace("\r\n", "\n").encode("utf-8")
+        path.write_bytes(data)
+        return hashlib.sha256(data).hexdigest()
+
+    stdout_sha = _lf(bundle / "pytest-stdout.txt",
+                     f"{n_passed} passed, {n_skipped} skipped in 1.00s\n")
+    stderr_sha = _lf(bundle / "pytest-stderr.txt", "")
+    junit_sha = hashlib.sha256(junit_path.read_bytes()).hexdigest()
+    canary_sha = _lf(bundle / "canary-stdout.txt",
+                     "Tier 0 three-flow canary regression: PASS\n")
+    _lf(bundle / "canary-stderr.txt", "")
+
+    results = {"passed": n_passed, "skipped": n_skipped, "failed": 0,
+               "errors": 0, "collected": collected}
+    artifact = {"pytest_exit_code": 0, "results": results,
+                "canary_exit_code": 0, "canary_verdict": "PASS",
+                "parse_error": None}
+    manifest = {"profile": "public_clean",
+                "generated_at": "2026-08-30T00:00:00Z",
+                "skips": skips, "unexplained": []}
+    roots = {
+        r: {"present": False, "merkle": None, "file_count": 0}
+        for r in ("reference_texts/a1_benchmark",
+                  "runtime/refs/deepseek_active",
+                  "runtime/refs/cpa_active",
+                  "novels/s6-canary-offdom/output",
+                  "novels/s6-canary-mythic/output",
+                  "novels/s6-canary-hist/output")
+    }
+    empty_inventory = {"roots": roots, "files": {}}
+    section = {
+        "profile": "public_clean", "status": "PASS",
+        "bundle_rel": "state_artifacts/synthetic/public_clean",
+        "subject_commit": head, "subject_tree": tree,
+        "checkout": str(tmp_path), "python_version": "3.11",
+        "pytest_version": "pytest 9.1.1",
+        "platform": "Linux-6.6-x86_64", "platform_system": "Linux",
+        "filesystem_case_probe": {
+            "a_txt_and_A_TXT_coexist": True,
+            "case_sensitive_filesystem": True,
+            "probe_directory": str(tmp_path / "probe")},
+        "core.autocrlf": "false",
+        "env_sanitized": ["PYTEST_ADDOPTS", "PYTEST_PLUGINS", "PYTHONPATH"],
+        "started_at": "2026-08-30T00:00:00Z",
+        "completed_at": "2026-08-30T00:00:01Z",
+        "collected_tests": collected,
+        "expected_collected_tests": collected,
+        "pytest": {
+            "command": "python -m pytest tests -q", "exit_code": 0,
+            "results": results, "parse_error": None,
+            "stdout": "pytest-stdout.txt", "stderr": "pytest-stderr.txt",
+            "junit_xml": "pytest-junit.xml",
+            "stdout_sha256": stdout_sha, "stderr_sha256": stderr_sha,
+            "junit_xml_sha256": junit_sha,
+            "result_artifact_sha256": hashlib.sha256(
+                json.dumps(artifact, sort_keys=True,
+                           ensure_ascii=False).encode()).hexdigest(),
+            "completed_at": "2026-08-30T00:00:01Z",
+        },
+        "canary": {
+            "command": "python scripts/tier0_canary_regression.py",
+            "exit_code": 0, "verdict": "PASS", "detail": "PASS",
+            "stdout": "canary-stdout.txt", "stdout_sha256": canary_sha,
+            "completed_at": "2026-08-30T00:00:01Z",
+        },
+        "skip_manifest": manifest,
+        "skip_manifest_sha256": _lf(
+            bundle / "skip-manifest.json",
+            json.dumps(manifest, ensure_ascii=False, indent=2)),
+        "external_inputs": {
+            "pre": empty_inventory, "post": empty_inventory,
+            "identical": True, "merkle_root": roots,
+            "missing_roots": sorted(roots),
+        },
+        "gates": {
+            "pre_tracked_changes": [], "post_tracked_changes": [],
+            "untracked_stray": [], "head_unchanged": True,
+            "tree_unchanged": True,
+        },
+    }
+    (bundle / "profile-attestation.json").write_text(
+        json.dumps(section, ensure_ascii=False, indent=2), encoding="utf-8")
+    return bundle, section
+
+
+def test_aggregator_verify_profile_synthetic_bundle_accepts(tmp_path):
+    """聚合器 bundle 路径必须端到端通过（回归：第五轮曾 NameError 崩溃）."""
+    from scripts import aggregate_current_state as agg
+    bundle, _ = _synthetic_public_clean_bundle(tmp_path)
+    from tests.test_cli_runtime_contract import EXPECTED_COLLECTED_TESTS
+    loaded = agg._load_bundle(bundle, "public_clean")
+    out = agg._verify_profile(loaded, int(EXPECTED_COLLECTED_TESTS),
+                              PROJECT_ROOT)
+    assert out["status"] == "PASS"
+
+
+def test_aggregator_verify_profile_rejects_tampered_raw_manifest(tmp_path):
+    """raw skip-manifest 与内嵌 section 不一致（非规范 JSON 复制）必须拒绝."""
+    from scripts import aggregate_current_state as agg
+    from tests.test_cli_runtime_contract import EXPECTED_COLLECTED_TESTS
+    bundle, section = _synthetic_public_clean_bundle(tmp_path)
+    # 篡改 raw manifest：内容与 section 的 skip_manifest 不同（同键值、不同
+    # 列表顺序），并把 section 声明的 skip_manifest_sha256 同步成篡改后文件
+    # 的 SHA，使 SHA 检查通过、规范 JSON 完全比较失败。
+    tampered = dict(section["skip_manifest"])
+    tampered["skips"] = list(reversed(tampered["skips"]))
+    data = json.dumps(tampered, ensure_ascii=False, indent=2) + "\n"
+    (bundle / "skip-manifest.json").write_bytes(data.encode("utf-8"))
+    section["skip_manifest_sha256"] = hashlib.sha256(data.encode()).hexdigest()
+    (bundle / "profile-attestation.json").write_text(
+        json.dumps(section, ensure_ascii=False, indent=2), encoding="utf-8")
+    loaded = agg._load_bundle(bundle, "public_clean")
+    with pytest.raises(agg.Reject, match="differs from embedded"):
+        agg._verify_profile(loaded, int(EXPECTED_COLLECTED_TESTS),
+                            PROJECT_ROOT)

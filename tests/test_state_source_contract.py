@@ -492,30 +492,66 @@ def test_state_free_of_stale_truth_hashes_and_claims():
             assert stale not in text, f"{name}: stale truth hash {stale}"
 
 
+CURRENT_STATE_FIELDS = {
+    # current_state.json schema v3（审计任务 E：与 legacy 字段校验严格分开）
+    "attestation_version", "subject_commit", "subject_tree",
+    "subject_checkout_head", "subject_status", "subject_overall_status",
+    "head_status", "profiles", "operator", "public_clean", "status",
+    "pytest", "canary", "results", "command", "exit_code", "verdict",
+    "stdout", "stderr", "junit_xml", "reason_code", "required_asset",
+    "skips", "unexplained", "last_validated_commit", "last_validated_tree",
+    "last_certified_checkpoint", "evidence_paths", "artifacts_dir",
+    "collected_tests", "collected_tests_contract", "carrier_binding",
+    "state_generated_at", "attestation_commit", "bundles",
+}
+LEGACY_RELEASE_FIELDS = {
+    # legacy release-record / canary-evidence schema（v1 冻结存档与 v2 现行）
+    "schema_version", "type", "production_tier", "release_id",
+    "created_at_utc", "release_tag_or_checkpoint", "git_commit", "git_tag",
+    "baseline_tests_passing", "full_pytest_result", "full_pytest_command",
+    "canary_runbook", "canary_result", "canary_commands", "staged_runtime",
+    "directapi_provider_calling", "provider_calls_implemented",
+    "closed_loop_allowed", "provider_call_performed", "closed_loop_advanced",
+    "known_limitations", "evidence_paths", "workspace_path",
+    "final_artifact_paths", "final_artifact_sha256", "gate_result_path",
+    "gate_result_sha256", "final_gate_ok", "final_review_route",
+    "final_next_workflow", "blocking_pending_count", "materialized_actions",
+}
+
+FIELD_REF_RE = re.compile(r"`([a-z_]+)`")
+
+
 def test_json_field_references_exist_in_schema():
-    """文档引用的 JSON 字段必须由本 schema 验证真实存在（审计任务 H）."""
-    known_fields = {
-        # current_state.json schema（第四轮）
-        "subject_commit", "subject_tree", "subject_checkout_head",
-        "subject_status", "subject_overall_status",
-        "head_status", "profiles", "operator", "public_clean",
-        "last_validated_commit", "last_validated_tree",
-        "last_certified_checkpoint", "evidence_paths", "artifacts_dir",
-        "collected_tests", "carrier_binding", "state_generated_at",
-        "attestation_commit", "collected_tests_contract", "bundles",
-        # legacy release-record schema（tier0-release.json / q1-release.json）
-        "baseline_tests_passing", "full_pytest_result", "full_pytest_command",
-        "release_id", "release_tag_or_checkpoint", "git_commit", "git_tag",
-    }
+    """current_state 与 legacy release schema 的字段校验分开（审计任务 E）：
+    声称属于 current_state.json 的字段只对照 v3 schema；legacy release 字段
+    只对照 legacy schema；禁止用字段并集掩盖 README 对不存在字段的引用."""
     for name in STATE_BEARING_DOCS:
         text = (PROJECT_ROOT / name).read_text(encoding="utf-8")
         for line in text.splitlines():
-            if "current_state.json 的" not in line and (
-                    "current_state.json` 的" not in line):
-                continue
-            for field in re.findall(r"`([a-z_]+)`", line):
+            legacy_ctx = (
+                "release record" in line or "release-record" in line
+                or "canary evidence" in line
+                or "full_pytest_result" in line
+                or "baseline_tests_passing" in line
+                or "schema_version" in line
+                or "TIER0_LEGACY" in line
+            )
+            for m in FIELD_REF_RE.finditer(line):
+                field = m.group(1)
                 if field in ("current_state.json",):
                     continue
-                assert field in known_fields, (
-                    f"{name}: references unknown JSON field {field!r}"
-                )
+                # 字段声称属于 current_state.json（同一短语窗口内出现
+                # current_state.json 与字段引用）
+                window = line[max(0, m.start() - 40):m.end()]
+                if "current_state.json" in window:
+                    assert field in CURRENT_STATE_FIELDS, (
+                        f"{name}: current_state context references nonexistent "
+                        f"field {field!r}: {line.strip()[:160]}"
+                    )
+                    continue
+                if legacy_ctx:
+                    assert field in (
+                        CURRENT_STATE_FIELDS | LEGACY_RELEASE_FIELDS), (
+                        f"{name}: legacy release context references unknown "
+                        f"field {field!r}: {line.strip()[:160]}"
+                    )

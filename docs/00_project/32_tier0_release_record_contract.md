@@ -29,16 +29,16 @@ The release record must pass `validate_tier0_release_record()` from `src/boundar
 Command:
 
 ```bash
-python -m src.boundary_control.release_record docs/00_project/tier0_release_record.example.json --expected-collected-tests 3106
-novel-release-record docs/00_project/tier0_release_record.example.json --expected-collected-tests 3106
-novel-release-record docs/00_project/tier0_release_record.example.json --expected-collected-tests 3106 --require-evidence-files --evidence-root .
-novel-release-record docs/00_project/tier0_release_record.example.json --expected-collected-tests 3106 --canary-evidence docs/00_project/tier0_canary_evidence.example.json
+python -m src.boundary_control.release_record docs/00_project/tier0_release_record.example.json --expected-collected-tests 3119
+novel-release-record docs/00_project/tier0_release_record.example.json --expected-collected-tests 3119
+novel-release-record docs/00_project/tier0_release_record.example.json --expected-collected-tests 3119 --require-evidence-files --evidence-root .
+novel-release-record docs/00_project/tier0_release_record.example.json --expected-collected-tests 3119 --canary-evidence docs/00_project/tier0_canary_evidence.example.json
 ```
 
 Generation command:
 
 ```bash
-novel-release-record docs/00_project/releases/tier0-release.json --expected-collected-tests 3106 --full-pytest-result "3105 passed, 1 skipped (collected 3106)" --record-path docs/00_project/releases/tier0-release.json --generate --release-id tier0-canary-YYYYMMDD --created-at-utc YYYY-MM-DDTHH:MM:SSZ --release-tag-or-checkpoint <tag-or-40-character-lowercase-hex-commit> --git-commit <40-character-lowercase-hex-commit> --full-pytest-command "python -m pytest -q --basetemp .pytest-tmp-current-tier0-release-evidence-full -p no:cacheprovider" --canary-evidence docs/00_project/releases/tier0-canary-evidence.json
+novel-release-record docs/00_project/releases/tier0-release.json --expected-collected-tests 3119 --full-pytest-result '{"passed":3099,"skipped":20,"failed":0,"errors":0,"collected":3119}' --record-path docs/00_project/releases/tier0-release.json --generate --release-id tier0-canary-YYYYMMDD --created-at-utc YYYY-MM-DDTHH:MM:SSZ --release-tag-or-checkpoint <tag-or-40-character-lowercase-hex-commit> --git-commit <40-character-lowercase-hex-commit> --full-pytest-command "python -m pytest -q --basetemp .pytest-tmp-current-tier0-release-evidence-full -p no:cacheprovider" --canary-evidence docs/00_project/releases/tier0-canary-evidence.json
 ```
 
 Generation refuses to overwrite an existing release record file. The generated payload is validated with `validate_tier0_release_record()` before it is written.
@@ -50,7 +50,7 @@ When `--generate` is combined with `--canary-evidence`, the generated release re
 Canary evidence generation command:
 
 ```bash
-novel-release-record docs/00_project/releases/tier0-canary-evidence.json --expected-collected-tests 3106 --generate-canary-evidence --release-id tier0-canary-YYYYMMDD --canary-workspace novels/tier0-canary --canary-gate-result docs/00_project/releases/tier0-canary-gate.json --canary-artifact-root .
+novel-release-record docs/00_project/releases/tier0-canary-evidence.json --expected-collected-tests 3119 --generate-canary-evidence --release-id tier0-canary-YYYYMMDD --canary-workspace novels/tier0-canary --canary-gate-result docs/00_project/releases/tier0-canary-gate.json --canary-artifact-root .
 ```
 
 `--generate-canary-evidence` reads existing staged final artifacts from `<workspace_path>/output/audit/`, computes `final_artifact_sha256`, records `gate_result_path` and `gate_result_sha256` for the saved `novel gate --json` result, derives `final_review_route` / `final_next_workflow` from `route_handoff.json`, derives `final_gate_ok` / `blocking_pending_count` from the saved gate result passed with `--canary-gate-result`, validates the generated object with `validate_tier0_canary_evidence()`, and then validates the listed files with `validate_tier0_canary_evidence_artifacts()` before writing. It refuses to overwrite an existing canary evidence file.
@@ -65,7 +65,8 @@ novel-release-record docs/00_project/releases/tier0-release.json --expected-coll
 
 > 存档记录（`docs/00_project/releases/tier0-release.json`）是 `v0.1.2-tier0` 的冻结证据，
 > 用其自身记录的 `baseline_tests_passing`（2301）自校验，不随当前测试基线漂移；
-> 新建的发布记录才用当前基线 `2837`（见 `test_committed_release_record_combined_validation`）。
+> 新建的发布记录才用当前基线（唯一真源：`tests/test_cli_runtime_contract.py::EXPECTED_COLLECTED_TESTS`，
+> 经 `--expected-collected-tests` 传入，见 `test_committed_release_record_combined_validation`）。
 
 `--require-git-checkpoint` validates that `git_commit` exists in the repository and that `release_tag_or_checkpoint` is either the same commit hash or a local `refs/tags/...` tag that resolves to `git_commit`. Branch names and moving refs such as `HEAD` are not accepted as immutable checkpoints.
 
@@ -88,22 +89,25 @@ novel-release-record docs/00_project/releases/tier0-release.json --expected-base
 
 The single combined validation command must pass before the release record is treated as production evidence.
 
-## Required Fields
+## Required Fields (Schema v2, 现行)
 
 The JSON object must contain exactly these fields:
 
-- `schema_version`: `1`
+- `schema_version`: `2`
 - `type`: `tier0_release_record`
 - `production_tier`: `local_staged_cli_v0`
 - `release_id`: `tier0-canary-YYYYMMDD`; date must be valid and must match `created_at_utc`
 - `created_at_utc`: UTC timestamp in `YYYY-MM-DDTHH:MM:SSZ` format
 - `release_tag_or_checkpoint`: immutable tag or the same 40-character commit hash as `git_commit`
 - `git_commit`: 40-character lowercase hexadecimal git commit hash
-- `baseline_tests_passing`: current full pytest baseline, currently `2837`
+- `baseline_tests_passing`: must equal `full_pytest_result.passed`
 - `full_pytest_command`: full repo pytest command in the form `python -m pytest -q --basetemp .pytest-tmp-current-tier0-release-<name> -p no:cacheprovider`
   - `<name>` must be a non-empty single directory-name suffix using only letters, digits, `.`, `_`, and `-`
   - path separators, parent directory references, and an empty suffix are not accepted
-- `full_pytest_result`: `<baseline> passed`
+- `full_pytest_result`: **structured object** `{passed, skipped, failed, errors, collected}`
+  - exactly these five integer fields; `failed == 0` and `errors == 0`; the five values sum to `collected`
+  - `collected` must equal the repository collected contract passed as `--expected-collected-tests`
+  - string forms such as `"N passed"` are rejected on the standard v2 path
 - `canary_runbook`: `docs/00_project/31_tier0_canary_runbook.md`
 - `canary_result`: `pass`
 - `canary_commands`: ordered command list from the Tier 0 canary runbook
@@ -115,6 +119,32 @@ The JSON object must contain exactly these fields:
 - `closed_loop_advanced`: `false`
 - `known_limitations`: non-empty string list; `known_limitations` entries must be unique
 - `evidence_paths`: non-empty string list; `evidence_paths` entries must be unique; `evidence_paths` must preserve the required evidence order; the release record path must be the final evidence path
+
+## Frozen Legacy v1 (例外，仅存档两条)
+
+Legacy v1 records (`schema_version: 1`, string `full_pytest_result` like
+`"2301 passed"`, scalar `baseline_tests_passing`) are **not** the current
+schema. They are accepted **only** through the byte-level frozen whitelist
+`TIER0_LEGACY_FROZEN_RECORDS` in `src/boundary_control/release_record.py`,
+which currently holds exactly the two historical archives:
+`docs/00_project/releases/tier0-release.json` (2301) and
+`docs/00_project/releases/q1-release.json` (2460). Any other v1-shaped record
+is rejected. For reference, the v1 field list was:
+
+- `schema_version`: `1`
+- `type`: `tier0_release_record`
+- `production_tier`: `local_staged_cli_v0`
+- `release_id`: `tier0-canary-YYYYMMDD`; date must be valid and must match `created_at_utc`
+- `created_at_utc`: UTC timestamp in `YYYY-MM-DDTHH:MM:SSZ` format
+- `release_tag_or_checkpoint`: immutable tag or the same 40-character commit hash as `git_commit`
+- `git_commit`: 40-character lowercase hexadecimal git commit hash
+- `baseline_tests_passing`: current full pytest baseline at archival time
+- `full_pytest_command`: full repo pytest command in the form `python -m pytest -q --basetemp .pytest-tmp-current-tier0-release-<name> -p no:cacheprovider`
+- `full_pytest_result`: `<baseline> passed`
+- `canary_runbook`, `canary_result`, `canary_commands`, `staged_runtime`,
+  `directapi_provider_calling`, `provider_calls_implemented`,
+  `closed_loop_allowed`, `provider_call_performed`, `closed_loop_advanced`,
+  `known_limitations`, `evidence_paths`: same semantics as schema v2 above
 
 ## Required Limitations
 

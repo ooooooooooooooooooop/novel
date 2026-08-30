@@ -37,7 +37,7 @@ All three implementation slices are code-complete; **current validation status i
 Tier 0 生产就绪判定（2026-07-28 宣布）：
 
 - production tier: `local staged CLI v0`（本地分阶段 CLI v0）
-- full pytest result: 见 `current_state.json`（`full_pytest_result` 字段，机器生成；诚实形态 `P passed, S skipped (collected C)`，collected 不冒充 passing）
+- full pytest result: 见 `current_state.json`（`collected_tests` 与各 profile 的 `pytest.results` 结构化五元组，机器生成；passed/skipped/failed/errors 分离，collected 不冒充 passing）
 - release record: `docs/00_project/releases/tier0-release.json`
 - immutable checkpoint: git tag `v0.1.2-tier0`
 - extend / compose canaries 均通过 `novel gate` 同四标准；聚合证据在 `docs/00_project/releases/tier0-three-flow-canary-aggregation.json`
