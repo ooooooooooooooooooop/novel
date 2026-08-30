@@ -242,6 +242,10 @@ def test_runner_untracked_stray_allows_only_bundle_ancestry(tmp_path):
     bundle_dir = tmp_path / bundle_rel
     bundle_dir.mkdir(parents=True)
     (bundle_dir / "profile-attestation.json").write_text("{}", encoding="utf-8")
+    # runner 自己的 staging 兄弟目录（原子 rename 前存在）不得判为 stray
+    staging = tmp_path / (bundle_rel + ".staging-abc12345")
+    staging.mkdir(parents=True)
+    (staging / "pytest-junit.xml").write_text("<x/>", encoding="utf-8")
     (tmp_path / "stray.log").write_text("junk", encoding="utf-8")
     stray = _untracked_stray(tmp_path, bundle_rel)
     assert stray == ["stray.log"], stray

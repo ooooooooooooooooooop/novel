@@ -108,6 +108,8 @@ def _untracked_stray(checkout: Path, bundle_rel: str) -> list[str]:
     # --untracked-files=all：逐文件列出未跟踪文件，避免 git 把整个
     # state_artifacts/<subject>/ 目录折叠为一个 "??" 条目而误判 bundle 自身
     # 为杂散（第五轮反例：staging 目录被当成 stray）。
+    # staging 兄弟目录（bundle_rel + ".staging-" + <hash>）是 runner 自己的
+    # 暂存区，原子 rename 前存在，必须与 bundle 目录一同豁免。
     proc = subprocess.run(
         ["git", "-C", str(checkout), "status", "--porcelain",
          "--untracked-files=all"],
@@ -122,7 +124,8 @@ def _untracked_stray(checkout: Path, bundle_rel: str) -> list[str]:
         checkout_prefix = str(checkout).replace("\\", "/").rstrip("/") + "/"
         if rel.startswith(checkout_prefix):
             rel = rel[len(checkout_prefix):]
-        if rel == bundle_rel or rel.startswith(bundle_rel + "/"):
+        if (rel == bundle_rel or rel.startswith(bundle_rel + "/")
+                or rel.startswith(bundle_rel + ".staging-")):
             continue
         stray.append(rel)
     return stray
