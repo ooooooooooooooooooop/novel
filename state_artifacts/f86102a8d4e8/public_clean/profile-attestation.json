@@ -1,0 +1,327 @@
+{
+  "profile": "public_clean",
+  "status": "PASS",
+  "bundle_rel": "state_artifacts/f86102a8d4e8/public_clean",
+  "subject_commit": "f86102a8d4e8383753d768511b94119080d71c82",
+  "subject_tree": "426e71292b192a8757099ab37633d0941ea5bf3f",
+  "checkout": "/root/novel-attest-r5/repo",
+  "python_version": "3.12.3",
+  "pytest_version": "pytest 9.1.1",
+  "platform": "Linux-6.17.0-20-generic-x86_64-with-glibc2.39",
+  "platform_system": "Linux",
+  "filesystem_case_probe": {
+    "a_txt_and_A_TXT_coexist": true,
+    "case_sensitive_filesystem": true,
+    "probe_directory": "/root/novel-attest-r5/repo/_case_probe_attest"
+  },
+  "core.autocrlf": "false",
+  "env_sanitized": [
+    "PYTEST_ADDOPTS",
+    "PYTEST_PLUGINS",
+    "PYTHONPATH"
+  ],
+  "started_at": "2026-08-30T13:11:04Z",
+  "completed_at": "2026-08-30T13:14:15Z",
+  "collected_tests": 3120,
+  "expected_collected_tests": 3120,
+  "pytest": {
+    "command": "/root/novel-attest-r5/repo/.venv/bin/python -m pytest tests -q --tb=short -p no:cacheprovider --junitxml /root/novel-attest-r5/repo/state_artifacts/f86102a8d4e8/public_clean.staging-f86102a8/pytest-junit.xml",
+    "exit_code": 0,
+    "results": {
+      "passed": 3100,
+      "skipped": 20,
+      "failed": 0,
+      "errors": 0,
+      "collected": 3120
+    },
+    "parse_error": null,
+    "stdout": "pytest-stdout.txt",
+    "stderr": "pytest-stderr.txt",
+    "junit_xml": "pytest-junit.xml",
+    "stdout_sha256": "b73a325fee1b2836fb3dd7c92880b7732fffdb9e087a3942cd251e900440fb6d",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "junit_xml_sha256": "1cddae4ea36b67dc71deb1b5602ecfe7a4a94bad29aedd4d2b8307763efb404b",
+    "result_artifact_sha256": "cd11e01553e1030d729a138d19d8364116e5ab7d956665e3436a917524cf5f5e",
+    "completed_at": "2026-08-30T13:14:15Z"
+  },
+  "canary": {
+    "command": "/root/novel-attest-r5/repo/.venv/bin/python scripts/tier0_canary_regression.py",
+    "exit_code": 0,
+    "verdict": "PASS",
+    "detail": "Tier 0 three-flow canary regression: PASS",
+    "stdout": "canary-stdout.txt",
+    "stdout_sha256": "39a32aaa85a7cc1d0f23c479739124390258974a6471fa33d5423714a74fa26d",
+    "completed_at": "2026-08-30T13:14:18Z"
+  },
+  "skip_manifest": {
+    "profile": "public_clean",
+    "generated_at": "2026-08-30T13:14:15Z",
+    "skips": [
+      {
+        "nodeid": "tests.test_a1_release_validation::test_g8_zero_committed_chapters_withholds",
+        "reason_code": "missing_private_asset",
+        "required_asset": [
+          "runtime/refs/cpa_active/canary_policy_s6_cpa.json",
+          "novels/s6-canary-offdom/output",
+          "novels/s6-canary-mythic/output",
+          "novels/s6-canary-hist/output"
+        ]
+      },
+      {
+        "reason_code": "missing_private_asset",
+        "required_asset": [
+          "reference_texts/a1_benchmark/sources/writing_preference_bench/split_manifest.json"
+        ],
+        "nodeid": "tests.test_auto_calibrate::test_load_frozen_bench_splits_and_disjoint_prompt_ids"
+      },
+      {
+        "nodeid": "tests.test_auto_calibrate::test_load_frozen_bench_rejects_sha256_mismatch",
+        "reason_code": "missing_private_asset",
+        "required_asset": [
+          "reference_texts/a1_benchmark"
+        ]
+      },
+      {
+        "nodeid": "tests.test_build_deepseek_active_bundle::test_build_produces_exactly_four_bundle_files",
+        "reason_code": "missing_private_asset",
+        "required_asset": [
+          "reference_texts/a1_benchmark",
+          "runtime/refs/deepseek_active"
+        ]
+      },
+      {
+        "nodeid": "tests.test_build_deepseek_active_bundle::test_build_is_idempotent_byte_stable",
+        "reason_code": "missing_private_asset",
+        "required_asset": [
+          "reference_texts/a1_benchmark",
+          "runtime/refs/deepseek_active"
+        ]
+      },
+      {
+        "nodeid": "tests.test_build_deepseek_active_bundle::test_build_output_has_no_forbidden_secrets",
+        "reason_code": "missing_private_asset",
+        "required_asset": [
+          "reference_texts/a1_benchmark",
+          "runtime/refs/deepseek_active"
+        ]
+      },
+      {
+        "nodeid": "tests.test_build_deepseek_active_bundle::test_build_requires_base_url_env",
+        "reason_code": "missing_private_asset",
+        "required_asset": [
+          "reference_texts/a1_benchmark",
+          "runtime/refs/deepseek_active"
+        ]
+      },
+      {
+        "nodeid": "tests.test_build_deepseek_active_bundle::test_build_derives_provider_identity_from_live_db",
+        "reason_code": "missing_private_asset",
+        "required_asset": [
+          "runtime/refs/deepseek_active"
+        ]
+      },
+      {
+        "nodeid": "tests.test_build_deepseek_active_bundle::test_build_refuses_non_deepseek_current_provider",
+        "reason_code": "missing_private_asset",
+        "required_asset": [
+          "runtime/refs/deepseek_active"
+        ]
+      },
+      {
+        "nodeid": "tests.test_build_deepseek_active_bundle::test_build_refuses_failover_current_provider",
+        "reason_code": "missing_private_asset",
+        "required_asset": [
+          "runtime/refs/deepseek_active"
+        ]
+      },
+      {
+        "nodeid": "tests.test_build_deepseek_active_bundle::test_build_frozen_thresholds_and_uncontaminated_split",
+        "reason_code": "missing_private_asset",
+        "required_asset": [
+          "reference_texts/a1_benchmark"
+        ]
+      },
+      {
+        "nodeid": "tests.test_build_deepseek_active_bundle::test_build_profile_passes_provider_profile_validation",
+        "reason_code": "missing_private_asset",
+        "required_asset": [
+          "reference_texts/a1_benchmark",
+          "runtime/refs/deepseek_active"
+        ]
+      },
+      {
+        "nodeid": "tests.test_build_deepseek_active_bundle::test_build_policy_passes_autonomous_policy_validation",
+        "reason_code": "missing_private_asset",
+        "required_asset": [
+          "reference_texts/a1_benchmark",
+          "runtime/refs/deepseek_active"
+        ]
+      },
+      {
+        "nodeid": "tests.test_build_deepseek_active_bundle::test_build_judge_roles_disable_thinking",
+        "reason_code": "missing_private_asset",
+        "required_asset": [
+          "reference_texts/a1_benchmark",
+          "runtime/refs/deepseek_active"
+        ]
+      },
+      {
+        "nodeid": "tests.test_build_deepseek_active_bundle::test_build_active_selector_points_only_deepseek",
+        "reason_code": "missing_private_asset",
+        "required_asset": [
+          "reference_texts/a1_benchmark",
+          "runtime/refs/deepseek_active"
+        ]
+      },
+      {
+        "nodeid": "tests.test_s7_long_run_judgment::test_green_report_excludes_gaps",
+        "reason_code": "missing_private_asset",
+        "required_asset": [
+          "runtime/refs/cpa_active/s7/final_evidence_anchor.json"
+        ]
+      },
+      {
+        "reason_code": "state_neutral_placeholder",
+        "required_asset": [],
+        "nodeid": "tests.test_state_source_contract::test_attestation_protocol_diff_only_state_files"
+      },
+      {
+        "reason_code": "state_neutral_placeholder",
+        "required_asset": [],
+        "nodeid": "tests.test_state_source_contract::test_profiles_rederived_from_raw_artifacts"
+      },
+      {
+        "reason_code": "state_neutral_placeholder",
+        "required_asset": [],
+        "nodeid": "tests.test_state_source_contract_v5::test_operator_artifact_shas_match_git_blobs"
+      },
+      {
+        "reason_code": "state_neutral_placeholder",
+        "required_asset": [],
+        "nodeid": "tests.test_state_source_contract_v5::test_canary_artifact_sha_matches_git_blob"
+      }
+    ],
+    "unexplained": []
+  },
+  "skip_manifest_sha256": "c343a1da04f9d2eaeb2f9dd67d5b52b6bfd44d407e3facbb3ece13e991bb2c4a",
+  "external_inputs": {
+    "pre": {
+      "roots": {
+        "reference_texts/a1_benchmark": {
+          "present": false,
+          "merkle": null,
+          "file_count": 0
+        },
+        "runtime/refs/deepseek_active": {
+          "present": false,
+          "merkle": null,
+          "file_count": 0
+        },
+        "runtime/refs/cpa_active": {
+          "present": false,
+          "merkle": null,
+          "file_count": 0
+        },
+        "novels/s6-canary-offdom/output": {
+          "present": false,
+          "merkle": null,
+          "file_count": 0
+        },
+        "novels/s6-canary-mythic/output": {
+          "present": false,
+          "merkle": null,
+          "file_count": 0
+        },
+        "novels/s6-canary-hist/output": {
+          "present": false,
+          "merkle": null,
+          "file_count": 0
+        }
+      },
+      "files": {}
+    },
+    "post": {
+      "roots": {
+        "reference_texts/a1_benchmark": {
+          "present": false,
+          "merkle": null,
+          "file_count": 0
+        },
+        "runtime/refs/deepseek_active": {
+          "present": false,
+          "merkle": null,
+          "file_count": 0
+        },
+        "runtime/refs/cpa_active": {
+          "present": false,
+          "merkle": null,
+          "file_count": 0
+        },
+        "novels/s6-canary-offdom/output": {
+          "present": false,
+          "merkle": null,
+          "file_count": 0
+        },
+        "novels/s6-canary-mythic/output": {
+          "present": false,
+          "merkle": null,
+          "file_count": 0
+        },
+        "novels/s6-canary-hist/output": {
+          "present": false,
+          "merkle": null,
+          "file_count": 0
+        }
+      },
+      "files": {}
+    },
+    "identical": true,
+    "merkle_root": {
+      "reference_texts/a1_benchmark": {
+        "present": false,
+        "merkle": null,
+        "file_count": 0
+      },
+      "runtime/refs/deepseek_active": {
+        "present": false,
+        "merkle": null,
+        "file_count": 0
+      },
+      "runtime/refs/cpa_active": {
+        "present": false,
+        "merkle": null,
+        "file_count": 0
+      },
+      "novels/s6-canary-offdom/output": {
+        "present": false,
+        "merkle": null,
+        "file_count": 0
+      },
+      "novels/s6-canary-mythic/output": {
+        "present": false,
+        "merkle": null,
+        "file_count": 0
+      },
+      "novels/s6-canary-hist/output": {
+        "present": false,
+        "merkle": null,
+        "file_count": 0
+      }
+    },
+    "missing_roots": [
+      "reference_texts/a1_benchmark",
+      "runtime/refs/deepseek_active",
+      "runtime/refs/cpa_active",
+      "novels/s6-canary-offdom/output",
+      "novels/s6-canary-mythic/output",
+      "novels/s6-canary-hist/output"
+    ]
+  },
+  "gates": {
+    "pre_tracked_changes": [],
+    "post_tracked_changes": [],
+    "untracked_stray": [],
+    "head_unchanged": true,
+    "tree_unchanged": true
+  }
+}

@@ -1,0 +1,8 @@
+[audit] novel gate tier0-canary --json
+  PASS (ok=True route=pass next=ContinueUnit blocking=0)
+[extend] novel gate tier0-extend-canary --json
+  PASS (ok=True route=pass next=ContinueUnit blocking=0)
+[compose] novel gate tier0-compose-canary --json
+  PASS (ok=True route=pass next=ContinueUnit blocking=0)
+
+Tier 0 three-flow canary regression: PASS

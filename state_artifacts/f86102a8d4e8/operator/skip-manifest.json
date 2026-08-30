@@ -1,0 +1,34 @@
+{
+  "profile": "operator",
+  "generated_at": "2026-08-30T13:22:03Z",
+  "skips": [
+    {
+      "reason_code": "missing_private_asset",
+      "required_asset": [
+        "reference_texts/a1_benchmark/sources/writing_preference_bench/split_manifest.json"
+      ],
+      "nodeid": "tests.test_auto_calibrate::test_load_frozen_bench_splits_and_disjoint_prompt_ids"
+    },
+    {
+      "reason_code": "state_neutral_placeholder",
+      "required_asset": [],
+      "nodeid": "tests.test_state_source_contract::test_attestation_protocol_diff_only_state_files"
+    },
+    {
+      "reason_code": "state_neutral_placeholder",
+      "required_asset": [],
+      "nodeid": "tests.test_state_source_contract::test_profiles_rederived_from_raw_artifacts"
+    },
+    {
+      "reason_code": "state_neutral_placeholder",
+      "required_asset": [],
+      "nodeid": "tests.test_state_source_contract_v5::test_operator_artifact_shas_match_git_blobs"
+    },
+    {
+      "reason_code": "state_neutral_placeholder",
+      "required_asset": [],
+      "nodeid": "tests.test_state_source_contract_v5::test_canary_artifact_sha_matches_git_blob"
+    }
+  ],
+  "unexplained": []
+}
