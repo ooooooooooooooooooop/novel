@@ -1,7 +1,7 @@
 {
   "attestation_version": 3,
   "subject_commit": null,
-  "subject_tree": "46cc5717b1fc48ceb2640d305e92185e81ab53e4",
+  "subject_tree": "f15e7fafe151d9db3def8fa79f53304d88062b6d",
   "subject_checkout_head": null,
   "attestation_commit": null,
   "carrier_binding": {
@@ -11,7 +11,7 @@
   "head_status": "UNVERIFIED",
   "subject_status": "UNVERIFIED",
   "subject_overall_status": "UNVERIFIED",
-  "state_generated_at": "2026-08-30T12:55:16Z",
+  "state_generated_at": "2026-08-30T13:08:50Z",
   "profiles": {
     "operator": {
       "profile": "operator",
