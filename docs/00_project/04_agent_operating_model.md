@@ -1,9 +1,14 @@
 # Agent Operating Model
 
+<!-- state:current -->
+**当前状态（唯一机器真源：`current_state.json`）**：默认标记 `CURRENT_HEAD_UNVERIFIED`——
+本文件不维护任何测试数字、哈希或当前资格/PASS 台账；历史里程碑以带日期引用保留。
+<!-- /state:current -->
+
 ## Purpose
 
 This file defines how an agent should operate inside this repository.
-The repository has passed the foundation-design phase and is now in bounded-implementation validation.
+The repository has passed the foundation-design phase (2026-07-28 historical judgment) and is now in bounded-implementation validation.
 
 It is not an implementation workflow.
 It is an operating model for:
@@ -30,7 +35,7 @@ The purpose of this file is to reduce that drift.
 
 ## 2. Current Operating Assumption
 
-The repository has completed foundation design and is now in bounded-implementation validation.
+The repository has completed foundation design (2026-07-28 historical judgment) and is now in bounded-implementation validation.
 Three entry scripts (`audit_short_form`, `extend_short_form`, `compose_short_form`) reached their 2026-07-29 milestone (record: `docs/00_project/releases/tier0-release.json`, tag `v0.1.2-tier0`); current qualification: `current_state.json`.
 
 That means the main job of an agent is:
@@ -39,7 +44,7 @@ That means the main job of an agent is:
 - tighten definitions when gaps surface in running code
 - align schemas, rules, workflows, examples, and their running counterparts
 - record decisions and current status
-- preserve the 86-test regression baseline
+- preserve the regression baseline (唯一真源：`tests/test_cli_runtime_contract.py::EXPECTED_COLLECTED_TESTS`) — 不在本文件维护任何测试数字
 
 That does not mean design is frozen.
 

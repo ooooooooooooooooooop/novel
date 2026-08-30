@@ -6,6 +6,11 @@
 > 接手协议：新 agent 只读本文件 + `current_state.json` + Context Package，
 > 禁止读聊天历史。
 
+<!-- state:current -->
+**当前状态（唯一机器真源：`current_state.json`）**：默认标记 `CURRENT_HEAD_UNVERIFIED`——
+本文件不维护任何测试数字、哈希或当前资格/PASS 台账。
+<!-- /state:current -->
+
 ## goal
 
 Automatic Novel Narrative System：解析叙事结构、维护叙事状态、规划故事推进、

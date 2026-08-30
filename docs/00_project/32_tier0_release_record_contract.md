@@ -73,8 +73,8 @@ novel-release-record docs/00_project/releases/tier0-release.json --expected-coll
 For an actual release record, validate canary evidence binding:
 
 ```bash
-novel-release-record docs/00_project/releases/tier0-release.json --expected-baseline 2301 --record-path docs/00_project/releases/tier0-release.json --canary-evidence docs/00_project/releases/tier0-canary-evidence.json
-novel-release-record docs/00_project/releases/tier0-release.json --expected-baseline 2301 --record-path docs/00_project/releases/tier0-release.json --canary-evidence docs/00_project/releases/tier0-canary-evidence.json --require-canary-artifacts --canary-artifact-root .
+novel-release-record docs/00_project/releases/tier0-release.json --expected-collected-tests 2301 --legacy --record-path docs/00_project/releases/tier0-release.json --canary-evidence docs/00_project/releases/tier0-canary-evidence.json
+novel-release-record docs/00_project/releases/tier0-release.json --expected-collected-tests 2301 --legacy --record-path docs/00_project/releases/tier0-release.json --canary-evidence docs/00_project/releases/tier0-canary-evidence.json --require-canary-artifacts --canary-artifact-root .
 ```
 
 `--canary-evidence` validates a `tier0_canary_evidence` JSON file and requires its `release_id`, `canary_result`, and `canary_commands` to match the release record. The canary evidence path and its `gate_result_path` must also appear in release record `evidence_paths`.
@@ -84,7 +84,7 @@ novel-release-record docs/00_project/releases/tier0-release.json --expected-base
 For final Tier 0 release validation, run a single combined validation command over the same release record and canary evidence:
 
 ```bash
-novel-release-record docs/00_project/releases/tier0-release.json --expected-baseline 2301 --record-path docs/00_project/releases/tier0-release.json --require-evidence-files --evidence-root . --require-git-checkpoint --repo-root . --canary-evidence docs/00_project/releases/tier0-canary-evidence.json --require-canary-artifacts --canary-artifact-root .
+novel-release-record docs/00_project/releases/tier0-release.json --expected-collected-tests 2301 --legacy --record-path docs/00_project/releases/tier0-release.json --require-evidence-files --evidence-root . --require-git-checkpoint --repo-root . --canary-evidence docs/00_project/releases/tier0-canary-evidence.json --require-canary-artifacts --canary-artifact-root .
 ```
 
 The single combined validation command must pass before the release record is treated as production evidence.

@@ -19,14 +19,14 @@ carrier 提交不可自证；subject 资格以 json 的 `subject_overall_status`
 
 ## Current Phase
 Current Phase: S7 缺口闭环（prospective5 死锁定格，待用户决策，见 runtime 侧战役日志）。Tier 0 判定是历史 checkpoint（2026-07-28 首判、2026-08-06 重认证，tag `v0.1.2-tier0`），不自动延续到当前 HEAD；当前验证资格以 `current_state.json` 为唯一真源。三个实现切片（audit/extend/compose）代码完成，各自曾有真实 staged Codex canary 通过 `novel gate`（历史证据）。
-Foundation gate, transition-planning sufficiency, and implementation-planning sufficiency have passed.
+Foundation gate, transition-planning sufficiency, and implementation-planning sufficiency have passed (2026-07-28 historical judgment).
 v0 deployment shape decision (Codex-native staged CLI) is adopted.
 This is a phase boundary, not a permanent repository boundary.
 
 Tier 0 production evidence:
 
 - production tier: `local staged CLI v0` (operator-in-the-loop, no DirectAPI)
-- release record: `docs/00_project/releases/tier0-release.json` (passes the single combined validation command at the current full-pytest baseline 2940)
+- release record: `docs/00_project/releases/tier0-release.json` (passes the single combined validation command against the repository collected contract, 唯一真源 `tests/test_cli_runtime_contract.py::EXPECTED_COLLECTED_TESTS`)
 - canary evidence: `docs/00_project/releases/tier0-canary-evidence.json`
 - saved canary gate result: `docs/00_project/releases/tier0-canary-gate.json`
 - immutable checkpoint: git tag `v0.1.2-tier0`
@@ -120,9 +120,9 @@ Do not optimize for:
 - Slice 2 (`extend_short_form`): code complete, long-form inheritance validated, end-to-end PASS (2026-07-28)
 - Slice 3 (`compose_short_form`): code complete, default WorkSpec validated, end-to-end PASS (2026-07-29)
 - LLM layer split: workflow units expose `build_prompt()` and `parse_response()`; scripts do not call LLMs internally
-- Long-form multi-arc stress test: PASS
+- Long-form multi-arc stress test: PASS (2026-07-29 historical evidence)
 - No-regression tests: 以 `current_state.json` 为唯一真源（collected / passing / skipped 分离，公开 checkout 的私有资产门控跳过单独计数）。
-- End-to-end Audit / Extend / Compose validation: PASS
+- End-to-end Audit / Extend / Compose validation: PASS (2026-07-29 historical evidence)
 
 If you are asked to write code, the existing infrastructure is:
 - `src/object_state/` - 8 core Pydantic models + `audit_report.py`

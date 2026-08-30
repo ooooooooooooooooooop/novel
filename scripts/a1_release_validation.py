@@ -59,12 +59,16 @@ FROZEN_RELEASES = {
         # 旧值 7e76ae34… 是 Windows 工作树 CRLF 原始字节，非规范形态）
         "record_sha256": "7f0a48b6f740e142e546553f8d37dc82ded1f379e4fe31510453407cf60809ca",
         "tag": "v0.1.2-tier0",
+        # annotated tag object（第六轮 J：4b148c98 是 tag object id，
+        # peeled target 3287e0f 才是 commit；二者都冻结验证）
+        "tag_object": "4b148c98b4a5931349a2af4f7f70248b28961101",
         "tag_commit": "3287e0feb20691a0add37d1eec7173664beb3172",
     },
     "q1": {
         "record": REPO_ROOT / "docs" / "00_project" / "releases" / "q1-release.json",
         "record_sha256": "dd1f5de570564dddd9a459326c874bf52daf09a75ff87fce92426d0f1269d14e",
         "tag": "v0.1.3-q1",
+        "tag_object": "dae52cecac9a5beb2b5e9f8d1291fd02ceed9c9f",
         "tag_commit": "ff66b9b24e8fb5099ab3c1b2bfda3b6e60e46fa2",
     },
 }
@@ -164,6 +168,15 @@ def verify_frozen_releases() -> list[str]:
                 f"[Tier0/Q1] {name} tag {spec['tag']} moved/absent "
                 f"(expected {spec['tag_commit'][:12]}, got {resolved[:12] or 'none'})"
             )
+        # 第六轮 J：annotated tag object 自身也必须等于冻结值（不 peel）
+        if spec.get("tag_object"):
+            obj = _git(["rev-parse", "--verify", f"refs/tags/{spec['tag']}"])
+            if obj != spec["tag_object"]:
+                errors.append(
+                    f"[Tier0/Q1] {name} tag object {spec['tag']} changed "
+                    f"(expected {spec['tag_object'][:12]}, got "
+                    f"{obj[:12] or 'none'})"
+                )
     return errors
 
 

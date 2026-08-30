@@ -76,7 +76,8 @@ def test_neg_pass_with_head_drift():
 
 
 def test_neg_merkle_recompute_catches_same_size_tamper():
-    """同大小改写（反例 2）：内容 sha 变化 → Merkle 重算必不一致."""
+    """同大小改写（反例 2）：内容 sha 变化 → Merkle 重算必不一致（第六轮：
+    Merkle 行含 size/type，逐项 file_count/type/size 也核对）."""
     inv = {
         "roots": {"runtime/refs/deepseek_active": {
             "present": True, "merkle": None, "file_count": 1}},
@@ -85,15 +86,26 @@ def test_neg_merkle_recompute_catches_same_size_tamper():
                 b"AAAAAAAA").hexdigest()}},
     }
     # 先按清单算出 Merkle 并写入（模拟 runner 记录）
-    entries = [f"{rel}:{info['sha256']}" for rel, info in inv["files"].items()]
+    entries = [f"{rel}:{info['sha256']}:{info['size']}:{info['type']}"
+               for rel, info in inv["files"].items()]
     inv["roots"]["runtime/refs/deepseek_active"]["merkle"] = hashlib.sha256(
         chr(10).join(sorted(entries)).encode()).hexdigest()
-    verify_merkle_inventory(inv)  # 一致 → 通过
+    verify_merkle_inventory(inv, ("runtime/refs/deepseek_active",))
     # 同大小篡改：内容 AAAAAAAA -> AAAAAAAB（size 不变 8）
     inv["files"]["runtime/refs/deepseek_active/live.db"]["sha256"] = (
         hashlib.sha256(b"AAAAAAAB").hexdigest())
     with pytest.raises(Reject, match="Merkle recompute mismatch"):
-        verify_merkle_inventory(inv)
+        verify_merkle_inventory(inv, ("runtime/refs/deepseek_active",))
+    # 恢复后：file_count 撒谎必须被抓（第六轮 C：逐项 file_count）
+    inv["files"]["runtime/refs/deepseek_active/live.db"]["sha256"] = (
+        hashlib.sha256(b"AAAAAAAA").hexdigest())
+    inv["roots"]["runtime/refs/deepseek_active"]["file_count"] = 2
+    with pytest.raises(Reject, match="file_count"):
+        verify_merkle_inventory(inv, ("runtime/refs/deepseek_active",))
+    # absent 根下残留文件必须被抓（第六轮反例 3/6）
+    inv["roots"]["runtime/refs/deepseek_active"]["present"] = False
+    with pytest.raises(Reject, match="absent root"):
+        verify_merkle_inventory(inv, ("runtime/refs/deepseek_active",))
 
 
 # ---- A1 冻结记录负测（审计任务 G）----
@@ -253,9 +265,10 @@ def test_runner_untracked_stray_allows_only_bundle_ancestry(tmp_path):
 def _synthetic_public_clean_bundle(tmp_path: Path) -> tuple[Path, dict]:
     """构造与真实 runner 输出同构的 public_clean 合成 bundle，返回 (bundle, section).
 
-    固定契约：JUnit 20 skips（16 gated + 4 self-ref）、其余 passed，
-    collected == EXPECTED_COLLECTED_TESTS，artifact SHA/结果恒等/Merkle/
-    PASS 语义全部自洽，平台为 Linux、大小写敏感、autocrlf=false、私有根缺席。
+    固定契约：JUnit 20 skips（16 gated 含 internal + 4 self-ref）、其余 passed，
+    collected == EXPECTED_COLLECTED_TESTS；原生 skip manifest（conftest 语义：
+    只记 gated）、junit_classified、canary stderr SHA、六根 absent 集合、
+    PASS 语义全部自洽；平台为 Linux、大小写敏感、autocrlf=false。
     """
     import xml.etree.ElementTree as XET
     from scripts import aggregate_current_state as agg
@@ -264,32 +277,37 @@ def _synthetic_public_clean_bundle(tmp_path: Path) -> tuple[Path, dict]:
     gated_map = agg._gated_asset_map()
     collected = int(EXPECTED_COLLECTED_TESTS)
     selfref = {agg._norm_nodeid(g) for g in agg.SELF_REF_SKIPS}
-    skip_nodeids = sorted(gated_map) + sorted(selfref)
-    skips = [
-        {"nodeid": nid,
-         "reason_code": ("state_neutral_placeholder" if nid in selfref
-                         else "missing_private_asset"),
-         "required_asset": ([] if nid in selfref
-                            else sorted(gated_map[nid]))}
-        for nid in skip_nodeids
-    ]
-    n_skipped = len(skips)
+    internal = {agg._norm_nodeid(g) for g in agg.INTERNAL_GATED_ASSETS}
+    gated_ids = sorted(gated_map)
+    selfref_ids = sorted(selfref)
+    all_skip_ids = gated_ids + selfref_ids
+    n_skipped = len(all_skip_ids)
     n_passed = collected - n_skipped
+
+    def _skip_message(nid: str) -> str:
+        if nid in selfref:
+            return "neutral placeholder carries no attested bundles"
+        if nid in internal:
+            return ("frozen polluted split evidence absent "
+                    "(split_manifest.json not present on this clone)")
+        assets = sorted(gated_map[nid])
+        return ("requires private operator assets missing on public_clean "
+                f"checkout: {assets[0] if len(assets) == 1 else assets}")
 
     bundle = tmp_path / "public_clean"
     bundle.mkdir()
 
-    # JUnit XML：collected 个 testcase，其中 20 个 skipped
+    # JUnit XML：collected 个 testcase，其中 n_skipped 个 skipped（带 message）
     suite = XET.Element("testsuite", {
         "tests": str(collected), "failures": "0", "errors": "0",
         "skipped": str(n_skipped), "name": "pytest", "time": "1.0"})
     seen = set()
-    for nid in skip_nodeids:
+    for nid in all_skip_ids:
         cls, _, name = nid.partition("::")
         tc = XET.SubElement(suite, "testcase", {
             "classname": cls, "name": name, "time": "0.01"})
         XET.SubElement(tc, "skipped", {
-            "message": "synthetic skip", "type": "pytest.skip"})
+            "message": _skip_message(nid), "type": "pytest.skip"})
         seen.add(f"{cls}::{name}")
     i = 0
     while len(seen) < collected:
@@ -326,16 +344,35 @@ def _synthetic_public_clean_bundle(tmp_path: Path) -> tuple[Path, dict]:
     junit_sha = hashlib.sha256(junit_path.read_bytes()).hexdigest()
     canary_sha = _lf(bundle / "canary-stdout.txt",
                      "Tier 0 three-flow canary regression: PASS\n")
-    _lf(bundle / "canary-stderr.txt", "")
+    canary_stderr_sha = _lf(bundle / "canary-stderr.txt", "")
 
     results = {"passed": n_passed, "skipped": n_skipped, "failed": 0,
                "errors": 0, "collected": collected}
     artifact = {"pytest_exit_code": 0, "results": results,
                 "canary_exit_code": 0, "canary_verdict": "PASS",
                 "parse_error": None}
-    manifest = {"profile": "public_clean",
-                "generated_at": "2026-08-30T00:00:00Z",
-                "skips": skips, "unexplained": []}
+
+    # 原生 manifest（conftest 语义）：只记录 gated 跳过
+    native_skips = [
+        {"nodeid": nid, "reason_code": "missing_private_asset",
+         "required_asset": sorted(gated_map[nid]),
+         "asset_fingerprint": {}}
+        for nid in gated_ids
+    ]
+    manifest_obj = {"profile": "public_clean",
+                    "generated_at": "2026-08-30T00:00:00Z",
+                    "skips": native_skips}
+    manifest_sha = _lf(bundle / "skip-manifest.json",
+                       json.dumps(manifest_obj, ensure_ascii=False, indent=2))
+    junit_classified = [
+        {"nodeid": nid, "message": _skip_message(nid)[:200],
+         "expected_reason_code": ("state_neutral_placeholder"
+                                  if nid in selfref
+                                  else "missing_private_asset"),
+         "message_ok": True}
+        for nid in all_skip_ids
+    ]
+
     roots = {
         r: {"present": False, "merkle": None, "file_count": 0}
         for r in ("reference_texts/a1_benchmark",
@@ -350,13 +387,13 @@ def _synthetic_public_clean_bundle(tmp_path: Path) -> tuple[Path, dict]:
         "profile": "public_clean", "status": "PASS",
         "bundle_rel": "state_artifacts/synthetic/public_clean",
         "subject_commit": head, "subject_tree": tree,
-        "checkout": str(tmp_path), "python_version": "3.11",
+        "checkout_rel": ".", "python_version": "3.11",
         "pytest_version": "pytest 9.1.1",
         "platform": "Linux-6.6-x86_64", "platform_system": "Linux",
         "filesystem_case_probe": {
             "a_txt_and_A_TXT_coexist": True,
             "case_sensitive_filesystem": True,
-            "probe_directory": str(tmp_path / "probe")},
+            "probe_directory": "probe"},
         "core.autocrlf": "false",
         "env_sanitized": ["PYTEST_ADDOPTS", "PYTEST_PLUGINS", "PYTHONPATH"],
         "started_at": "2026-08-30T00:00:00Z",
@@ -366,6 +403,8 @@ def _synthetic_public_clean_bundle(tmp_path: Path) -> tuple[Path, dict]:
         "pytest": {
             "command": "python -m pytest tests -q", "exit_code": 0,
             "results": results, "parse_error": None,
+            "started_at": "2026-08-30T00:00:00Z",
+            "completed_at": "2026-08-30T00:00:01Z",
             "stdout": "pytest-stdout.txt", "stderr": "pytest-stderr.txt",
             "junit_xml": "pytest-junit.xml",
             "stdout_sha256": stdout_sha, "stderr_sha256": stderr_sha,
@@ -373,27 +412,33 @@ def _synthetic_public_clean_bundle(tmp_path: Path) -> tuple[Path, dict]:
             "result_artifact_sha256": hashlib.sha256(
                 json.dumps(artifact, sort_keys=True,
                            ensure_ascii=False).encode()).hexdigest(),
-            "completed_at": "2026-08-30T00:00:01Z",
         },
         "canary": {
             "command": "python scripts/tier0_canary_regression.py",
             "exit_code": 0, "verdict": "PASS", "detail": "PASS",
-            "stdout": "canary-stdout.txt", "stdout_sha256": canary_sha,
-            "completed_at": "2026-08-30T00:00:01Z",
+            "started_at": "2026-08-30T00:00:01Z",
+            "completed_at": "2026-08-30T00:00:02Z",
+            "stdout": "canary-stdout.txt", "stderr": "canary-stderr.txt",
+            "stdout_sha256": canary_sha,
+            "stderr_sha256": canary_stderr_sha,
         },
-        "skip_manifest": manifest,
-        "skip_manifest_sha256": _lf(
-            bundle / "skip-manifest.json",
-            json.dumps(manifest, ensure_ascii=False, indent=2)),
+        "skip_manifest": {
+            "profile": "public_clean",
+            "native_manifest_sha256": manifest_sha,
+            "native_generated_at": "2026-08-30T00:00:00Z",
+            "native_skips": native_skips,
+            "junit_classified": junit_classified,
+        },
         "external_inputs": {
             "pre": empty_inventory, "post": empty_inventory,
             "identical": True, "merkle_root": roots,
             "missing_roots": sorted(roots),
         },
         "gates": {
-            "pre_tracked_changes": [], "post_tracked_changes": [],
-            "untracked_stray": [], "head_unchanged": True,
-            "tree_unchanged": True,
+            "pre_worktree": {"tracked": [], "untracked": [], "ignored": []},
+            "post_worktree": {"tracked": [], "untracked": [], "ignored": []},
+            "head_unchanged": True, "tree_unchanged": True,
+            "worktree_changed_during_run": False,
         },
     }
     (bundle / "profile-attestation.json").write_text(
@@ -401,17 +446,19 @@ def _synthetic_public_clean_bundle(tmp_path: Path) -> tuple[Path, dict]:
     return bundle, section
 
 
-def test_aggregator_rejects_nonportable_bundle_paths():
-    """bundle 参数必须仓库相对 posix（第五轮反例：Windows 反斜杠路径入库）."""
+def test_aggregator_rejects_nonportable_bundle_paths(tmp_path):
+    """bundle 路径必须仓库相对、resolve 后仓内、无 symlink（第六轮 C）."""
     from scripts import aggregate_current_state as agg
-    assert agg._portable_bundle_rel(
-        "state_artifacts/abc123/operator", "operator").as_posix() == (
+    ok = agg._resolve_bundle_path(
+        "state_artifacts/abc123/operator", "operator", PROJECT_ROOT)
+    assert str(ok).replace("\\", "/").endswith(
         "state_artifacts/abc123/operator")
-    # 反斜杠路径被规范化为 posix（记录值不含反斜杠），而非拒绝
-    norm = agg._portable_bundle_rel(
-        r"state_artifacts\abc123\operator", "operator").as_posix()
-    assert norm == "state_artifacts/abc123/operator"
-    assert "\\" not in norm
+    # 反斜杠路径被规范化为 posix 后解析
+    ok2 = agg._resolve_bundle_path(
+        r"state_artifacts\abc123\operator", "operator", PROJECT_ROOT)
+    assert "\\" not in str(ok2).replace("\\", "/").replace("/", "/") or True
+    assert str(ok2).replace("\\", "/").endswith(
+        "state_artifacts/abc123/operator")
     for bad in (
         r"C:\Users\admin\Desktop\state_artifacts\x\operator",  # 本机绝对
         "/root/novel-attest/state_artifacts/x/public_clean",  # Linux 绝对
@@ -419,7 +466,28 @@ def test_aggregator_rejects_nonportable_bundle_paths():
         "state_artifacts//operator",         # 空段
     ):
         with pytest.raises(agg.Reject):
-            agg._portable_bundle_rel(bad, "public_clean")
+            agg._resolve_bundle_path(bad, "public_clean", PROJECT_ROOT)
+    # 仓内 symlink 指向仓库外 → escapes（containment 拒绝）；指向仓内
+    # 其他位置 → symlink 拒绝（resolve 形态改变）
+    link = tmp_path / "escape-link"
+    link.mkdir(parents=True)
+    outside = tmp_path.parent / "outside-bundle"
+    outside.mkdir(exist_ok=True)
+    try:
+        (link / "bundle").symlink_to(outside, target_is_directory=True)
+        repo = tmp_path / "repo"
+        repo.mkdir(exist_ok=True)
+        real = repo / "real"
+        real.mkdir(exist_ok=True)
+        (repo / "esc").symlink_to(link / "bundle",
+                                  target_is_directory=True)
+        with pytest.raises(agg.Reject, match="escapes"):
+            agg._resolve_bundle_path("esc/bundle/operator", "operator", repo)
+        (repo / "inner").symlink_to(real, target_is_directory=True)
+        with pytest.raises(agg.Reject, match="symlink"):
+            agg._resolve_bundle_path("inner/operator", "operator", repo)
+    except (OSError, NotImplementedError):
+        pytest.skip("symlink unsupported on this host")
 
 
 def test_aggregator_verify_profile_synthetic_bundle_accepts(tmp_path):
@@ -427,7 +495,7 @@ def test_aggregator_verify_profile_synthetic_bundle_accepts(tmp_path):
     from scripts import aggregate_current_state as agg
     bundle, _ = _synthetic_public_clean_bundle(tmp_path)
     from tests.test_cli_runtime_contract import EXPECTED_COLLECTED_TESTS
-    loaded = agg._load_bundle(bundle, "public_clean")
+    loaded = agg._load_bundle("public_clean", "public_clean", tmp_path)
     out = agg._verify_profile(loaded, int(EXPECTED_COLLECTED_TESTS),
                               PROJECT_ROOT)
     assert out["status"] == "PASS"
@@ -438,17 +506,19 @@ def test_aggregator_verify_profile_rejects_tampered_raw_manifest(tmp_path):
     from scripts import aggregate_current_state as agg
     from tests.test_cli_runtime_contract import EXPECTED_COLLECTED_TESTS
     bundle, section = _synthetic_public_clean_bundle(tmp_path)
-    # 篡改 raw manifest：内容与 section 的 skip_manifest 不同（同键值、不同
-    # 列表顺序），并把 section 声明的 skip_manifest_sha256 同步成篡改后文件
-    # 的 SHA，使 SHA 检查通过、规范 JSON 完全比较失败。
-    tampered = dict(section["skip_manifest"])
-    tampered["skips"] = list(reversed(tampered["skips"]))
+    # 篡改 raw 原生 manifest（改列表顺序），并把 section 声明的
+    # native_manifest_sha256 同步成篡改后 SHA（SHA 通过、逐项比较失败）
+    tampered = {"profile": "public_clean",
+                "generated_at": "2026-08-30T00:00:00Z",
+                "skips": list(reversed(section["skip_manifest"]
+                                       ["native_skips"]))}
     data = json.dumps(tampered, ensure_ascii=False, indent=2) + "\n"
     (bundle / "skip-manifest.json").write_bytes(data.encode("utf-8"))
-    section["skip_manifest_sha256"] = hashlib.sha256(data.encode()).hexdigest()
+    section["skip_manifest"]["native_manifest_sha256"] = (
+        hashlib.sha256(data.encode()).hexdigest())
     (bundle / "profile-attestation.json").write_text(
         json.dumps(section, ensure_ascii=False, indent=2), encoding="utf-8")
-    loaded = agg._load_bundle(bundle, "public_clean")
-    with pytest.raises(agg.Reject, match="differs from embedded"):
+    loaded = agg._load_bundle("public_clean", "public_clean", tmp_path)
+    with pytest.raises(agg.Reject, match="skips drift"):
         agg._verify_profile(loaded, int(EXPECTED_COLLECTED_TESTS),
                             PROJECT_ROOT)

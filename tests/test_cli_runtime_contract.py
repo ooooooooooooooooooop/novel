@@ -91,7 +91,13 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 # 目录不误判 stray）→ 3119 + 1 = 3120。
 # 聚合器 bundle 路径可移植性门禁（test_state_source_contract_v5.py,+1：拒绝
 # 反斜杠/本机绝对/逃逸路径）→ 3120 + 1 = 3121。
-EXPECTED_COLLECTED_TESTS = "3121"
+# 第六轮：五份 pointer-only 文档 exactly-one 块 + 块外台账扫描
+# （test_state_source_contract.py,+1）→ 3121 + 1 = 3122。
+# 第六轮反例锁定负测（test_state_source_contract_v6.py,+16：根级 conftest /
+# 外来 ignored / venv 外部 src / roots={} / 六根缺键 / type·size / carrier 篡改
+# canary-stderr·raw manifest / result_artifact 漂移 / 未知根·根外文件 / checkpoint
+# 冻结强制 / neutral 确定性与 null tree / skip message 漂移）→ 3122 + 16 = 3138。
+EXPECTED_COLLECTED_TESTS = "3138"
 
 
 def run_script(*args: str) -> subprocess.CompletedProcess[str]:
