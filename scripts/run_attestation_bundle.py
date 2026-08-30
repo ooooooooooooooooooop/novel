@@ -134,10 +134,6 @@ def _untracked_stray(checkout: Path, bundle_rel: str) -> list[str]:
 # 第六轮（A）：ignored 输入允许集——只允许固定外部六根、隔离 venv 与
 # pytest basetemp transient 前缀；其余 ignored 条目（含根级自删 conftest
 # 类输入）在任何阶段出现即拒绝。
-ALLOWED_IGNORED_PREFIXES = EXTERNAL_INPUT_ROOTS + (
-    ".venv/", ".pytest-tmp-", ".pytest-tmp/", ".pytest_cache/",
-)
-IGNORED_TRANSIENT_PREFIXES = (".pytest-tmp-", ".pytest-tmp/", ".pytest_cache/")
 
 
 def _ignored_paths(checkout: Path) -> list[str]:
@@ -161,18 +157,41 @@ def _ignored_paths(checkout: Path) -> list[str]:
     return sorted(set(out))
 
 
+def _ignored_allowed(rel: str, bundle_rel: str) -> bool:
+    """ignored 条目允许判定（第六轮 A）：固定六根**工作区**（每根的上级
+    运营目录，含 chapters/input/run_config 等运营文件）、隔离 venv、pip
+    editable 产物（任意层级 *.egg-info/）、任意层级 __pycache__/（字节码
+    缓存，pytest 不加载 pyc）、pytest transient，以及 bundle/staging 链。
+    其余（其他 provider 缓存、仓库根 output/、外来插件目录、根级自删
+    conftest 类输入）一律拒绝。"""
+    segs = rel.rstrip("/").split("/")
+    if rel.startswith(bundle_rel) or rel.startswith(bundle_rel + ".staging-"):
+        return True
+    if "__pycache__" in segs:
+        return True
+    if rel.startswith((".venv/", ".pytest-tmp-", ".pytest-tmp/",
+                       ".pytest_cache/")):
+        return True
+    if ".egg-info" in segs:
+        return True
+    for ws in ("reference_texts/a1_benchmark/",
+               "runtime/refs/deepseek_active/",
+               "runtime/refs/cpa_active/",
+               "novels/s6-canary-offdom/",
+               "novels/s6-canary-mythic/",
+               "novels/s6-canary-hist/"):
+        if rel == ws.rstrip("/") or rel.startswith(ws):
+            return True
+    return False
+
+
 def _ignored_violations(checkout: Path, bundle_rel: str,
                         allow_transient_delta: bool) -> list[str]:
-    """ignored 清单违规：不在允许集内，或（pre 快照一致模式下）非 transient
-    前缀的新增条目。bundle staging 在 ignored 清单中不会出现（state_artifacts
-    未忽略），但保险起见也豁免 staging 链。"""
+    """ignored 清单违规：不在允许集内的条目在任何阶段出现即拒绝
+    （无 pre/post 快照窗口可乘）。"""
     bad = []
     for rel in _ignored_paths(checkout):
-        allowed = any(
-            rel.startswith(p) for p in ALLOWED_IGNORED_PREFIXES)
-        if rel.startswith(bundle_rel) or rel.startswith(bundle_rel + ".staging-"):
-            allowed = True
-        if not allowed:
+        if not _ignored_allowed(rel, bundle_rel):
             bad.append(rel)
     return bad
 
