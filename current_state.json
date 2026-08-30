@@ -1,7 +1,7 @@
 {
   "attestation_version": 3,
   "subject_commit": null,
-  "subject_tree": "ca36b661654b05ad25a1fc05a6ad5e998b99f6a8",
+  "subject_tree": "b5c491693d421501e47fc61468ea8da155f0c93e",
   "subject_checkout_head": null,
   "attestation_commit": null,
   "carrier_binding": {
@@ -11,12 +11,12 @@
   "head_status": "UNVERIFIED",
   "subject_status": "UNVERIFIED",
   "subject_overall_status": "UNVERIFIED",
-  "state_generated_at": "2026-08-30T10:27:55Z",
+  "state_generated_at": "2026-08-30T11:20:40Z",
   "profiles": {
     "operator": {
       "profile": "operator",
       "status": "UNVERIFIED",
-      "collected_tests": 3117,
+      "collected_tests": 3119,
       "pytest": {
         "command": null,
         "exit_code": null,
@@ -31,7 +31,7 @@
     "public_clean": {
       "profile": "public_clean",
       "status": "UNVERIFIED",
-      "collected_tests": 3117,
+      "collected_tests": 3119,
       "pytest": {
         "command": null,
         "exit_code": null,
@@ -44,7 +44,7 @@
       }
     }
   },
-  "collected_tests": 3117,
+  "collected_tests": 3119,
   "collected_tests_contract": "tests/test_cli_runtime_contract.py::EXPECTED_COLLECTED_TESTS",
   "last_validated_commit": null,
   "last_validated_tree": null,
