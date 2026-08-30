@@ -401,6 +401,27 @@ def _synthetic_public_clean_bundle(tmp_path: Path) -> tuple[Path, dict]:
     return bundle, section
 
 
+def test_aggregator_rejects_nonportable_bundle_paths():
+    """bundle 参数必须仓库相对 posix（第五轮反例：Windows 反斜杠路径入库）."""
+    from scripts import aggregate_current_state as agg
+    assert agg._portable_bundle_rel(
+        "state_artifacts/abc123/operator", "operator").as_posix() == (
+        "state_artifacts/abc123/operator")
+    # 反斜杠路径被规范化为 posix（记录值不含反斜杠），而非拒绝
+    norm = agg._portable_bundle_rel(
+        r"state_artifacts\abc123\operator", "operator").as_posix()
+    assert norm == "state_artifacts/abc123/operator"
+    assert "\\" not in norm
+    for bad in (
+        r"C:\Users\admin\Desktop\state_artifacts\x\operator",  # 本机绝对
+        "/root/novel-attest/state_artifacts/x/public_clean",  # Linux 绝对
+        "state_artifacts/../etc/operator",   # 逃逸
+        "state_artifacts//operator",         # 空段
+    ):
+        with pytest.raises(agg.Reject):
+            agg._portable_bundle_rel(bad, "public_clean")
+
+
 def test_aggregator_verify_profile_synthetic_bundle_accepts(tmp_path):
     """聚合器 bundle 路径必须端到端通过（回归：第五轮曾 NameError 崩溃）."""
     from scripts import aggregate_current_state as agg

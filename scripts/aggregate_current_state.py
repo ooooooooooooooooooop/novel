@@ -439,6 +439,21 @@ def _neutral_payload(collected: int, subject_tree: str | None) -> dict:
     }
 
 
+def _portable_bundle_rel(raw: str, label: str) -> Path:
+    """bundle 参数必须仓库相对且可移植（审计任务 C）：禁止本机绝对路径、
+    反斜杠、空段或逃逸段；入库时以 posix 斜杠形式记录."""
+    p = raw.replace("\\", "/")
+    if p.startswith("/") or re.match(r"^[A-Za-z]:", p):
+        raise Reject(
+            f"{label} bundle path must be repo-relative and portable: {raw!r}")
+    parts = p.split("/")
+    if any(part in ("", ".", "..") for part in parts):
+        raise Reject(
+            f"{label} bundle path must not contain empty/escape segments: "
+            f"{raw!r}")
+    return Path(p)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--neutral", action="store_true",
@@ -465,8 +480,10 @@ def main(argv: list[str] | None = None) -> int:
     head = _git("rev-parse", "HEAD")
     subject_tree = _git("rev-parse", "HEAD^{tree}")
 
-    op = _load_bundle(args.operator_bundle, "operator")
-    pub = _load_bundle(args.public_clean_bundle, "public_clean")
+    op_rel = _portable_bundle_rel(args.operator_bundle, "operator")
+    pub_rel = _portable_bundle_rel(args.public_clean_bundle, "public_clean")
+    op = _load_bundle(op_rel, "operator")
+    pub = _load_bundle(pub_rel, "public_clean")
 
     if set(op["section"].get("subject_commit", "") for _ in [0]) and (
             op["section"]["subject_commit"] != pub["section"]["subject_commit"]):
@@ -544,8 +561,8 @@ def main(argv: list[str] | None = None) -> int:
         },
         "artifacts_dir": f"state_artifacts/{subject_commit[:12]}",
         "bundles": {
-            "operator": str(op["path"]),
-            "public_clean": str(pub["path"]),
+            "operator": op_rel.as_posix(),
+            "public_clean": pub_rel.as_posix(),
         },
     }
     out_file = Path(args.out)

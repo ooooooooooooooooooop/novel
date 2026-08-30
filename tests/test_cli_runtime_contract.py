@@ -89,7 +89,9 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 # +2：合成 bundle 端到端接受 / 篡改 raw skip-manifest 拒绝）→ 3117 + 2 = 3119。
 # runner 未跟踪杂散检查回归（test_state_source_contract_v5.py,+1：bundle 祖先链
 # 目录不误判 stray）→ 3119 + 1 = 3120。
-EXPECTED_COLLECTED_TESTS = "3120"
+# 聚合器 bundle 路径可移植性门禁（test_state_source_contract_v5.py,+1：拒绝
+# 反斜杠/本机绝对/逃逸路径）→ 3120 + 1 = 3121。
+EXPECTED_COLLECTED_TESTS = "3121"
 
 
 def run_script(*args: str) -> subprocess.CompletedProcess[str]:
