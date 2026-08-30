@@ -57,15 +57,25 @@ GATED_SKIPS = {
     "tests/test_a1_release_validation.py::test_g8_zero_committed_chapters_withholds",
 }
 SELF_REF_SKIPS = {
-    "tests/test_state_source_contract.py::test_attested_subject_protocol_diff_only_state_files",
-    "tests/test_state_source_contract.py::test_attested_profiles_semantics_and_sha_recomputation",
-    "tests/test_state_source_contract.py::test_attested_public_clean_requires_real_linux_case_fs",
+    "tests/test_state_source_contract.py::test_attestation_protocol_diff_only_state_files",
+    "tests/test_state_source_contract.py::test_profiles_rederived_from_raw_artifacts",
 }
-KNOWN_SKIP_NODEIDS = GATED_SKIPS | SELF_REF_SKIPS
+def _norm_nodeid(nid: str) -> str:
+    """JUnit 点形式与 pytest 斜杠形式统一为点形式（去 .py 后缀）."""
+    path, _, name = nid.partition("::")
+    path = path.replace("/", ".")
+    if path.endswith(".py"):
+        path = path[:-3]
+    return f"{path}::{name}" if name else path
+
+
+KNOWN_SKIP_NODEIDS = {_norm_nodeid(g) for g in (GATED_SKIPS | SELF_REF_SKIPS)}
 
 
 class Reject(Exception):
     pass
+
+
 
 
 def _sha_file(path: Path) -> str:
@@ -219,19 +229,26 @@ def _verify_profile(bundle: dict, expected_collected: int,
             f"{name}: skip manifest count({len(manifest_skips)}) != "
             f"junit skipped({len(junit_skips)})"
         )
-    manifest_ids = {s["nodeid"] for s in manifest_skips}
+    manifest_ids = {_norm_nodeid(s["nodeid"]) for s in manifest_skips}
     for nid in junit_skips:
-        nid_norm = nid.replace("tests/", "tests/", 1)
-        if nid_norm not in KNOWN_SKIP_NODEIDS and nid not in KNOWN_SKIP_NODEIDS:
+        nid_norm = _norm_nodeid(nid)
+        if nid_norm not in KNOWN_SKIP_NODEIDS:
             raise Reject(f"{name}: unexplained junit skip: {nid}")
-        if nid not in manifest_ids and nid_norm not in manifest_ids:
+        if nid_norm not in manifest_ids:
             raise Reject(f"{name}: junit skip missing from manifest: {nid}")
+    gated_norm = {_norm_nodeid(g) for g in GATED_SKIPS}
+    selfref_norm = {_norm_nodeid(g) for g in SELF_REF_SKIPS}
     for s in manifest_skips:
-        if s["reason_code"] != "missing_private_asset":
-            raise Reject(f"{name}: unexpected skip reason_code {s['reason_code']!r}")
-        if s["nodeid"] not in GATED_SKIPS:
-            raise Reject(f"{name}: manifest skip not in gated whitelist: "
-                         f"{s['nodeid']}")
+        nid_norm = _norm_nodeid(s["nodeid"])
+        code = s["reason_code"]
+        if code == "missing_private_asset":
+            if nid_norm not in gated_norm:
+                raise Reject(f"{name}: gated skip not in whitelist: {s['nodeid']}")
+        elif code == "state_neutral_placeholder":
+            if nid_norm not in selfref_norm:
+                raise Reject(f"{name}: self-ref skip not in whitelist: {s['nodeid']}")
+        else:
+            raise Reject(f"{name}: unexpected skip reason_code {code!r}")
     internal = [
         nid for nid in junit_skips if nid in SELF_REF_SKIPS
     ]
@@ -267,7 +284,6 @@ def _neutral_payload(collected: int, subject_tree: str | None) -> dict:
         "head_status": "UNVERIFIED",
         "subject_status": "UNVERIFIED",
         "subject_overall_status": "UNVERIFIED",
-        "overall_status": "UNVERIFIED",
         "state_generated_at": datetime.datetime.now(
             datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "profiles": profiles,
@@ -285,7 +301,7 @@ def _neutral_payload(collected: int, subject_tree: str | None) -> dict:
                 "docs/00_project/releases/tier0-three-flow-canary-aggregation.json",
             )
         },
-        "artifacts_dir": "state_artifacts",
+        "artifacts_dir": f"state_artifacts/{subject_commit[:12]}",
         "bundles": {},
     }
 
@@ -391,7 +407,7 @@ def main(argv: list[str] | None = None) -> int:
                 "docs/00_project/releases/tier0-three-flow-canary-aggregation.json",
             )
         },
-        "artifacts_dir": "state_artifacts",
+        "artifacts_dir": f"state_artifacts/{subject_commit[:12]}",
         "bundles": {
             "operator": str(op["path"]),
             "public_clean": str(pub["path"]),

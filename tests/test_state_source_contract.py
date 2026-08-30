@@ -123,7 +123,7 @@ def test_state_file_exists_and_schema_complete():
         "subject_overall_status": str,
         "state_generated_at": str,
         "profiles": dict,
-        "overall_status": str,
+        "subject_overall_status": str,
         "collected_tests": int,
         "collected_tests_contract": str,
         "last_validated_commit": (str, type(None)),
@@ -196,8 +196,7 @@ def _profile_bundle_dir(state: dict, name: str) -> Path:
     assert repo_resolved in resolved.parents or resolved == repo_resolved, (
         f"artifacts_dir escapes the repository: {artifacts_dir}"
     )
-    subject12 = state["subject_commit"][:12]
-    bundle = resolved / subject12 / name
+    bundle = resolved / name
     assert bundle.is_dir(), f"missing bundle dir: {bundle}"
     return bundle
 
@@ -220,8 +219,10 @@ def _parse_junit(path: Path) -> dict:
 def _rederive_profile_from_raw_artifacts(state: dict, name: str) -> None:
     """从原始 artifact 重推导（审计任务 H）：不信任 JSON 中的 PASS 布尔."""
     from scripts.aggregate_current_state import (
-        GATED_SKIPS, SELF_REF_SKIPS,
+        _norm_nodeid, GATED_SKIPS, SELF_REF_SKIPS,
     )
+    gated_norm = {_norm_nodeid(g) for g in GATED_SKIPS}
+    selfref_norm = {_norm_nodeid(g) for g in SELF_REF_SKIPS}
     bundle = _profile_bundle_dir(state, name)
     section = state["profiles"][name]
 
@@ -282,19 +283,22 @@ def _rederive_profile_from_raw_artifacts(state: dict, name: str) -> None:
         f"{name}: manifest skips {len(manifest_skips)} != junit "
         f"{junit['skipped']}"
     )
-    manifest_ids = {s["nodeid"] for s in manifest_skips}
+    manifest_ids = {_norm_nodeid(s["nodeid"]) for s in manifest_skips}
     for nid in junit["skipped_nodeids"]:
-        assert nid in manifest_ids, f"{name}: junit skip missing from manifest: {nid}"
-        assert nid in (GATED_SKIPS | SELF_REF_SKIPS), (
+        nid_norm = _norm_nodeid(nid)
+        assert nid_norm in manifest_ids, (
+            f"{name}: junit skip missing from manifest: {nid}")
+        assert nid_norm in (gated_norm | selfref_norm), (
             f"{name}: unexplained skip: {nid}"
         )
     for s in manifest_skips:
+        nid_norm = _norm_nodeid(s["nodeid"])
         assert s["reason_code"] in ("missing_private_asset",
                                     "state_neutral_placeholder"), s
         if s["reason_code"] == "missing_private_asset":
-            assert s["nodeid"] in GATED_SKIPS, s
+            assert nid_norm in gated_norm, s
         else:
-            assert s["nodeid"] in SELF_REF_SKIPS, s
+            assert nid_norm in selfref_norm, s
 
 
 def test_profiles_rederived_from_raw_artifacts():
@@ -336,7 +340,6 @@ def test_overall_status_rederived_from_profiles_and_checkpoint():
         expected = "FAIL"
     else:
         expected = "UNVERIFIED"
-    assert state["overall_status"] == expected
     assert state["subject_overall_status"] == expected
     assert state["subject_status"] == expected
 
