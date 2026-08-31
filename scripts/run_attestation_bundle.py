@@ -565,13 +565,18 @@ def main(argv: list[str] | None = None) -> int:
             junit_skip_check["problems"][:5])
     junit_classified_at = _now()
 
-    # 原生 manifest 保留：记录其 sha 与内容摘要（不重写）
+    # 原生 manifest 保留：记录其 sha 与内容摘要（不重写）。operator profile
+    # 下 conftest 无 gated skips 不写文件——此时生成空原生骨架（该文件原先
+    # 不存在，不构成覆盖 pytest 产物），保证 bundle 文件集两侧对称。
     if manifest_path.exists():
         manifest_sha = _sha_file(manifest_path)
         raw_manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     else:
-        manifest_sha = None
-        raw_manifest = {}
+        raw_manifest = {"profile": args.profile,
+                        "generated_at": _now(), "skips": []}
+        manifest_sha = _write_lf(
+            manifest_path,
+            json.dumps(raw_manifest, ensure_ascii=False, indent=2))
     manifest_written_at = _now()
 
     canary_cmd = [py, "scripts/tier0_canary_regression.py"]
