@@ -485,9 +485,17 @@ def _verify_profile(bundle: dict, expected_collected: int,
         raise Reject(f"{name}: operator native manifest must carry no gated "
                      f"skips (assets present): {raw_obj.get('skips')[:2]}")
     if name == "public_clean":
-        for nid, assets in gated_norm.items():
-            if nid not in (
-                    _norm_nodeid(s["nodeid"]) for s in raw_obj.get("skips", [])):
+        # pytest 原生 manifest 只含 conftest._TEST_GATED 条目；internal
+        # gated（KNOWN_INTERNAL_SKIPS）不在原生 manifest，由 JUnit 层核对。
+        if str(REPO_ROOT) not in sys.path:
+            sys.path.insert(0, str(REPO_ROOT))
+        from tests import conftest as c
+        conftest_gated = {_norm_nodeid(nid)
+                          for nid in c._TEST_GATED}
+        native_ids = {_norm_nodeid(s["nodeid"])
+                      for s in raw_obj.get("skips", [])}
+        for nid in conftest_gated:
+            if nid not in native_ids:
                 raise Reject(f"{name}: gated skip missing from native "
                              f"manifest: {nid}")
 
