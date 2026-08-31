@@ -125,8 +125,11 @@ def test_neg_venv_validation_rejects_external_src(tmp_path, monkeypatch):
 
 
 def test_venv_validation_records_exec_pth_src_binding():
-    """正演：主仓库自带 venv 必须记录 sys.executable / .pth / src.__file__
-    全部解析到 subject checkout（B 的绑定三元组）。"""
+    """正演：含 venv 的 checkout 必须记录 sys.executable / .pth / src.__file__
+    全部解析到 subject checkout（B 的绑定三元组）。public_clean fresh clone
+    无 venv（operator 侧环境概念）→ 跳过。"""
+    if not (PROJECT_ROOT / ".venv").exists():
+        pytest.skip("no in-checkout venv (public_clean fresh clone)")
     rec = _venv_validation(PROJECT_ROOT, ".venv")
     assert rec.get("ok") is True, rec
     assert rec["sys_executable"].replace("\\", "/").startswith(
