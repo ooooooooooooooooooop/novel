@@ -1,0 +1,16 @@
+.....................................F.................................. [ 37%]
+........................................................................ [ 75%]
+.s.............................................                          [100%]
+================================== FAILURES ===================================
+______________ test_venv_validation_records_exec_pth_src_binding ______________
+tests\test_state_source_contract_v6.py:131: in test_venv_validation_records_exec_pth_src_binding
+    assert rec.get("ok") is True, rec
+E   AssertionError: {'venv_rel': '.venv', 'python_abs': 'C:\\Users\\admin\\Desktop\
+E     ovel-verify-win\\.venv\\Scripts\\python.exe', 'ok': False, 'error': 'venv python missing: C:\\Users\\admin\\Desktop\
+E     ovel-verify-win\\.venv\\Scripts\\python.exe'}
+E   assert False is True
+E    +  where False = <built-in method get of dict object at 0x000002DC2DAAFEC0>('ok')
+E    +    where <built-in method get of dict object at 0x000002DC2DAAFEC0> = {'venv_rel': '.venv', 'python_abs': 'C:\\Users\\admin\\Desktop\\novel-verify-win\\.venv\\Scripts\\python.exe', 'ok': False, 'error': 'venv python missing: C:\\Users\\admin\\Desktop\\novel-verify-win\\.venv\\Scripts\\python.exe'}.get
+=========================== short test summary info ===========================
+FAILED tests/test_state_source_contract_v6.py::test_venv_validation_records_exec_pth_src_binding
+1 failed, 189 passed, 1 skipped in 75.89s (0:01:15)
