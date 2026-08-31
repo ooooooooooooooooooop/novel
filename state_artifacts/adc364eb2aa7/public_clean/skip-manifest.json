@@ -1,0 +1,137 @@
+{
+  "profile": "public_clean",
+  "generated_at": "2026-08-31T01:26:02Z",
+  "skips": [
+    {
+      "nodeid": "tests/test_a1_release_validation.py::test_g8_zero_committed_chapters_withholds",
+      "reason_code": "missing_private_asset",
+      "required_asset": [
+        "runtime/refs/cpa_active/canary_policy_s6_cpa.json",
+        "novels/s6-canary-offdom/output",
+        "novels/s6-canary-mythic/output",
+        "novels/s6-canary-hist/output"
+      ],
+      "asset_fingerprint": {}
+    },
+    {
+      "nodeid": "tests/test_auto_calibrate.py::test_load_frozen_bench_rejects_sha256_mismatch",
+      "reason_code": "missing_private_asset",
+      "required_asset": [
+        "reference_texts/a1_benchmark"
+      ],
+      "asset_fingerprint": {}
+    },
+    {
+      "nodeid": "tests/test_build_deepseek_active_bundle.py::test_build_produces_exactly_four_bundle_files",
+      "reason_code": "missing_private_asset",
+      "required_asset": [
+        "reference_texts/a1_benchmark",
+        "runtime/refs/deepseek_active"
+      ],
+      "asset_fingerprint": {}
+    },
+    {
+      "nodeid": "tests/test_build_deepseek_active_bundle.py::test_build_is_idempotent_byte_stable",
+      "reason_code": "missing_private_asset",
+      "required_asset": [
+        "reference_texts/a1_benchmark",
+        "runtime/refs/deepseek_active"
+      ],
+      "asset_fingerprint": {}
+    },
+    {
+      "nodeid": "tests/test_build_deepseek_active_bundle.py::test_build_output_has_no_forbidden_secrets",
+      "reason_code": "missing_private_asset",
+      "required_asset": [
+        "reference_texts/a1_benchmark",
+        "runtime/refs/deepseek_active"
+      ],
+      "asset_fingerprint": {}
+    },
+    {
+      "nodeid": "tests/test_build_deepseek_active_bundle.py::test_build_requires_base_url_env",
+      "reason_code": "missing_private_asset",
+      "required_asset": [
+        "reference_texts/a1_benchmark",
+        "runtime/refs/deepseek_active"
+      ],
+      "asset_fingerprint": {}
+    },
+    {
+      "nodeid": "tests/test_build_deepseek_active_bundle.py::test_build_derives_provider_identity_from_live_db",
+      "reason_code": "missing_private_asset",
+      "required_asset": [
+        "runtime/refs/deepseek_active"
+      ],
+      "asset_fingerprint": {}
+    },
+    {
+      "nodeid": "tests/test_build_deepseek_active_bundle.py::test_build_refuses_non_deepseek_current_provider",
+      "reason_code": "missing_private_asset",
+      "required_asset": [
+        "runtime/refs/deepseek_active"
+      ],
+      "asset_fingerprint": {}
+    },
+    {
+      "nodeid": "tests/test_build_deepseek_active_bundle.py::test_build_refuses_failover_current_provider",
+      "reason_code": "missing_private_asset",
+      "required_asset": [
+        "runtime/refs/deepseek_active"
+      ],
+      "asset_fingerprint": {}
+    },
+    {
+      "nodeid": "tests/test_build_deepseek_active_bundle.py::test_build_frozen_thresholds_and_uncontaminated_split",
+      "reason_code": "missing_private_asset",
+      "required_asset": [
+        "reference_texts/a1_benchmark"
+      ],
+      "asset_fingerprint": {}
+    },
+    {
+      "nodeid": "tests/test_build_deepseek_active_bundle.py::test_build_profile_passes_provider_profile_validation",
+      "reason_code": "missing_private_asset",
+      "required_asset": [
+        "reference_texts/a1_benchmark",
+        "runtime/refs/deepseek_active"
+      ],
+      "asset_fingerprint": {}
+    },
+    {
+      "nodeid": "tests/test_build_deepseek_active_bundle.py::test_build_policy_passes_autonomous_policy_validation",
+      "reason_code": "missing_private_asset",
+      "required_asset": [
+        "reference_texts/a1_benchmark",
+        "runtime/refs/deepseek_active"
+      ],
+      "asset_fingerprint": {}
+    },
+    {
+      "nodeid": "tests/test_build_deepseek_active_bundle.py::test_build_judge_roles_disable_thinking",
+      "reason_code": "missing_private_asset",
+      "required_asset": [
+        "reference_texts/a1_benchmark",
+        "runtime/refs/deepseek_active"
+      ],
+      "asset_fingerprint": {}
+    },
+    {
+      "nodeid": "tests/test_build_deepseek_active_bundle.py::test_build_active_selector_points_only_deepseek",
+      "reason_code": "missing_private_asset",
+      "required_asset": [
+        "reference_texts/a1_benchmark",
+        "runtime/refs/deepseek_active"
+      ],
+      "asset_fingerprint": {}
+    },
+    {
+      "nodeid": "tests/test_s7_long_run_judgment.py::test_green_report_excludes_gaps",
+      "reason_code": "missing_private_asset",
+      "required_asset": [
+        "runtime/refs/cpa_active/s7/final_evidence_anchor.json"
+      ],
+      "asset_fingerprint": {}
+    }
+  ]
+}

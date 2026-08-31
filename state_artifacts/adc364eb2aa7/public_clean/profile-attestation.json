@@ -1,0 +1,457 @@
+{
+  "profile": "public_clean",
+  "status": "PASS",
+  "bundle_rel": "state_artifacts/adc364eb2aa7/public_clean",
+  "subject_commit": "adc364eb2aa77ba7f703ff2f5f98073c58e5232e",
+  "subject_tree": "514c969680b246b61ab2dd554a9f79aace91d573",
+  "checkout_rel": ".",
+  "python_environment": {
+    "venv_rel": ".venv",
+    "python_abs": "/root/novel-attest-r5/repo/.venv/bin/python",
+    "sys_executable": "/root/novel-attest-r5/repo/.venv/bin/python",
+    "src_module_file": "/root/novel-attest-r5/repo/src/__init__.py",
+    "ok": true,
+    "external_pth": []
+  },
+  "python_version": "3.12.3",
+  "pytest_version": "pytest 9.1.1",
+  "platform": "Linux-6.17.0-20-generic-x86_64-with-glibc2.39",
+  "platform_system": "Linux",
+  "filesystem_case_probe": {
+    "a_txt_and_A_TXT_coexist": true,
+    "case_sensitive_filesystem": true,
+    "probe_directory": "_case_probe_attest"
+  },
+  "core.autocrlf": "false",
+  "env_sanitized": [
+    "PYTEST_ADDOPTS",
+    "PYTEST_PLUGINS",
+    "PYTHONPATH"
+  ],
+  "started_at": "2026-08-31T01:23:19Z",
+  "completed_at": "2026-08-31T01:26:23Z",
+  "collected_tests": 3138,
+  "expected_collected_tests": 3138,
+  "pytest": {
+    "command": "/root/novel-attest-r5/repo/.venv/bin/python -m pytest tests -q --tb=short -p no:cacheprovider --confcutdir tests --junitxml /root/novel-attest-r5/repo/state_artifacts/adc364eb2aa7/public_clean.staging-adc364eb/pytest-junit.xml",
+    "exit_code": 0,
+    "results": {
+      "passed": 3118,
+      "skipped": 20,
+      "failed": 0,
+      "errors": 0,
+      "collected": 3138
+    },
+    "parse_error": null,
+    "started_at": "2026-08-31T01:23:19Z",
+    "completed_at": "2026-08-31T01:26:21Z",
+    "stdout": "pytest-stdout.txt",
+    "stderr": "pytest-stderr.txt",
+    "junit_xml": "pytest-junit.xml",
+    "stdout_sha256": "0d951e69291cd8c19d4df43fc705b2d16ba79e1707aee8ba50d973ed6d9d9692",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "junit_xml_sha256": "8c58835d607095f2fe42c812ab9aeab714c4e215421e2de681370f0fa1690ab0",
+    "result_artifact_sha256": "dfdc74e5374cf0592aeff6501c1d62e10744ea4c961e3a6d766ce9ee81e3cd9d",
+    "junit_skips_classified_at": "2026-08-31T01:26:22Z"
+  },
+  "canary": {
+    "command": "/root/novel-attest-r5/repo/.venv/bin/python scripts/tier0_canary_regression.py",
+    "exit_code": 0,
+    "verdict": "PASS",
+    "detail": "Tier 0 three-flow canary regression: PASS",
+    "started_at": "2026-08-31T01:26:22Z",
+    "completed_at": "2026-08-31T01:26:23Z",
+    "stdout": "canary-stdout.txt",
+    "stderr": "canary-stderr.txt",
+    "stdout_sha256": "39a32aaa85a7cc1d0f23c479739124390258974a6471fa33d5423714a74fa26d",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "skip_manifest": {
+    "profile": "public_clean",
+    "native_manifest_sha256": "ebcddbf59bce302029705609f28b9cbef1f304eae2984e549b69f9b780f1c166",
+    "native_generated_at": "2026-08-31T01:26:02Z",
+    "native_skips": [
+      {
+        "nodeid": "tests/test_a1_release_validation.py::test_g8_zero_committed_chapters_withholds",
+        "reason_code": "missing_private_asset",
+        "required_asset": [
+          "runtime/refs/cpa_active/canary_policy_s6_cpa.json",
+          "novels/s6-canary-offdom/output",
+          "novels/s6-canary-mythic/output",
+          "novels/s6-canary-hist/output"
+        ],
+        "asset_fingerprint": {}
+      },
+      {
+        "nodeid": "tests/test_auto_calibrate.py::test_load_frozen_bench_rejects_sha256_mismatch",
+        "reason_code": "missing_private_asset",
+        "required_asset": [
+          "reference_texts/a1_benchmark"
+        ],
+        "asset_fingerprint": {}
+      },
+      {
+        "nodeid": "tests/test_build_deepseek_active_bundle.py::test_build_produces_exactly_four_bundle_files",
+        "reason_code": "missing_private_asset",
+        "required_asset": [
+          "reference_texts/a1_benchmark",
+          "runtime/refs/deepseek_active"
+        ],
+        "asset_fingerprint": {}
+      },
+      {
+        "nodeid": "tests/test_build_deepseek_active_bundle.py::test_build_is_idempotent_byte_stable",
+        "reason_code": "missing_private_asset",
+        "required_asset": [
+          "reference_texts/a1_benchmark",
+          "runtime/refs/deepseek_active"
+        ],
+        "asset_fingerprint": {}
+      },
+      {
+        "nodeid": "tests/test_build_deepseek_active_bundle.py::test_build_output_has_no_forbidden_secrets",
+        "reason_code": "missing_private_asset",
+        "required_asset": [
+          "reference_texts/a1_benchmark",
+          "runtime/refs/deepseek_active"
+        ],
+        "asset_fingerprint": {}
+      },
+      {
+        "nodeid": "tests/test_build_deepseek_active_bundle.py::test_build_requires_base_url_env",
+        "reason_code": "missing_private_asset",
+        "required_asset": [
+          "reference_texts/a1_benchmark",
+          "runtime/refs/deepseek_active"
+        ],
+        "asset_fingerprint": {}
+      },
+      {
+        "nodeid": "tests/test_build_deepseek_active_bundle.py::test_build_derives_provider_identity_from_live_db",
+        "reason_code": "missing_private_asset",
+        "required_asset": [
+          "runtime/refs/deepseek_active"
+        ],
+        "asset_fingerprint": {}
+      },
+      {
+        "nodeid": "tests/test_build_deepseek_active_bundle.py::test_build_refuses_non_deepseek_current_provider",
+        "reason_code": "missing_private_asset",
+        "required_asset": [
+          "runtime/refs/deepseek_active"
+        ],
+        "asset_fingerprint": {}
+      },
+      {
+        "nodeid": "tests/test_build_deepseek_active_bundle.py::test_build_refuses_failover_current_provider",
+        "reason_code": "missing_private_asset",
+        "required_asset": [
+          "runtime/refs/deepseek_active"
+        ],
+        "asset_fingerprint": {}
+      },
+      {
+        "nodeid": "tests/test_build_deepseek_active_bundle.py::test_build_frozen_thresholds_and_uncontaminated_split",
+        "reason_code": "missing_private_asset",
+        "required_asset": [
+          "reference_texts/a1_benchmark"
+        ],
+        "asset_fingerprint": {}
+      },
+      {
+        "nodeid": "tests/test_build_deepseek_active_bundle.py::test_build_profile_passes_provider_profile_validation",
+        "reason_code": "missing_private_asset",
+        "required_asset": [
+          "reference_texts/a1_benchmark",
+          "runtime/refs/deepseek_active"
+        ],
+        "asset_fingerprint": {}
+      },
+      {
+        "nodeid": "tests/test_build_deepseek_active_bundle.py::test_build_policy_passes_autonomous_policy_validation",
+        "reason_code": "missing_private_asset",
+        "required_asset": [
+          "reference_texts/a1_benchmark",
+          "runtime/refs/deepseek_active"
+        ],
+        "asset_fingerprint": {}
+      },
+      {
+        "nodeid": "tests/test_build_deepseek_active_bundle.py::test_build_judge_roles_disable_thinking",
+        "reason_code": "missing_private_asset",
+        "required_asset": [
+          "reference_texts/a1_benchmark",
+          "runtime/refs/deepseek_active"
+        ],
+        "asset_fingerprint": {}
+      },
+      {
+        "nodeid": "tests/test_build_deepseek_active_bundle.py::test_build_active_selector_points_only_deepseek",
+        "reason_code": "missing_private_asset",
+        "required_asset": [
+          "reference_texts/a1_benchmark",
+          "runtime/refs/deepseek_active"
+        ],
+        "asset_fingerprint": {}
+      },
+      {
+        "nodeid": "tests/test_s7_long_run_judgment.py::test_green_report_excludes_gaps",
+        "reason_code": "missing_private_asset",
+        "required_asset": [
+          "runtime/refs/cpa_active/s7/final_evidence_anchor.json"
+        ],
+        "asset_fingerprint": {}
+      }
+    ],
+    "junit_classified": [
+      {
+        "nodeid": "tests.test_a1_release_validation::test_g8_zero_committed_chapters_withholds",
+        "message": "requires private operator assets missing on public_clean checkout: runtime/refs/cpa_active/canary_policy_s6_cpa.json, novels/s6-canary-offdom/output, novels/s6-canary-mythic/output, novels/s6-canary-h",
+        "expected_reason_code": "missing_private_asset",
+        "message_ok": true
+      },
+      {
+        "nodeid": "tests.test_auto_calibrate::test_load_frozen_bench_splits_and_disjoint_prompt_ids",
+        "message": "frozen polluted split evidence absent (split_manifest.json not present on this clone)",
+        "expected_reason_code": "missing_private_asset",
+        "message_ok": true
+      },
+      {
+        "nodeid": "tests.test_auto_calibrate::test_load_frozen_bench_rejects_sha256_mismatch",
+        "message": "requires private operator assets missing on public_clean checkout: reference_texts/a1_benchmark",
+        "expected_reason_code": "missing_private_asset",
+        "message_ok": true
+      },
+      {
+        "nodeid": "tests.test_build_deepseek_active_bundle::test_build_produces_exactly_four_bundle_files",
+        "message": "requires private operator assets missing on public_clean checkout: reference_texts/a1_benchmark, runtime/refs/deepseek_active",
+        "expected_reason_code": "missing_private_asset",
+        "message_ok": true
+      },
+      {
+        "nodeid": "tests.test_build_deepseek_active_bundle::test_build_is_idempotent_byte_stable",
+        "message": "requires private operator assets missing on public_clean checkout: reference_texts/a1_benchmark, runtime/refs/deepseek_active",
+        "expected_reason_code": "missing_private_asset",
+        "message_ok": true
+      },
+      {
+        "nodeid": "tests.test_build_deepseek_active_bundle::test_build_output_has_no_forbidden_secrets",
+        "message": "requires private operator assets missing on public_clean checkout: reference_texts/a1_benchmark, runtime/refs/deepseek_active",
+        "expected_reason_code": "missing_private_asset",
+        "message_ok": true
+      },
+      {
+        "nodeid": "tests.test_build_deepseek_active_bundle::test_build_requires_base_url_env",
+        "message": "requires private operator assets missing on public_clean checkout: reference_texts/a1_benchmark, runtime/refs/deepseek_active",
+        "expected_reason_code": "missing_private_asset",
+        "message_ok": true
+      },
+      {
+        "nodeid": "tests.test_build_deepseek_active_bundle::test_build_derives_provider_identity_from_live_db",
+        "message": "requires private operator assets missing on public_clean checkout: runtime/refs/deepseek_active",
+        "expected_reason_code": "missing_private_asset",
+        "message_ok": true
+      },
+      {
+        "nodeid": "tests.test_build_deepseek_active_bundle::test_build_refuses_non_deepseek_current_provider",
+        "message": "requires private operator assets missing on public_clean checkout: runtime/refs/deepseek_active",
+        "expected_reason_code": "missing_private_asset",
+        "message_ok": true
+      },
+      {
+        "nodeid": "tests.test_build_deepseek_active_bundle::test_build_refuses_failover_current_provider",
+        "message": "requires private operator assets missing on public_clean checkout: runtime/refs/deepseek_active",
+        "expected_reason_code": "missing_private_asset",
+        "message_ok": true
+      },
+      {
+        "nodeid": "tests.test_build_deepseek_active_bundle::test_build_frozen_thresholds_and_uncontaminated_split",
+        "message": "requires private operator assets missing on public_clean checkout: reference_texts/a1_benchmark",
+        "expected_reason_code": "missing_private_asset",
+        "message_ok": true
+      },
+      {
+        "nodeid": "tests.test_build_deepseek_active_bundle::test_build_profile_passes_provider_profile_validation",
+        "message": "requires private operator assets missing on public_clean checkout: reference_texts/a1_benchmark, runtime/refs/deepseek_active",
+        "expected_reason_code": "missing_private_asset",
+        "message_ok": true
+      },
+      {
+        "nodeid": "tests.test_build_deepseek_active_bundle::test_build_policy_passes_autonomous_policy_validation",
+        "message": "requires private operator assets missing on public_clean checkout: reference_texts/a1_benchmark, runtime/refs/deepseek_active",
+        "expected_reason_code": "missing_private_asset",
+        "message_ok": true
+      },
+      {
+        "nodeid": "tests.test_build_deepseek_active_bundle::test_build_judge_roles_disable_thinking",
+        "message": "requires private operator assets missing on public_clean checkout: reference_texts/a1_benchmark, runtime/refs/deepseek_active",
+        "expected_reason_code": "missing_private_asset",
+        "message_ok": true
+      },
+      {
+        "nodeid": "tests.test_build_deepseek_active_bundle::test_build_active_selector_points_only_deepseek",
+        "message": "requires private operator assets missing on public_clean checkout: reference_texts/a1_benchmark, runtime/refs/deepseek_active",
+        "expected_reason_code": "missing_private_asset",
+        "message_ok": true
+      },
+      {
+        "nodeid": "tests.test_s7_long_run_judgment::test_green_report_excludes_gaps",
+        "message": "requires private operator assets missing on public_clean checkout: runtime/refs/cpa_active/s7/final_evidence_anchor.json",
+        "expected_reason_code": "missing_private_asset",
+        "message_ok": true
+      },
+      {
+        "nodeid": "tests.test_state_source_contract::test_attestation_protocol_diff_only_state_files",
+        "message": "neutral placeholder has no attested subject",
+        "expected_reason_code": "state_neutral_placeholder",
+        "message_ok": true
+      },
+      {
+        "nodeid": "tests.test_state_source_contract::test_profiles_rederived_from_raw_artifacts",
+        "message": "neutral placeholder",
+        "expected_reason_code": "state_neutral_placeholder",
+        "message_ok": true
+      },
+      {
+        "nodeid": "tests.test_state_source_contract_v5::test_operator_artifact_shas_match_git_blobs",
+        "message": "neutral placeholder carries no attested bundles",
+        "expected_reason_code": "state_neutral_placeholder",
+        "message_ok": true
+      },
+      {
+        "nodeid": "tests.test_state_source_contract_v5::test_canary_artifact_sha_matches_git_blob",
+        "message": "neutral placeholder carries no attested bundles",
+        "expected_reason_code": "state_neutral_placeholder",
+        "message_ok": true
+      }
+    ]
+  },
+  "external_inputs": {
+    "pre": {
+      "roots": {
+        "reference_texts/a1_benchmark": {
+          "present": false,
+          "merkle": null,
+          "file_count": 0
+        },
+        "runtime/refs/deepseek_active": {
+          "present": false,
+          "merkle": null,
+          "file_count": 0
+        },
+        "runtime/refs/cpa_active": {
+          "present": false,
+          "merkle": null,
+          "file_count": 0
+        },
+        "novels/s6-canary-offdom/output": {
+          "present": false,
+          "merkle": null,
+          "file_count": 0
+        },
+        "novels/s6-canary-mythic/output": {
+          "present": false,
+          "merkle": null,
+          "file_count": 0
+        },
+        "novels/s6-canary-hist/output": {
+          "present": false,
+          "merkle": null,
+          "file_count": 0
+        }
+      },
+      "files": {}
+    },
+    "post": {
+      "roots": {
+        "reference_texts/a1_benchmark": {
+          "present": false,
+          "merkle": null,
+          "file_count": 0
+        },
+        "runtime/refs/deepseek_active": {
+          "present": false,
+          "merkle": null,
+          "file_count": 0
+        },
+        "runtime/refs/cpa_active": {
+          "present": false,
+          "merkle": null,
+          "file_count": 0
+        },
+        "novels/s6-canary-offdom/output": {
+          "present": false,
+          "merkle": null,
+          "file_count": 0
+        },
+        "novels/s6-canary-mythic/output": {
+          "present": false,
+          "merkle": null,
+          "file_count": 0
+        },
+        "novels/s6-canary-hist/output": {
+          "present": false,
+          "merkle": null,
+          "file_count": 0
+        }
+      },
+      "files": {}
+    },
+    "identical": true,
+    "merkle_root": {
+      "reference_texts/a1_benchmark": {
+        "present": false,
+        "merkle": null,
+        "file_count": 0
+      },
+      "runtime/refs/deepseek_active": {
+        "present": false,
+        "merkle": null,
+        "file_count": 0
+      },
+      "runtime/refs/cpa_active": {
+        "present": false,
+        "merkle": null,
+        "file_count": 0
+      },
+      "novels/s6-canary-offdom/output": {
+        "present": false,
+        "merkle": null,
+        "file_count": 0
+      },
+      "novels/s6-canary-mythic/output": {
+        "present": false,
+        "merkle": null,
+        "file_count": 0
+      },
+      "novels/s6-canary-hist/output": {
+        "present": false,
+        "merkle": null,
+        "file_count": 0
+      }
+    },
+    "missing_roots": [
+      "reference_texts/a1_benchmark",
+      "runtime/refs/deepseek_active",
+      "runtime/refs/cpa_active",
+      "novels/s6-canary-offdom/output",
+      "novels/s6-canary-mythic/output",
+      "novels/s6-canary-hist/output"
+    ]
+  },
+  "gates": {
+    "pre_worktree": {
+      "tracked": [],
+      "untracked": [],
+      "ignored": []
+    },
+    "post_worktree": {
+      "tracked": [],
+      "untracked": [],
+      "ignored": []
+    },
+    "head_unchanged": true,
+    "tree_unchanged": true,
+    "worktree_changed_during_run": false
+  }
+}
