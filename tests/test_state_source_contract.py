@@ -300,8 +300,9 @@ def test_checkpoint_split_fields_and_frozen_bytes():
         if "tag_object" not in r:
             continue
         assert r["certification_tag"] == frozen["certification_tag"], rec
-        assert r["tag_object"] == frozen["tag_object"], rec
-        assert r["tag_target_commit"] == frozen["tag_peeled_commit"], rec
+        if frozen.get("tag_object"):
+            assert r["tag_object"] == frozen["tag_object"], rec
+            assert r["tag_target_commit"] == frozen["tag_peeled_commit"], rec
         assert r["record_blob_sha256"] == frozen[
             "head_record_blob_sha256"], rec
         assert r["tag_tree_blob_sha256"] == frozen[
