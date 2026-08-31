@@ -86,6 +86,10 @@ def _git(*args: str, cwd: Path | None = None, check: bool = True) -> str:
 
 def _run(cmd: list[str], env: dict | None = None, cwd: Path | None = None):
     e = {k: v for k, v in os.environ.items() if k not in SANITIZED_ENV_KEYS}
+    # 显式钉住 UTF-8 模式（第六轮反例：Windows GBK 控制台编码污染 CLI
+    # 子进程输出 → 63 个 CLI/时间测试假失败；Linux 不受影响）
+    e.setdefault("PYTHONUTF8", "1")
+    e.setdefault("PYTHONIOENCODING", "utf-8")
     if env:
         e.update(env)
     return subprocess.run(
