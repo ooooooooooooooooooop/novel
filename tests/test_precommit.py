@@ -3,8 +3,7 @@
 覆盖：
 - 预承诺不可变性（G5）：正文前冻结，同一预承诺对两份不同正文产生相同对象，
   无正文字段（extra=forbid 使塞正文派生信息直接失败）。
-- 纯代码证伪：释放信息/后果在正文 → satisfied（真实锚点）；缺失 →
-  violated（effective=blocking，非 effective=advisory）；局势缺失 → advisory。
+- 词语检索不冒充语义判断；逐项事实评审覆盖作为选稿前置条件。
 - 锚点真实性：excerpt 必须与正文区间逐字全等（无法捏造）。
 """
 
@@ -19,6 +18,10 @@ from src.workflow_action.precommit import (
     build_evaluator_precommit,
     falsify_blocking,
     falsify_prose_against_precommit,
+    evidence_obligations,
+    unresolved_evidence,
+    _find_item,
+    validate_commit_evidence,
 )
 
 _TRUSTED_HASH = "a" * 64
@@ -128,163 +131,176 @@ def precommit_field_names(precommit: EvaluatorPrecommit) -> list[str]:
 
 class TestFalsifyProseAgainstPrecommit:
     def test_present_information_satisfied_with_real_anchor(self):
-        prose = "他展开信，信的内容清清楚楚，他决定独自赴约。"
-        claims = falsify_prose_against_precommit(
-            _precommit(), prose, chapter_ref="chapter_1"
-        )
-        satisfied = [c for c in claims if c.verdict == "satisfied"]
-        assert len(satisfied) == 2  # 释放信息 + 后果
-        for claim in satisfied:
-            assert claim.generator_source == "code"
-            # 锚点真实性：excerpt 必须逐字取自正文该区间。
-            anchor = claim.anchors[0]
-            assert prose[anchor.char_start:anchor.char_end] == anchor.excerpt
+        # 即便逐字命中，也不能把提及认作已发生；不依赖关键词的特殊名单。
+        item = "材料已经送到负责人案头"
+        precommit = _precommit(plotunit=_plotunit(released=(item,), consequences=()))
+        cases = [
+            "材料已经送到负责人案头。负责人签收了。",
+            "他打算把材料送到负责人案头，等办妥后再联系。",
+            "材料没有送到负责人案头，仍锁在柜子里。",
+            "如果材料已经送到负责人案头，事情就好办了。",
+            "他误以为材料已经送到负责人案头，其实尚未寄出。",
+            "材料并非没有送到负责人案头，他已经签收。",
+            "他说材料已经送到负责人案头，接收者却否认收到。",
+            "材料上午未寄出，下午已经送到负责人案头。",
+            "甲的材料已经送到负责人案头，乙的仍未寄出。",
+            "材料已经送到负责人案头，他打算明天再送另一份。",
+        ]
+        for prose in cases:
+            claims = falsify_prose_against_precommit(precommit, prose, "chapter_1")
+            assert all(c.verdict == "inconclusive" for c in claims)
+            assert all(c.severity == "advisory" for c in claims)
+            assert unresolved_evidence(precommit, claims)  # 无事实评审不能过关。
+            for c in claims:
+                for a in c.anchors:
+                    assert prose[a.char_start:a.char_end] == a.excerpt
 
     def test_missing_information_blocking_for_effective(self):
-        prose = "他展开信，却只字未提那件事。"
         precommit = _precommit()
-        claims = falsify_prose_against_precommit(precommit, prose, "chapter_1")
-        missing = [
-            c for c in claims
-            if c.verdict == "violated" and c.axis == "plotunit_expected_change"
-        ]
-        assert missing, "effective 单元缺失释放信息必须是 violated"
-        assert all(claim_is_hard_violation(c) for c in missing)
-        assert all(c.axis == "plotunit_expected_change" for c in missing)
+        claims = falsify_prose_against_precommit(precommit, "他只字未提。", "chapter_1")
+        assert not any(claim_is_hard_violation(c) for c in claims)
+        assert set(unresolved_evidence(precommit, claims)) == set(evidence_obligations(precommit))
 
     def test_missing_information_advisory_for_non_effective(self):
         precommit = _precommit(plotunit=_plotunit(is_effective=False))
-        prose = "他走进茶楼。"
-        missing = [
-            c for c in falsify_prose_against_precommit(precommit, prose, "chapter_1")
-            if c.verdict == "violated"
-        ]
-        assert missing
-        assert not any(claim_is_hard_violation(c) for c in missing)
+        claims = falsify_prose_against_precommit(precommit, "他走进茶楼。", "chapter_1")
+        assert all(c.verdict == "inconclusive" for c in claims)
+        assert unresolved_evidence(precommit, claims)  # 非 effective 也不自动确认世界事实。
 
     def test_situation_present_satisfied_advisory(self):
-        prose = "他走进城南茶楼，追查真相的气氛压在每个人脸上。"
-        claims = falsify_prose_against_precommit(_precommit(), prose, "chapter_1")
-        situation = [c for c in claims if c.axis == "prose_actual_change"]
-        assert situation
-        assert situation[0].verdict == "satisfied"
-        assert situation[0].severity == "advisory"
+        precommit = _precommit()
+        assert evidence_obligations(precommit) == {
+            "evidence_location": "城南茶楼", "evidence_situation": "追查真相",
+            "evidence_released_001": "信的内容", "evidence_consequence_001": "独自赴约",
+            "evidence_state_current_time": '{"after": "稍后", "before": "夜晚", "field": "current_time"}',
+        }
+        assert evidence_obligations(precommit) == evidence_obligations(_precommit())
+        claims = falsify_prose_against_precommit(precommit, "他追查真相。", "chapter_1")
+        assert all(c.verdict == "inconclusive" for c in claims)
 
     def test_situation_missing_advisory_not_blocking(self):
-        prose = "他走进茶楼。"
-        claims = falsify_prose_against_precommit(_precommit(), prose, "chapter_1")
-        situation = [c for c in claims if c.axis == "prose_actual_change"]
-        assert situation
-        assert situation[0].verdict == "violated"
-        assert situation[0].severity == "advisory"  # 局势可被意译，不作硬门禁
+        claims = falsify_prose_against_precommit(_precommit(), "他走进茶楼。", "chapter_1")
+        assert all(c.severity == "advisory" for c in claims)
+        assert not falsify_blocking(claims)
+        with pytest.raises(ValueError, match="empty prose"):
+            falsify_prose_against_precommit(_precommit(), "  ", "chapter_1")
 
     def test_all_claims_carry_real_anchors(self):
-        prose = "他展开信，信的内容清清楚楚，他决定独自赴约。"
+        prose = "开场。\n\n他看完信的 内容，\n决定独自赴约。"
         claims = falsify_prose_against_precommit(_precommit(), prose, "chapter_1")
+        assert _find_item(prose, "信的内容") == prose.index("信的")
+        assert _find_item(prose, "独自赴约") == prose.index("独自赴约")
         for claim in claims:
             anchor = claim.anchors[0]
             assert prose[anchor.char_start:anchor.char_end] == anchor.excerpt
 
     def test_precommit_id_binding(self):
-        claims = falsify_prose_against_precommit(
-            _precommit(), "信的内容", "chapter_1"
-        )
-        assert all(c.precommit_id == "precommit_plan_0001" for c in claims)
-
-
-# ---------------------------------------------------------------- 意译容忍（G8 根因）
+        precommit = _precommit()
+        hint = falsify_prose_against_precommit(precommit, "信的内容", "chapter_1")[0]
+        # 人工构造已校验的评审对象，仅测试覆盖门禁，绝不是语义准确率证据。
+        claims = [hint.model_copy(update={"claim_id": key, "axis": "fact_conflict",
+                  "generator_source": "fact_judge", "verdict": "satisfied"})
+                  for key in evidence_obligations(precommit)]
+        assert unresolved_evidence(precommit, claims) == {}
+        assert unresolved_evidence(precommit, claims[:-1]) == {claims[-1].claim_id: "missing"}
+        assert unresolved_evidence(precommit, claims + [claims[0]]) == {claims[0].claim_id: "duplicate"}
+        for field, value, reason in [
+            ("precommit_id", "another_plan", "wrong_binding"),
+            ("generator_source", "reader_judge", "wrong_binding"),
+            ("axis", "progression", "wrong_binding"),
+            ("verdict", "inconclusive", "inconclusive"),
+            ("verdict", "violated", "violated"),
+        ]:
+            changed = [claims[0].model_copy(update={field: value}), *claims[1:]]
+            assert unresolved_evidence(precommit, changed) == {claims[0].claim_id: reason}
+        # A full candidate freeze covers new facts and every semantic state change.
+        import hashlib
+        import json
+        previous = _input_state()
+        previous.hidden_information = ["柜子里存着副本"]
+        proposed = previous.model_copy(deep=True, update={"state_id": "ns_002"})
+        proposed.private_information_map = {"柜子里存着副本": ["c001"]}
+        facts = [{"fact_id": "f_new", "statement": "钥匙已交还", "fact_type": "event", "confirmed": True}]
+        plan = _plotunit(released=(), consequences=())
+        bound = build_evaluator_precommit(precommit_id="bound", plotunit=plan,
+            input_state=previous, new_state=proposed, new_facts=facts, trusted_state_hash=_TRUSTED_HASH)
+        obligations = evidence_obligations(bound)
+        assert set(obligations) == {"evidence_state_private_information_map", "evidence_fact_001"}
+        assert "evidence_state_hidden_information" not in obligations  # unchanged: no repeated exposition
+        assert "evidence_location" not in obligations
+        assert "evidence_situation" not in obligations
+        body = "他交还了钥匙，获悉了副本所在。"
+        hint = falsify_prose_against_precommit(bound, body, "chapter_1")[0]
+        reviewed = [hint.model_copy(update={"claim_id": key, "axis": "fact_conflict",
+                    "generator_source": "fact_judge", "verdict": "satisfied"}) for key in obligations]
+        args = dict(plotunit=plan, new_state=proposed, new_facts=facts, prose=body,
+                    reviewed_prose_sha256=hashlib.sha256(body.encode()).hexdigest(), claims=reviewed)
+        validate_commit_evidence(bound, **args)
+        for field, value in [("new_facts", []), ("prose", body + "后来。"),
+                             ("new_state", proposed.model_copy(update={"current_goals": ["新目标"]})),
+                             ("plotunit", plan.model_copy(update={"goal": "替换的计划"})), ("claims", [])]:
+            with pytest.raises(ValueError):
+                validate_commit_evidence(bound, **{**args, field: value})
+        with pytest.raises(ValidationError, match="payload hash"):
+            EvaluatorPrecommit.model_validate({**bound.model_dump(), "candidate_payload_json": "{}"})
+        with pytest.raises(ValidationError, match="declared expectations"):
+            EvaluatorPrecommit.model_validate({**bound.model_dump(), "expected_output_location": "另一地点"})
+        legacy = EvaluatorPrecommit.model_validate({**bound.model_dump(), "input_state_json": "",
+            "candidate_payload_json": "", "candidate_payload_sha256": ""})
+        with pytest.raises(ValueError, match="legacy precommit"):
+            validate_commit_evidence(legacy, **args)
+        # Mutating the original objects cannot alter the frozen snapshot.
+        frozen = bound.candidate_payload_json
+        facts[0]["statement"] = "篡改的事实"
+        proposed.private_information_map["柜子里存着副本"].append("c002")
+        assert bound.candidate_payload_json == frozen
+        assert json.loads(frozen)["new_facts"][0]["statement"] == "钥匙已交还"
 
 
 class TestFalsifyParaphraseTolerance:
-    """长句条目在自然意译下的确定性证伪（G8：plan 句子级条目 vs prose 必然意译）."""
-
     def test_long_item_paraphrase_tolerated(self):
-        # 长句条目，正文意译但保留词结构 → satisfied，且不构成候选级阻断。
-        precommit = _precommit(
-            plotunit=_plotunit(
-                released=("举报信点名土地评估价低于同区基准价约两成",), consequences=()
-            )
-        )
-        prose = ("举报信里写得明白：开发区那块地评估价压得偏低，"
-                 "比同区域近三年成交均价低了差不多两成。")
+        precommit = _precommit(plotunit=_plotunit(
+            released=("举报信点名土地评估价低于同区基准价约两成",), consequences=()))
+        prose = "举报信里写得明白：开发区那块地评估价压得偏低，比同区域近三年成交均价低了差不多两成。"
         claims = falsify_prose_against_precommit(precommit, prose, "chapter_1")
-        assert any(c.verdict == "satisfied" for c in claims)
-        assert falsify_blocking(claims) is False
+        assert all(c.verdict == "inconclusive" for c in claims)
+        assert not falsify_blocking(claims)
 
     def test_situation_paraphrase_satisfied(self):
-        # 预期局势是长句，正文意译但保留词结构 → satisfied（advisory）。
-        situation = "沈砚已读取举报信核心内容并留存手抄副本，举报信已进入积压件"
-        precommit = _precommit(
-            plotunit=_plotunit(),
-            new_state=_state(current_situation=situation),
-        )
-        prose = ("沈砚把那两页信纸的内容抄进了工作笔记，留了个副本。"
-                 "举报信原封进了积压件夹子。")
+        precommit = _precommit(new_state=_state(current_situation="调查者已经抄录信件并留存副本"))
+        prose = "他把信上的内容抄进工作笔记，留了个副本。"
         claims = falsify_prose_against_precommit(precommit, prose, "chapter_1")
-        situation_claim = [c for c in claims if c.axis == "prose_actual_change"]
-        assert situation_claim and situation_claim[0].verdict == "satisfied"
+        assert all(c.verdict == "inconclusive" for c in claims)
+        assert unresolved_evidence(precommit, claims)
 
     def test_soft_rendering_single_item_blocks(self):
-        # 词结构完全未落地（软渲染）→ violated；单条目计划缺失即阻断。
-        precommit = _precommit(
-            plotunit=_plotunit(
-                released=("双方关系出现微妙裂痕：顾承风完成了劝说动作，但沈砚并未承诺收手",),
-                consequences=(),
-            )
-        )
-        prose = ("顾承风坐了一个钟头，话里话外劝他把那封信归档了事。沈砚只是喝茶，"
-                 "一个字也没应。末了顾承风起身告辞。")
+        # 间接表达不能凭词语缺失判错；完整语义核对仍是选稿前置条件。
+        precommit = _precommit(plotunit=_plotunit(released=("来客劝说，但主人没有答应",), consequences=()))
+        prose = "来客话里话外劝他把信归档。主人只是喝茶，一个字也没应。"
         claims = falsify_prose_against_precommit(precommit, prose, "chapter_1")
-        assert any(c.verdict == "violated" for c in claims)
-        assert falsify_blocking(claims) is True
+        assert not falsify_blocking(claims)
+        assert unresolved_evidence(precommit, claims)
 
     def test_absent_long_item_blocks(self):
-        precommit = _precommit(
-            plotunit=_plotunit(
-                released=("省纪委下发了对开发区地块的巡视进驻通知",), consequences=()
-            )
-        )
-        prose = "沈砚喝完茶，把工作笔记合上，继续整理手头的文件。"
-        claims = falsify_prose_against_precommit(precommit, prose, "chapter_1")
-        assert any(c.verdict == "violated" for c in claims)
-        assert falsify_blocking(claims) is True
+        precommit = _precommit(plotunit=_plotunit(released=("巡视组下发了进驻通知",), consequences=()))
+        claims = falsify_prose_against_precommit(precommit, "他喝完茶，合上笔记。", "chapter_1")
+        assert not falsify_blocking(claims)
+        assert unresolved_evidence(precommit, claims)
 
 
 class TestFalsifyBlockingAggregation:
-    """候选级聚合：缺失项 ≥ 已落地项才硬阻断；少数缺失交 LLM 评审维."""
-
-    def _precommit_items(self, items, effective=True):
-        return _precommit(
-            plotunit=_plotunit(released=items, consequences=(), is_effective=effective)
-        )
+    """保留既有显式硬违例聚合；词语检索不再伪造这类断言。"""
+    def _claim(self, verdict, severity="advisory"):
+        hint = falsify_prose_against_precommit(_precommit(), "正文", "chapter_1")[-1]
+        return hint.model_copy(update={"axis": "plotunit_expected_change",
+                                      "verdict": verdict, "severity": severity})
 
     def test_majority_missing_blocks(self):
-        # 2 落地 2 缺失 → 缺失 ≥ 落地 → 阻断。
-        precommit = self._precommit_items(
-            ["举报信点名评估价偏低", "沈砚将举报信登记备查",
-             "顾承风以路过为由前来施压", "沈砚留存了手抄副本"]
-        )
-        prose = "沈砚展开那封举报信，记下评估价偏低，将举报信登记备查。"
-        claims = falsify_prose_against_precommit(precommit, prose, "chapter_1")
-        assert falsify_blocking(claims) is True
+        assert falsify_blocking([self._claim("violated", "blocking"), self._claim("satisfied")])
 
     def test_minority_missing_not_blocking(self):
-        # 3 落地 1 缺失 → 缺失 < 落地 → 不阻断；缺失项仍为 blocking 严重级 claim。
-        precommit = self._precommit_items(
-            ["举报信点名评估价偏低", "沈砚将举报信登记备查", "沈砚留存了手抄副本",
-             "顾承风以路过为由前来施压"]
-        )
-        prose = ("沈砚展开那封举报信，记下评估价偏低，将举报信登记备查，还留了手抄副本。")
-        claims = falsify_prose_against_precommit(precommit, prose, "chapter_1")
-        assert falsify_blocking(claims) is False
-        missing = [c for c in claims if c.verdict == "violated"]
-        assert any(claim_is_hard_violation(c) for c in missing)
+        assert not falsify_blocking([self._claim("violated", "blocking"),
+                                     self._claim("satisfied"), self._claim("satisfied")])
 
     def test_non_effective_never_blocks(self):
-        # 非 effective 计划缺失全 advisory → 永不硬阻断。
-        precommit = self._precommit_items(
-            ["省纪委下发了巡视进驻通知"], effective=False
-        )
-        prose = "沈砚喝完茶。"
-        claims = falsify_prose_against_precommit(precommit, prose, "chapter_1")
-        assert falsify_blocking(claims) is False
+        assert not falsify_blocking([self._claim("violated"), self._claim("inconclusive")])

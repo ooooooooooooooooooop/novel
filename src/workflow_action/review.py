@@ -16,6 +16,7 @@ import json
 import re
 from collections import defaultdict
 
+from src.object_state.narrativestate import INFORMATION_LAYER_GUIDANCE
 from src.domain_layer.review_signal_knowledge import FAILURE_TYPE_LEXICON
 from src.domain_layer.review_signals import (
     run_all_signal_detectors,
@@ -670,6 +671,9 @@ class ReviewUnit:
                 "被正文坐实则升级；正文层独有问题以新增 issue 形式报告。"
                 "正文层新增 issue 的 location 必须直接复制【本章正文】中的一段连续原文，"
                 "不得写『第一段』『全章』『正文』等位置标签；该原文将被系统逐字核验。"
+                "信息层放置单独核对：正文明确揭示 hidden_information 的内容，"
+                "说明读者已经知道，不能因内容兑现就撤销字段放置问题。"
+                "旁白或内心活动不自动使其他角色知情；未描写不能单独证明秘密为真。"
             )
 
         object_summary = "\n---\n".join(obj_ctx)
@@ -683,6 +687,7 @@ class ReviewUnit:
 {prose_section}
 
 【审查维度】
+{INFORMATION_LAYER_GUIDANCE}
 1. 事实一致性: FactLedger 条目是否自洽? 是否有矛盾?
 2. 角色一致性: CharacterModel 行为逻辑是否自洽? 目标/恐惧/缺陷是否驱动决策?
 3. 世界合法性: WorldModel 规则是否被尊重? 是否有无代价的违规行为?

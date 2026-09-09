@@ -64,7 +64,12 @@ def test_narrative_state_to_prompt_context_renders_fields_when_set():
     ns = _mk_state()
     ns.private_information_map = {"顾府是卧底": ["char_a"]}
     ns.open_questions = ["谁是内鬼？"]
+    ns.public_information = ["城门已经关闭"]
+    ns.hidden_information = ["箱底藏着印章"]
     ctx = ns.to_prompt_context()
+    assert "公开信息（故事局势中多人共享）: 城门已经关闭" in ctx
+    assert "隐藏信息（读者尚不知道，系统追踪）: 箱底藏着印章" in ctx
+    assert "信息→知情角色ID" in ctx
     assert "秘密知情分布" in ctx
     assert "顾府是卧底" in ctx and "char_a" in ctx
     assert "开放问题" in ctx and "谁是内鬼？" in ctx

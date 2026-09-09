@@ -2,6 +2,8 @@
 
 import json
 
+from src.object_state.narrativestate import INFORMATION_LAYER_GUIDANCE
+
 from src.domain_layer.rules import (
     build_hook_type_guidance,
     build_platform_guidance,
@@ -25,12 +27,16 @@ def admit_new_facts(
     new_facts: list,
     source_plotunit: str,
 ) -> list[dict]:
-    """Admit Continue-produced hard facts into FactLedger."""
+    """Validate the entire batch before admission; callers still verify prose evidence.
+
+    confirmed=true is a schema declaration, not evidence of an event in the prose.
+    """
     if not isinstance(new_facts, list):
         raise ValueError("new_facts must be a list")
 
     existing_ids = {entry.fact_id for entry in facts.entries}
     admitted: list[dict] = []
+    validated_entries: list[FactEntry] = []
     for raw_fact in new_facts:
         if not isinstance(raw_fact, dict):
             raise ValueError("new_facts entries must be JSON objects")
@@ -44,10 +50,12 @@ def admit_new_facts(
         entry = FactEntry(**fact_data)
         if entry.fact_id in existing_ids:
             raise ValueError(f"duplicate new fact_id: {entry.fact_id}")
-        facts.add_fact(entry)
+        validated_entries.append(entry)
         existing_ids.add(entry.fact_id)
         admitted.append(entry.model_dump(mode="json"))
 
+    for entry in validated_entries:
+        facts.add_fact(entry)
     return admitted
 
 
@@ -306,6 +314,11 @@ class ContinueUnit:
 
 【续写要求】
 
+{INFORMATION_LAYER_GUIDANCE}
+new_state 是单元结束后的完整快照，保留仍有效的旧信息，不只填写本章增量。
+计划通过 released_information 向读者揭示的信息，不能同时保留为输出状态的 hidden_information；
+角色是否知情另按证据记录，不能因读者获知就自动移入 public_information。
+
 1. PlotUnit 必须导致有意义的状态变化
 2. 角色行为必须符合 CharacterModel 的驱动力、恐惧和缺陷
 3. 新信息释放必须服务于 ForeshadowGraph 的承诺推进
@@ -351,8 +364,9 @@ class ContinueUnit:
     "active_characters": ["角色ID"],
     "current_situation": "新局势",
     "active_conflicts": ["新冲突"],
-    "public_information": ["新公开信息"],
-    "hidden_information": ["新隐藏信息"]
+    "public_information": ["单元结束后故事局势中多人共享的信息"],
+    "hidden_information": ["单元结束后读者仍不知道的信息"],
+    "private_information_map": {{"仅部分角色知晓的信息": ["知情角色ID"]}}
   }},
   "new_facts": [
     {{

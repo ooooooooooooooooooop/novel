@@ -14,6 +14,7 @@ from src.object_state import (
     WorldModel,
 )
 from src.workflow_action.outline import BookOutline
+from src.object_state.narrativestate import INFORMATION_LAYER_GUIDANCE
 
 
 class RebuildUnit:
@@ -127,8 +128,9 @@ class RebuildUnit:
    - primary_goal: 首要目标（可选）
    - active_conflicts: 活跃冲突列表
    - emotional_temperature: 情绪温度（可选）
-   - public_information: 公开信息列表
-   - hidden_information: 隐藏信息列表
+   - public_information: 当前故事局势中多人共享的信息列表
+   - hidden_information: 读者尚不知道、系统追踪的信息列表
+   - private_information_map: {{信息: [知情角色ID]}}（可选）
    - active_suspense_items: 悬念列表
    - current_goals: 当前目标列表
 
@@ -152,6 +154,9 @@ class RebuildUnit:
      - linked_facts: 关联事实ID
 
 【Track 1 约束 — 必须遵守】
+{INFORMATION_LAYER_GUIDANCE}
+输入正文已明确向读者揭示的信息不能仅因角色不知情而放入 hidden_information。
+不要猜测正文未提供的秘密内容；不确定处保留在 confidence_gaps。
 - FactLedger 只记录已确认 hard facts
 - 不确定的信息不要写进 FactLedger，放入 confidence_gaps
 - 不要混淆事实和推断

@@ -77,7 +77,22 @@ def test_chapter_path_no_leading_zero(tmp_path):
 # ---------- build_prompt ----------
 
 def test_build_prompt_renders_plotunit_and_constraints():
-    prompt = build_prompt(_mk_plotunit(), _mk_state())
+    from src.object_state.narrativestate import INFORMATION_LAYER_GUIDANCE
+    from src.workflow_action.prose import build_revision_prompt
+
+    state = _mk_state()
+    state.hidden_information = ["库房地板下藏着第二枚印章"]
+    state.private_information_map = {"钥匙在信使袖中": ["courier"]}
+    snapshot = state.model_dump_json()
+    prompt = build_prompt(_mk_plotunit(), state)
+    assert INFORMATION_LAYER_GUIDANCE in prompt
+    # Definitions reach the writer without exposing full-state secret values.
+    assert "库房地板下藏着第二枚印章" not in prompt
+    assert "钥匙在信使袖中" not in prompt
+    assert state.model_dump_json() == snapshot
+    revision = build_revision_prompt([], "信使走进门。", plotunit=_mk_plotunit())
+    assert INFORMATION_LAYER_GUIDANCE in revision
+    assert "不得用补写秘密来掩盖状态字段放置错误" in revision
     assert "【PlotUnit】" in prompt
     assert "追查线索" in prompt and "线人失踪" in prompt
     assert "【输出格式】直接输出章节正文（纯文本，不要 JSON、不要前后缀说明）。" in prompt

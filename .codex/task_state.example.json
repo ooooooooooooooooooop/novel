@@ -1,0 +1,13 @@
+{
+  "session_id": "COPY_FROM_HOOK_CONTEXT",
+  "turn_id": "COPY_FROM_HOOK_CONTEXT",
+  "mode": "execute",
+  "objective": "从当前用户请求恢复的交付目标",
+  "authorization_source": "具体用户指令或已有有效授权的位置",
+  "completion_conditions": [
+    {"criterion": "已确认的完成条件", "evidence": ""}
+  ],
+  "remaining_actions": ["尚未完成的必要工作"],
+  "next_action": "可以立即执行且已获授权的下一步",
+  "blocker": ""
+}

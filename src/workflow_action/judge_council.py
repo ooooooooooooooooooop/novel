@@ -20,8 +20,10 @@ import json
 
 from src.object_state.judge_claim import JudgeClaim, ProseAnchor
 from src.object_state.evaluator_precommit import EvaluatorPrecommit
+from src.object_state.narrativestate import INFORMATION_LAYER_GUIDANCE
 from src.workflow_action.json_repair import parse_json
 from src.workflow_action.plan_search import compact_text
+from src.workflow_action.precommit import evidence_obligations
 # 锚点重定位（位置映射）：评审模型在长正文上算 [char_start, char_end) 偏移经常偏差，
 # 但引用必须逐字真实——与 G7 校准路径（preference_review._locate_excerpt）同一套折叠
 # 检索语义，保证生产评审与校准评审对「锚点真实性」口径一致（无依赖环：preference_review
@@ -91,6 +93,41 @@ def build_judge_claim_prompt(
     contract_section = (
         f"\n【读者契约】\n{reader_contract_context}" if reader_contract_context else ""
     )
+    evidence_section = ""
+    if role == "fact_judge":
+        evidence_section = "\n" + INFORMATION_LAYER_GUIDANCE + "\n【逐项正文证据核对】\n" + json.dumps(
+            evidence_obligations(precommit), ensure_ascii=False, indent=2
+        ) + """
+每个条目恰好返回一条 claim，claim_id 使用上面的原 ID，axis=fact_conflict。
+这些是待核对的规划断言，不是已成立的可信事实；必须核对条目中的全部子句，
+不能用其中一个子句的命中代替整个条目。地点同样需要正文支持。
+区分已发生、递送中、计划/意向、条件/预测、角色信念以及证据不足。
+“决定去做”可以支持“作出决定”，不能支持“事情已完成”；角色持有错误信念
+可以是已发生的认知变化，但信念内容不能升级为世界事实。
+核对否定范围、双重否定、引语/转述、实体与接收者、前后时序；不要按关键词判定。
+正常意译可以成立；混合句中分别核对已发生事件和未发生意向；多个阶段以前后文为准。
+有正文支持全部断言才给 satisfied；正文相反给 violated；未描写、范围不明或仅提及
+给 advisory/inconclusive。不能因“未发现冲突”就给 satisfied。锚点须覆盖判定依据，
+需要跨句证据时提供多个锚点。未确定项不会进入选稿，不能为了通过而补造证据。
+“候选不能提交”与“断言已被正文否定”是两回事。只有缺少完成证据时，必须用
+advisory/inconclusive；系统会通过覆盖门禁拒绝该候选，不需要把缺证据升级为
+blocking/violated。理由如果仅是“没有描写／没有完成证据”，不能据此判 violated。
+可以另外报告事实冲突；额外 claim 不可复用以上 ID，也不能代替逐项核对。
+state 条目给出可信 before 与候选 after，只核对变化，不要求正文重新交代未变的旧状态。
+before 的空值或空列表表示状态记录为空，不自动证明故事中原先不存在这些事实；
+补充先前未记录的背景不等于本章新发生事件。只能按可见正文支持的范围判断，不足则 inconclusive。
+移出当前目标/冲突/悬念列表，只表示不再列为当前关注，不能擅自解释为已完成或已解决。
+隐藏信息与知情分配的变化不能因为“计划如此”就确认；也不能为通过检查而要求作者
+向读者直接泄露秘密，允许有依据的间接证据，不足时标 inconclusive。
+对 hidden_information 不仅核对内容，还核对读者是否仍不知情；若正文明确揭示其中信息，
+其继续列为 hidden 与正文相矛盾，不能因为内容得到证实就判整个条目 satisfied。
+缺少揭示本身不能证明隐藏内容为真；private_information_map 按每项信息逐一核对知情者，
+不能将旁白、内心活动或读者获知当成所有在场角色共同获知。
+fact 条目的 confirmed=true 仅是生成器自报；需核对陈述、知情角色、时间和有效范围，
+不能用该标志替代证据。ID/来源引用是系统绑定，不是小说正文要出现的文字。
+"""
+    example_axis = allowed_axes[0]
+    example_id = next(iter(evidence_obligations(precommit)), "cl_001") if role == "fact_judge" else "cl_001"
     return f"""你是一位章节评审。请对给定章节正文作出**单轴**判断，每条判断必须引用**正文原文锚点**。
 
 {axis_guide}
@@ -104,28 +141,29 @@ def build_judge_claim_prompt(
 - 预期释放信息: {'；'.join(precommit.expected_released_information) or '（无）'}
 - 预期后果: {'；'.join(precommit.expected_consequences) or '（无）'}
 - 关键单元（须有正文证据）: {'是' if precommit.effective else '否'}
-- 本预承诺将执行的证伪检查: {'；'.join(precommit.check_list)}{contract_section}
+- 本预承诺将执行的证伪检查: {'；'.join(precommit.check_list)}{contract_section}{evidence_section}
 
 【待评审章节正文】
 {prose}
 
 【评审要求】
-1. axis 只能取：{' / '.join(allowed_axes)}。必须至少输出一条 claim；没有发现违例时，
-   对最有把握的允许轴输出 satisfied，不得返回空 claims 或自造轴名。
+1. axis 只能取：{' / '.join(allowed_axes)}。必须至少输出一条 claim；没有发现违例
+   不等于有支持证据，证据不足用 inconclusive。事实角色须覆盖逐项清单。
 2. 每条 claim 必须带 ≥1 个**正文锚点**：直接引用本章正文中的连续原文片段，给出
    它在正文中的 [char_start, char_end) 偏移（0 起始，excerpt 必须与正文该区间逐字一致）。
 3. 结论必须是单轴（axis 只能填一个轴）；verdict = satisfied / violated / inconclusive。
-4. severity 只填 blocking（硬违例：与可信事实/契约/角色驱动力直接矛盾，或关键单元
-   缺正文证据）或 advisory（软质量问题）。不确定时给 advisory + inconclusive。
+4. severity 只填 blocking（有明确证据的硬违例：与可信事实/契约/角色驱动力直接矛盾）
+   或 advisory（软质量问题或证据不足）。缺正文支持或不确定时给 advisory + inconclusive；
+   系统另行检查候选能否提交，不能用 blocking 把未知伪装成已证实的矛盾。
 5. 禁止捏造锚点、禁止引用正文之外的文本。
 
 【输出格式】严格 JSON：
 {{
   "claims": [
     {{
-      "claim_id": "cl_001",
+      "claim_id": "{example_id}",
       "precommit_id": "{precommit.precommit_id}",
-      "axis": "progression",
+      "axis": "{example_axis}",
       "verdict": "satisfied",
       "severity": "advisory",
       "anchors": [
@@ -167,6 +205,7 @@ def parse_judge_claims(
     if require_role_axis and not claims:
         raise ValueError(f"{role} must return at least one registered-axis claim")
     parsed: list[JudgeClaim] = []
+    seen_ids: set[str] = set()
     for index, item in enumerate(claims):
         if not isinstance(item, dict):
             raise ValueError(f"judge claim {index} must be a JSON object")
@@ -189,6 +228,15 @@ def parse_judge_claims(
             raise ValueError(
                 f"judge claim {index} references wrong precommit {item['precommit_id']}"
             )
+        claim_id = item["claim_id"]
+        if not isinstance(claim_id, str) or claim_id in seen_ids:
+            raise ValueError("judge claim IDs must be unique strings")
+        seen_ids.add(claim_id)
+        if claim_id.startswith("evidence_") and (
+            role != "fact_judge" or claim_id not in evidence_obligations(precommit)
+            or item["axis"] != "fact_conflict"
+        ):
+            raise ValueError("evidence claim ID must bind a known fact_judge obligation")
         if require_role_axis and (
             allowed_axes is None or item["axis"] not in allowed_axes
         ):
@@ -230,7 +278,7 @@ def parse_judge_claims(
                 and char_end <= len(prose)
                 and compact_text(prose[char_start:char_end]) == compact_text(excerpt)
             ):
-                located = _locate_excerpt(prose, excerpt)
+                located = _locate_excerpt(prose, excerpt, allow_fuzzy=False, min_length=1)
                 if located is None:
                     raise ValueError(
                         f"judge claim {index} anchor {anchor_index} excerpt not found "

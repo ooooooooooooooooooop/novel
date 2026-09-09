@@ -13,7 +13,7 @@ import hashlib
 import json
 from pathlib import Path
 
-from src.object_state.narrativestate import NarrativeState
+from src.object_state.narrativestate import INFORMATION_LAYER_GUIDANCE, NarrativeState
 from src.object_state.plotunit import PlotUnit
 
 # 章节正文去空白后的下限（字符）：过短视为未成文。
@@ -203,7 +203,7 @@ def build_prompt(
 
     target_chapter_chars 非空时注入篇幅对齐硬约束（目标章均字符数，±35% 浮动）；
     reuse_source 非空时注入原文去重约束（禁止逐字复刻原文长段）。
-    两者缺省时 prompt 字节与旧版一致（零成本契约）。
+    可选约束缺省时不注入相应段落；不渲染完整 new_state，避免绕过上下文隔离。
     """
     lines = [
         "你是一位小说续写作者。请将下列 PlotUnit 结构展开为章节正文。",
@@ -225,7 +225,12 @@ def build_prompt(
             f"6. 参考原文语感与意象，但禁止逐字复刻原文："
             f"连续 ≥{REUSE_MIN_CHARS} 字符与原文相同的片段视为重复，须用自己的话重述。"
         )
-    lines += ["", "【PlotUnit】", plotunit.to_prompt_context()]
+    lines += [
+        "", INFORMATION_LAYER_GUIDANCE,
+        "released_information 面向读者；角色说出或据此行动仍须符合其知情范围。"
+        "只展开本章允许揭示的内容，不补写未提供的秘密或擅自解释隐藏动机。",
+        "", "【PlotUnit】", plotunit.to_prompt_context(),
+    ]
     if workspec_context:
         lines += ["", "【作品约束】", workspec_context]
     if style_context:
@@ -263,6 +268,8 @@ def build_revision_prompt(
     lines = [
         "你是一位小说改写作者。以下章节正文在审查中发现阻断性问题，"
         "请修订正文以解决这些问题（保持情节结构、人物与既有事件一致）。",
+        INFORMATION_LAYER_GUIDANCE,
+        "修订不得把读者得知改成所有角色知情，也不得用补写秘密来掩盖状态字段放置错误。",
         "",
         "【阻断性问题】",
     ]

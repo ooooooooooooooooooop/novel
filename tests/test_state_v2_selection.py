@@ -87,6 +87,21 @@ def test_minimum_sufficient_caps_overload():
     assert len(sel.selected) <= 2
     assert sel.background  # 被裁剪的在后台（不是遗忘）
 
+    # 主叙事候选本身超过上限时，也必须裁剪；延后的候选仍保留。
+    sm = StateModel(threads=[
+        ThreadState(thread_id=f"t{i}", thread_type="线", label=f"候选{i}",
+                    recent_change="发生变化")
+        for i in range(5)
+    ])
+    pool = build_candidate_pool(sm)
+    all_ids = {c.candidate_id for c in pool.candidates}
+    for limit in (0, 1, 2, 5):
+        bounded = select_candidates(pool, sm, max_selected=limit)
+        assert len(bounded.selected) == limit
+        assert set(bounded.ids("selected")).isdisjoint(bounded.ids("background"))
+        assert set(bounded.ids("selected") + bounded.ids("background")) == all_ids
+    assert len(select_candidates(pool, sm).selected) == 5
+
 
 def test_suppressor_removes_checklist():
     """Suppressor 删除清单式/硬回收候选. """
@@ -113,6 +128,14 @@ def test_context_firewall_blocks_background():
     render = packet.render()
     assert render.startswith("【本章上下文包】")
     assert "未列入的世界状态请勿提及" in render
+
+    # 已由调用方筛选为本章必要的关系，不能在渲染时丢失。
+    from src.workflow_action.narrative_selector import SelectionResult
+    relation_packet = build_chapter_packet(
+        SelectionResult(), necessary_relations=["甲信任乙，但乙尚不信任甲"]
+    )
+    assert not relation_packet.is_empty()
+    assert "甲信任乙，但乙尚不信任甲" in relation_packet.render()
 
 
 def test_packet_zero_cost_empty():

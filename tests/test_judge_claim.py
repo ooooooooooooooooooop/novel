@@ -200,6 +200,18 @@ class TestBuildJudgeClaimPrompt:
             _precommit(), _PROSE, reader_contract_context="读者等的是真相浮出水面"
         )
         assert "读者等的是真相浮出水面" in prompt
+        fact_prompt = build_judge_claim_prompt(_precommit(), _PROSE, role="fact_judge")
+        assert '"evidence_situation": "追查真相"' in fact_prompt
+        assert '"evidence_consequence_001": "独自赴约"' in fact_prompt
+        assert '"axis": "fact_conflict"' in fact_prompt
+        assert "不是已成立的可信事实" in fact_prompt
+        assert "不能用其中一个子句的命中代替整个条目" in fact_prompt
+        from src.object_state.narrativestate import INFORMATION_LAYER_GUIDANCE
+
+        assert INFORMATION_LAYER_GUIDANCE in fact_prompt
+        assert "不能因为内容得到证实就判整个条目 satisfied" in fact_prompt
+        assert "缺少揭示本身不能证明隐藏内容为真" in fact_prompt
+        assert "不能将旁白、内心活动或读者获知当成所有在场角色共同获知" in fact_prompt
 
 
 # ---------------------------------------------------------------- 严格解析 + 锚点核验
@@ -271,6 +283,15 @@ class TestParseJudgeClaims:
                 claims=[_claim_json(axis="fact_conflict")],
                 require_role_axis=True,
             )
+        with pytest.raises(ValueError, match="unique"):
+            _parse(claims=[_claim_json(), _claim_json()])
+        with pytest.raises(ValueError, match="known fact_judge obligation"):
+            _parse(claims=[_claim_json(claim_id="evidence_location")])
+        for key, axis in [("evidence_unknown", "fact_conflict"), ("evidence_location", "progression")]:
+            with pytest.raises(ValueError, match="known fact_judge obligation"):
+                parse_judge_claims(json_dumps({"claims": [_claim_json(claim_id=key, axis=axis)]}),
+                                   prose=_PROSE, chapter_ref="chapter_1", role="fact_judge",
+                                   precommit=_precommit())
 
     def test_non_object_top_level_rejected(self):
         with pytest.raises(ValueError, match="only 'claims'"):
@@ -352,6 +373,14 @@ class TestParseJudgeClaims:
         assert anchor.char_start == 0
         assert anchor.char_end == len(real)
         assert anchor.excerpt == real
+        # 高词语重叠但否定字不同：不得用模糊定位把模型伪造的肯定引文洗成原文。
+        negative = "材料没有送到负责人案头，仍然锁在柜子里。"
+        fabricated = "材料已经送到负责人案头，仍然锁在柜子里。"
+        with pytest.raises(ValueError, match="fabricated anchor"):
+            _parse(prose=negative, claims=[_claim_json(anchors=[{
+                "position": "start", "excerpt": fabricated, "char_start": 0,
+                "char_end": len(negative),
+            }])])
 
     def test_out_of_bounds_char_end_relocated_to_real_position(self):
         # G8 复现（smoke12 attempt1）：长正文上模型把 char_end 算到正文长度之外

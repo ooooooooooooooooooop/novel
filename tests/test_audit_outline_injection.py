@@ -92,6 +92,12 @@ def test_rebuild_prompt_with_outline():
 def test_rebuild_prompt_without_outline_backward_compat():
     unit = RebuildUnit()
     assert unit.build_prompt("正文") == unit.build_prompt("正文", None)
+    from src.object_state.narrativestate import INFORMATION_LAYER_GUIDANCE
+
+    prompt = unit.build_prompt("信使知道钥匙藏在袖中，守卫并不知情。")
+    assert INFORMATION_LAYER_GUIDANCE in prompt
+    assert "private_information_map: {信息: [知情角色ID]}" in prompt
+    assert "不能仅因角色不知情而放入 hidden_information" in prompt
 
 
 def test_audit_long_form_triggers_outline_stage(tmp_path):

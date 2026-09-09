@@ -432,9 +432,18 @@ def test_deployment_docs_are_consistent():
         assert not re.search(r"(?<!\d)86 tests passing", text), label
         assert not re.search(r"(?<!\d)116 tests passing", text), label
         assert not re.search(r"(?<!\d)144 tests passing", text), label
-        assert "provider calls remain unimplemented" in text or (
-            "provider 调用仍未实现" in text
-        ), label
+        if label == "AGENTS.md":
+            # 用户批准的新口径区分 staged 行为、A1 实现和运行授权。
+            # 不再强迫 AGENTS 写回“provider 未实现”这一全局过时断言。
+            assert "Tier 0 staged entry scripts do not perform DirectAPI provider calls" in text
+            assert "closed-loop automation remains disallowed" in text
+            assert "代码存在不代表运行已获授权" in text
+            assert "明确授权、模式策略、预算与证据条件" in text
+        else:
+            # 其余文件仍保留历史 checkpoint 口径，未在本轮改写。
+            assert "provider calls remain unimplemented" in text or (
+                "provider 调用仍未实现" in text
+            ), label
 
 
 def test_automation_readiness_boundary_docs_contract():

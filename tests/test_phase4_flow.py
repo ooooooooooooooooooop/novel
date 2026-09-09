@@ -122,7 +122,7 @@ def test_extend_v3_ambient_draft_blocked_no_commit(tmp_path):
     assert manifest["status"] == "rejected"
 
 
-def test_extend_v3_clean_draft_commits_with_facts_hash(tmp_path):
+def test_extend_v3_clean_draft_commits_with_facts_hash(tmp_path, monkeypatch, capsys):
     """v3 + 干净草稿 → 门禁 pass，事务提交，manifest 含 facts_package_hash."""
     input_path = tmp_path / "input.txt"
     output_dir = tmp_path / "novel" / "output" / "extend"
@@ -131,10 +131,30 @@ def test_extend_v3_clean_draft_commits_with_facts_hash(tmp_path):
 
     _drive_to_prose(output_dir, input_path, _long_prose())
 
-    r = _review_pass(output_dir, input_path)
-    assert r.returncode == 0, r.stdout + r.stderr
-    assert "Reader gate pass" in r.stdout, r.stdout + r.stderr
-    assert "Committed chapter" in r.stdout
+    # Proposed facts may be committed after Review, but cannot be the gate's trusted
+    # baseline against which their own prose is checked. Inspect the actual entry call.
+    from src import extend_short_form as entry
+    from src.object_state import FactLedger
+    candidate = _minimal_continue_payload()
+    candidate["new_facts"] = [{"fact_id": "f_pending", "statement": "门被推开",
+                               "fact_type": "event", "confirmed": True}]
+    _write_json(output_dir / "continue_response.txt", candidate)
+    _write_json(output_dir / "review_response.txt", {"issues": [], "reminders": [], "route": "pass"})
+    original_gate = entry.evaluate_commit_reader_gate
+    inspected = []
+    def inspect_gate(**kwargs):
+        assert not kwargs["facts"].entries
+        assert all(not o.entries for o in kwargs["causal_objects"] if isinstance(o, FactLedger))
+        inspected.append(True)
+        return original_gate(**kwargs)
+    monkeypatch.setattr(entry, "evaluate_commit_reader_gate", inspect_gate)
+    monkeypatch.setattr(sys, "argv", ["extend", str(input_path), "--output-dir", str(output_dir)])
+    assert entry.main() == 0
+    stdout = capsys.readouterr().out
+    assert inspected == [True]
+    assert "Reader gate pass" in stdout and "Committed chapter" in stdout
+    state_text = (output_dir / "extend_rebuild_package.json").read_text(encoding="utf-8")
+    assert "f_pending" in state_text, "accepted facts still reach the committed ledger"
 
     manifest = json.loads((output_dir / "run_manifest.json").read_text(encoding="utf-8"))
     assert manifest["status"] == "committed"

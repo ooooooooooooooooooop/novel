@@ -118,6 +118,8 @@ from src.workflow_action.precommit import (
     build_evaluator_precommit,
     falsify_blocking,
     falsify_prose_against_precommit,
+    unresolved_evidence,
+    validate_commit_evidence,
 )
 from src.workflow_action.reader_contract import scene_experience_guard_review_issues
 from src.workflow_action.reconcile import ReconcileUnit
@@ -296,6 +298,8 @@ class _VariantRecord:
         "seam_findings",
         "judge_claims",
         "status",
+        "unresolved_evidence",
+        "precommit",
     )
 
     def __init__(
@@ -307,6 +311,7 @@ class _VariantRecord:
         code_issues: list,
         code_claims: list,
         seam_findings: list,
+        precommit,
     ) -> None:
         self.plan_index = plan_index
         self.prose_candidate = prose_candidate
@@ -315,6 +320,8 @@ class _VariantRecord:
         self.code_claims = code_claims
         self.seam_findings = seam_findings
         self.judge_claims: list = []
+        self.unresolved_evidence: dict[str, str] = {}
+        self.precommit = precommit
         self.status: str = prose_candidate.status
 
 
@@ -1132,9 +1139,13 @@ class AutonomousRunner:
                 if record.status != "candidate"
             ],
             "selection_rule": (
-                "hard-axis elimination + soft-axis Pareto frontier + "
+                "complete prose evidence + hard-axis elimination + soft-axis Pareto frontier + "
                 "deterministic compare + evidence-anchored A/B + B/A arbitration (T6)"
             ),
+            "unresolved_evidence": {
+                item.prose_candidate.candidate_id: item.unresolved_evidence
+                for item in records if item.unresolved_evidence
+            },
         }
         if frontier:
             record["frontier"] = list(frontier)
@@ -1535,9 +1546,22 @@ class AutonomousRunner:
         survivors: list = []
         plan_rejections: list[tuple[str, str]] = []
         for plotunit, new_state, _new_facts, _gaps in deduped:
+            if (plotunit.input_state_ref != narrative_state.state_id
+                    or plotunit.output_state_ref != new_state.state_id
+                    or new_state.state_id in valid_state_ids):
+                plan_rejections.append(("state-binding",
+                    f"plan {plotunit.unit_id} must start at the current state and produce a fresh output state"))
+                continue
             violation = state_necessity_violation(plotunit, narrative_state, new_state)
             if violation is not None:
                 plan_rejections.append(violation)
+                continue
+            try:
+                # Validate proposed fact batches before spending on prose/judges; never
+                # merge the speculative entries into the trusted input ledger here.
+                admit_new_facts(copy.deepcopy(facts), _new_facts, plotunit.unit_id)
+            except ValueError as exc:
+                plan_rejections.append(("fact-schema", f"plan {plotunit.unit_id}: {type(exc).__name__}"))
                 continue
             try:
                 plan_issues = self._code_issues(
@@ -1581,12 +1605,13 @@ class AutonomousRunner:
                 input_state=narrative_state,
                 new_state=survivors[index][1],
                 trusted_state_hash=trusted_hash,
+                new_facts=survivors[index][2],
             )
             for index in range(len(survivors))
         ]
         self._record_precommits(precommits, chapter_ref)
 
-        # T5.4 每计划多版正文 + 纯代码确定性硬门禁（证伪 + 语义接缝，零 LLM）。
+        # T5.4 每计划多版正文 + 词语线索检索与语义接缝硬门禁（零 LLM）。
         variant_records: list[_VariantRecord] = []
         for index in range(len(survivors)):
             plotunit, new_state, _new_facts, _gaps = survivors[index]
@@ -1628,6 +1653,7 @@ class AutonomousRunner:
                         code_issues=plan_issues,
                         code_claims=code_claims,
                         seam_findings=seam_findings,
+                        precommit=precommits[index],
                     )
                 )
         self._record_prose_candidates(variant_records, chapter_ref)
@@ -1651,7 +1677,10 @@ class AutonomousRunner:
                 return self._stage_failure("judge", exc)
             record.judge_claims = claims
             all_judge_claims.extend(claims)
-            if any(claim_is_hard_violation(claim) for claim in claims):
+            record.unresolved_evidence = unresolved_evidence(
+                precommits[record.plan_index], claims
+            )
+            if record.unresolved_evidence or any(claim_is_hard_violation(claim) for claim in claims):
                 record.status = "rejected"
         self._record_judge_claims(all_judge_claims, chapter_ref)
 
@@ -1722,9 +1751,11 @@ class AutonomousRunner:
             best, best_score, variant_records, frontier, chapter_ref, tournament
         )
         if best is None:
+            evidence_gap = any(record.unresolved_evidence for record in variant_records)
             return self._terminal(
                 "quality_exhausted",
-                "no stable pairwise winner on the Pareto frontier",
+                "no eligible winner; unresolved prose evidence (see candidate_selection.json)"
+                if evidence_gap else "no stable pairwise winner on the Pareto frontier",
             )
 
         # 获胜正文绝对质量地板：相对 Pareto 只能选出「最不差」，不能证明可提交。
@@ -1920,13 +1951,16 @@ class AutonomousRunner:
         )
 
         if decision.route == "accepted":
-            self._commit(
-                objects, frames, frame_context, facts,
-                selected_plan, best, chapter_ref, gate_verdict,
-                gate_package, gate_reconcile_issues,
-                post_issues + blind_review_issues,
-                blind_final, serial_report, chapter_number,
-            )
+            try:
+                self._commit(
+                    objects, frames, frame_context, facts,
+                    selected_plan, best, chapter_ref, gate_verdict,
+                    gate_package, gate_reconcile_issues,
+                    post_issues + blind_review_issues,
+                    blind_final, serial_report, chapter_number,
+                )
+            except ValueError as exc:
+                return self._stage_failure("commit-binding", exc)
             self._candidates_remaining = self._initial_candidates_remaining
             # T7.1/T7.2 长程对账检查点：提交后若 run 章数落在冻结检查点，从已提交
             # 正文重建结构/人物/承诺摘要并与滚动摘要对账；漂移超阈值 → 阻断继续
@@ -2048,6 +2082,14 @@ class AutonomousRunner:
         chapter_number: int,
     ) -> None:
         plotunit, new_state, raw_new_facts, _gaps = plan
+        # Recheck the exact reviewed payload and prose before any cursor/state mutation.
+        validate_commit_evidence(best.precommit, plotunit=plotunit, new_state=new_state,
+            new_facts=raw_new_facts, prose=best.text,
+            reviewed_prose_sha256=best.prose_candidate.prose_sha256, claims=best.judge_claims)
+        input_states = [o for o in objects if isinstance(o, NarrativeState)
+                        and o.state_id == best.precommit.input_state_id]
+        if len(input_states) != 1 or self._trusted_state_hash(input_states[0], facts) != best.precommit.trusted_state_hash:
+            raise ValueError("trusted input changed after precommit")
         # committing 为进程内瞬态：不落盘。崩溃点在 boundary.commit 内，磁盘上
         # manifest.json 仍是上一章 running → 重启按 recover() 判定。
         self._last_accepted_candidate_id = best.prose_candidate.candidate_id
@@ -2107,6 +2149,8 @@ class AutonomousRunner:
                 prov_entry["review_issues"], ensure_ascii=False, sort_keys=True
             )
         )
+        prov_entry["candidate_payload_sha256"] = best.precommit.candidate_payload_sha256
+        prov_entry["reviewed_prose_sha256"] = best.prose_candidate.prose_sha256
         prov_json = json.dumps(
             prose_action.merge_chapter_provenance(prov_existing, prov_entry),
             ensure_ascii=False,

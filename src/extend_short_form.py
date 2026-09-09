@@ -664,6 +664,8 @@ def main() -> int:
             viability_note = viability_continue_note(viability_decision)
 
     # Step 2: Continue
+    # Keep the committed ledger separate from provisional Continue-produced facts.
+    trusted_facts_before_continue = facts.model_copy(deep=True)
     print("\n" + "=" * 50)
     print("Step 2: Continue")
     print("=" * 50)
@@ -1260,12 +1262,13 @@ def main() -> int:
                     output_dir=output_dir,
                     chapters_dir=chapters_dir,
                     draft_text=draft_text,
-                    facts=facts,
+                    facts=trusted_facts_before_continue,
                     characters=characters,
                     time_book=load_time_book(output_dir),
                     reader_contract=reader_contract,
                     chapter_ref=f"chapter_{chapter_number}",
-                    causal_objects=objects + [plotunit, new_state],
+                    causal_objects=[trusted_facts_before_continue if o is facts else o for o in objects]
+                        + [plotunit, new_state],
                     require_campaign_evidence=False,
                 )
             )

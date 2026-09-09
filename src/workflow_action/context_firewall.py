@@ -77,6 +77,10 @@ class ChapterPacket(BaseModel):
             lines.append("场景人物知识：")
             for k in self.scene_character_knowledge[:6]:
                 lines.append(f"- {k}")
+        if self.necessary_relations:
+            lines.append("本章必要关系：")
+            for relation in self.necessary_relations:
+                lines.append(f"- {relation}")
         if self.behavior_constraints:
             lines.append("行为约束（不主动解释未公开动机）：")
             for b in self.behavior_constraints[:4]:

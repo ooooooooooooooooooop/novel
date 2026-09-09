@@ -222,7 +222,7 @@ def test_extend_flow_v2_produces_no_manifest(tmp_path):
     assert (output_dir.parent.parent / "chapters" / "chapter_1.txt").exists()
 
 
-def test_compose_flow_v3_transactional_commit(tmp_path):
+def test_compose_flow_v3_transactional_commit(tmp_path, monkeypatch, capsys):
     """compose v3 全流程：committed + manifest + recover 识别."""
     output_dir = tmp_path / "novel" / "output" / "compose"
     chapters = output_dir.parent.parent / "chapters"
@@ -232,10 +232,10 @@ def test_compose_flow_v3_transactional_commit(tmp_path):
     assert r.returncode == 0 and "STEP: CONTINUE" in r.stdout, r.stdout + r.stderr
     (output_dir / ".flow_version").write_text("3", encoding="utf-8")
 
-    _write_json(
-        output_dir / "compose_continue_response.txt",
-        _minimal_continue_payload(input_state_ref="ns_initial"),
-    )
+    candidate = _minimal_continue_payload(input_state_ref="ns_initial")
+    candidate["new_facts"] = [{"fact_id": "f_pending", "statement": "门被推开",
+                               "fact_type": "event", "confirmed": True}]
+    _write_json(output_dir / "compose_continue_response.txt", candidate)
     r = _run_script("src/compose_short_form.py", "--output-dir", str(output_dir))
     assert r.returncode == 0, r.stdout + r.stderr
     assert "STEP: PROSE" in r.stdout
@@ -251,10 +251,25 @@ def test_compose_flow_v3_transactional_commit(tmp_path):
         output_dir / "compose_review_response.txt",
         {"issues": [], "reminders": [], "route": "pass"},
     )
-    r = _run_script("src/compose_short_form.py", "--output-dir", str(output_dir))
-    assert r.returncode == 0, r.stdout + r.stderr
-    assert "Committed chapter" in r.stdout
-    assert "Compose complete: PASS" in r.stdout
+    from src import compose_short_form as entry
+    from src.object_state import FactLedger
+    original_gate = entry.evaluate_commit_reader_gate
+    inspected = []
+
+    def inspect_gate(**kwargs):
+        assert not kwargs["facts"].entries
+        assert all(not o.entries for o in kwargs["causal_objects"] if isinstance(o, FactLedger))
+        inspected.append(True)
+        return original_gate(**kwargs)
+
+    monkeypatch.setattr(entry, "evaluate_commit_reader_gate", inspect_gate)
+    monkeypatch.setattr(sys, "argv", ["compose", "--output-dir", str(output_dir)])
+    assert entry.main() == 0
+    stdout = capsys.readouterr().out
+    assert inspected == [True]
+    assert "Committed chapter" in stdout
+    assert "Compose complete: PASS" in stdout
+    assert "f_pending" in (output_dir / "compose_state.json").read_text(encoding="utf-8")
 
     manifest = json.loads((output_dir / "run_manifest.json").read_text(encoding="utf-8"))
     assert manifest["status"] == "committed"

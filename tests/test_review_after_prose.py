@@ -194,6 +194,11 @@ def test_review_prompt_injects_only_when_prose_non_empty():
     assert with_prose != without
     assert "【本章正文】" in with_prose
     assert "【本章正文】" not in without
+    from src.object_state.narrativestate import INFORMATION_LAYER_GUIDANCE
+
+    assert INFORMATION_LAYER_GUIDANCE in with_prose
+    assert INFORMATION_LAYER_GUIDANCE in without
+    assert "不能因内容兑现就撤销字段放置问题" in with_prose
 
 
 # ---- prose.build_revision_prompt ----

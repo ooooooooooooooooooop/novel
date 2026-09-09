@@ -487,7 +487,8 @@ def _arbitration_payload(prompt: str, *, slot_biased: bool = False) -> str:
     )
 
 
-def _judge_claims_payload(prompt: str, *, blocking: bool, role: str) -> str:
+def _judge_claims_payload(prompt: str, *, blocking: bool, role: str,
+                          evidence_verdict: str = "satisfied") -> str:
     prose = _extract_judge_prose(prompt)
     precommit_id = _extract_precommit_id(prompt)
     end = min(40, len(prose))
@@ -571,6 +572,12 @@ def _judge_claims_payload(prompt: str, *, blocking: bool, role: str) -> str:
                 "rationale": "测试注入的角色轴覆盖。",
             }
         ]
+    if role == "fact_judge" and not blocking and evidence_verdict != "missing":
+        # 仅模拟逐项评审协议；此夹具不提供模型语义准确率证据。
+        section = prompt.split("【逐项正文证据核对】\n", 1)[1]
+        obligations, _ = json.JSONDecoder().raw_decode(section)
+        claims.extend({**claims[0], "claim_id": key, "verdict": evidence_verdict}
+                      for key in obligations)
     return json.dumps({"claims": claims})
 
 
@@ -587,6 +594,7 @@ def _fake_urlopen(
     error: Exception = RuntimeError("simulated provider failure"),
     tournament_position_biased: bool = False,
     judge_text=None,
+    fact_evidence_verdict: str = "satisfied",
 ):
     """按阶段路由：premise/plan=200、prose=300、judge/arbitration=400.
 
@@ -598,6 +606,7 @@ def _fake_urlopen(
     证据判别返回决定性锚点，两轮命名同一正文（位置一致）。
     """
     _prose_seen: list = []
+    _plan_seen: list = []
 
     def fake(request, timeout):
         assert request.headers["Authorization"] == "Bearer secret-value"
@@ -614,13 +623,22 @@ def _fake_urlopen(
                 else json.dumps(_premise_payload(["premise-001"]))
             )
         elif max_tokens == 200:
-            text = (
-                plan_text
-                if plan_text is not None
-                else json.dumps(
-                    {"candidates": [_minimal_continue_payload(), _second_continue_payload()]}
-                )
-            )
+            if plan_text is not None:
+                text = plan_text
+            else:
+                candidates = [_minimal_continue_payload(), _second_continue_payload()]
+                # Each checkpoint follows the real current-state reference supplied in
+                # the prompt. Reusing chapter-one IDs hides stale-state commit bugs.
+                current_id = prompt_text.rsplit('"input_state_ref": "', 1)[1].split('"', 1)[0]
+                for candidate in candidates:
+                    candidate["plotunit"]["input_state_ref"] = current_id
+                    if _plan_seen:
+                        suffix = f"_chapter_{len(_plan_seen) + 1}"
+                        candidate["plotunit"]["unit_id"] += suffix
+                        candidate["new_state"]["state_id"] += suffix
+                        candidate["plotunit"]["output_state_ref"] = candidate["new_state"]["state_id"]
+                text = json.dumps({"candidates": candidates})
+            _plan_seen.append(True)
         elif max_tokens == 300:
             if prose_text is not None:
                 text = prose_text
@@ -690,7 +708,8 @@ def _fake_urlopen(
             # 恰好调用一次、显式终态、零状态污染（不重请求）。
             text = judge_text
         elif "你负责【事实】轴" in prompt_text:
-            text = _judge_claims_payload(prompt_text, blocking=review_blocking, role="fact_judge")
+            text = _judge_claims_payload(prompt_text, blocking=review_blocking, role="fact_judge",
+                                        evidence_verdict=fact_evidence_verdict)
         elif "你负责【人物】轴" in prompt_text:
             text = _judge_claims_payload(prompt_text, blocking=review_blocking, role="character_judge")
         elif "你负责【读者体验】轴" in prompt_text:
@@ -1207,6 +1226,9 @@ def test_full_accept_cycle_commits_chapter_and_records_usage(
     assert provenance["active_frame_id"] == "scene_001"
     assert provenance["next_active_frame_id"] == "scene_002"
     assert provenance["next_active_formula_node"] == "inciting_incident"
+    reviewed_precommit = json.loads((run_dir / "precommits.json").read_text(encoding="utf-8"))["chapters"]["chapter_1"][0]
+    assert provenance["candidate_payload_sha256"] == reviewed_precommit["candidate_payload_sha256"]
+    assert provenance["reviewed_prose_sha256"] == sha256_text(_PROSE_A)
     assert provenance["review_evidence_hash"] == sha256_text(
         json.dumps(
             provenance["review_issues"], ensure_ascii=False, sort_keys=True
@@ -1303,8 +1325,24 @@ def test_plan_invalid_state_refs_remapped_before_plan_gate(tmp_path, monkeypatch
     assert terminal.usage.calls == 20
     assert (runner.chapters_dir / "chapter_1.txt").is_file()
 
+    # A reference to an existing state must not bypass binding to this candidate's
+    # output. Reject before any prose/judge spend, instead of failing at commit.
+    for payload in (bad_a, bad_b):
+        payload["plotunit"]["input_state_ref"] = "ns_001"
+        payload["plotunit"]["output_state_ref"] = "ns_001"
+    (tmp_path / "existing_wrong_output").mkdir()
+    rejected, _, _, _, rejected_calls = _make_runner(
+        tmp_path / "existing_wrong_output", monkeypatch=monkeypatch,
+        plan_text=json.dumps({"candidates": [bad_a, bad_b]}))
+    result = rejected.run_until_terminal()
+    assert result.status == "quality_exhausted"
+    assert result.committed_chapters == 0 and len(rejected_calls) == 1
+    assert not list(rejected.chapters_dir.glob("*.txt"))
+
 
 def test_reject_path_quality_exhausted(tmp_path, monkeypatch):
+    from src.object_state import NarrativeState
+
     # JudgeClaim 返回 blocking 硬违例（带正文锚点）→ 全部正文候选 rejected →
     # quality_exhausted（硬分数不能由软轴抵消）。
     runner, run_dir, _, _, calls = _make_runner(
@@ -1344,6 +1382,56 @@ def test_reject_path_quality_exhausted(tmp_path, monkeypatch):
     assert "generative_indicia" in {
         issue["issue_type"] for issue in report["issues"]
     }
+    # 笼统 fact_conflict=satisfied / 软轴得分不能掩盖逐项缺失或不确定。
+    for verdict in ("missing", "inconclusive", "violated"):
+        case_dir = tmp_path / ("evidence-" + verdict)
+        case_dir.mkdir()
+        gate_runner, gate_dir, _, _, gate_calls = _make_runner(
+            case_dir, monkeypatch=monkeypatch, install_fake=False
+        )
+        state_before = {p.name: p.read_bytes() for p in (gate_dir / "state").glob("*.json")}
+        monkeypatch.setattr("src.provider_adapter.urllib.request.urlopen",
+                            _fake_urlopen(gate_calls, fact_evidence_verdict=verdict))
+        rejected = gate_runner.run_until_terminal()
+        assert rejected.status == "quality_exhausted"
+        assert "unresolved prose evidence" in rejected.terminal_reason
+        assert rejected.committed_chapters == 0
+        assert rejected.usage.calls == 17  # 无追加评审或重试，也不进入淘汰赛。
+        assert not (gate_runner.chapters_dir / "chapter_1.txt").exists()
+        assert state_before == {p.name: p.read_bytes() for p in (gate_dir / "state").glob("*.json")}
+        selection = json.loads((gate_dir / "candidate_selection.json").read_text(encoding="utf-8"))
+        chapter = selection["chapters"]["chapter_1"]
+        assert chapter["selected"] is None
+        assert len(chapter["unresolved_evidence"]) == 4
+        assert {reason for issues in chapter["unresolved_evidence"].values()
+                for reason in issues.values()} == {verdict}
+    # Changes after successful review must fail before state/frame/ledger mutation.
+    for field in ("state", "facts", "prose", "trusted_input"):
+        case_dir = tmp_path / ("binding-" + field)
+        case_dir.mkdir()
+        bound_runner, bound_dir, _, _, _ = _make_runner(case_dir, monkeypatch=monkeypatch)
+        before = {p.name: p.read_bytes() for p in (bound_dir / "state").glob("*.json")}
+        original_commit = bound_runner._commit
+        def tamper_then_commit(*args, **kwargs):
+            plan, best = args[4], args[5]
+            if field == "state":
+                plan[1].current_goals.append("unreviewed replacement goal")
+            elif field == "facts":
+                plan[2].append({"fact_id": "f_unreviewed", "statement": "unreviewed fact",
+                                "fact_type": "event", "confirmed": True})
+            elif field == "prose":
+                best.text += "\nUnreviewed ending."
+            else:
+                next(o for o in args[0] if isinstance(o, NarrativeState)
+                     and o.state_id == best.precommit.input_state_id).current_goals.append("changed trusted input")
+            return original_commit(*args, **kwargs)
+        monkeypatch.setattr(bound_runner, "_commit", tamper_then_commit)
+        stopped = bound_runner.run_until_terminal()
+        assert stopped.status == "execution_failed"
+        assert "commit-binding" in stopped.terminal_reason
+        assert stopped.committed_chapters == 0
+        assert before == {p.name: p.read_bytes() for p in (bound_dir / "state").glob("*.json")}
+        assert not (bound_runner.chapters_dir / "chapter_1.txt").exists()
 
 
 def test_tournament_position_bias_quality_exhausted(tmp_path, monkeypatch):

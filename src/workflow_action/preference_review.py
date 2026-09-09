@@ -80,13 +80,17 @@ from src.workflow_action.json_repair import (  # noqa: E402  (循环依赖规避
 )
 
 
-def _locate_excerpt(response: str, excerpt: str) -> tuple[int, int] | None:
+def _locate_excerpt(
+    response: str, excerpt: str, *, allow_fuzzy: bool = True,
+    min_length: int = _MIN_EXCERPT_LEN,
+) -> tuple[int, int] | None:
     """在 response 中定位 excerpt（compact 后子串匹配），返回真实 [start, end).
 
     excerpt 必须逐字来自 response（只允许空白/标点/引号/强调排版记号差异）；
     否则尝试模糊匹配（最长公共子串 ≥ 80% excerpt 长度，且 excerpt ≤ 60 字符），
     仍找不到才返回 None。模糊匹配仅用于对齐改写/压缩型 excerpt，绝不接受
-    低相似度（<80%）的捏造引文。
+    低相似度（<80%）的捏造引文。事实证据调用方必须传 allow_fuzzy=False：
+    一个否定字的改变也可能颠倒证据；min_length 只控制最短可定位引用。
     """
     import difflib
 
@@ -95,9 +99,11 @@ def _locate_excerpt(response: str, excerpt: str) -> tuple[int, int] | None:
 
     hay = _fold(response)
     needle = _fold(excerpt)
-    if not needle or len(needle) < _MIN_EXCERPT_LEN:
+    if not needle or len(needle) < min_length:
         return None
     if needle not in hay:
+        if not allow_fuzzy:
+            return None
         # 逐字失败 → 模糊匹配：仅当 excerpt 较短（≤60）且 LCS ≥ 80% 才接受。
         # 长 excerpt 的部分匹配风险高（正文常有共享片段），不降级。
         if len(needle) > 60:

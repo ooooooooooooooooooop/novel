@@ -15,6 +15,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -39,6 +41,10 @@ class EvaluatorPrecommit(BaseModel):
     # 可信状态（facts ledger + 上一 NarrativeState）的哈希：锁定评审基线，
     # 证明预承诺冻结于「正文前的可信状态」而非正文。
     trusted_state_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
+    # JSON strings keep nested snapshots immutable. Empty values denote legacy records.
+    input_state_json: str = ""
+    candidate_payload_json: str = ""
+    candidate_payload_sha256: str = ""
     # 本预承诺将执行的证伪检查清单（design §8 子集）。
     check_list: tuple[str, ...] = (
         "plotunit_expected_change",
@@ -54,4 +60,33 @@ class EvaluatorPrecommit(BaseModel):
             values = getattr(self, field_name)
             if any(not item.strip() for item in values):
                 raise ValueError(f"{field_name} entries must be non-empty")
+        snapshots = (self.input_state_json, self.candidate_payload_json, self.candidate_payload_sha256)
+        if any(snapshots):
+            if not all(snapshots):
+                raise ValueError("candidate binding requires all snapshot fields")
+            if hashlib.sha256(self.candidate_payload_json.encode("utf-8")).hexdigest() != self.candidate_payload_sha256:
+                raise ValueError("candidate payload hash mismatch")
+            previous = json.loads(self.input_state_json)
+            payload = json.loads(self.candidate_payload_json)
+            if not isinstance(previous, dict) or not isinstance(payload, dict):
+                raise ValueError("candidate snapshots must contain objects")
+            if set(payload) != {"plotunit", "new_state", "new_facts"}:
+                raise ValueError("candidate snapshot must bind the complete commit payload")
+            if not all(isinstance(payload[k], dict) for k in ("plotunit", "new_state")):
+                raise ValueError("candidate state and plotunit must be objects")
+            if (previous.get("state_id") != self.input_state_id
+                    or payload["new_state"].get("state_id") != self.output_state_id
+                    or payload["plotunit"].get("unit_id") != self.plotunit_id):
+                raise ValueError("candidate snapshot identity mismatch")
+            if not isinstance(payload["new_facts"], list):
+                raise ValueError("candidate new_facts must be a list")
+            plot, state = payload["plotunit"], payload["new_state"]
+            if (state.get("current_location") != self.expected_output_location
+                    or state.get("current_situation") != self.expected_output_situation
+                    or tuple(plot.get("released_information", [])) != self.expected_released_information
+                    or tuple(plot.get("consequences", [])) != self.expected_consequences
+                    or plot.get("is_effective") != self.effective
+                    or plot.get("input_state_ref") != self.input_state_id
+                    or plot.get("output_state_ref") != self.output_state_id):
+                raise ValueError("declared expectations differ from frozen candidate")
         return self

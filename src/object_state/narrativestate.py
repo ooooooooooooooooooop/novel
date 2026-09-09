@@ -5,6 +5,14 @@ from typing import Optional
 from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validator
 
 
+INFORMATION_LAYER_GUIDANCE = """【信息分层定义】
+public_information：当前故事局势中多人共享的信息；读者通过叙述得知，不代表角色都知道。
+hidden_information：系统追踪、读者尚不知道的信息；不能仅因其他角色不知情就放入此项。
+private_information_map：信息→知情角色ID列表，不是角色ID→秘密；未列出的角色不自动视为知情。
+读者是否知道与哪些角色知道是不同维度，public_information 与 hidden_information 不是互补分区。
+角色相信或怀疑某事，只能确立其信念或怀疑，不能把内容直接升级为世界事实。"""
+
+
 class NarrativeState(BaseModel):
     """当前叙事运行态.
 
@@ -35,7 +43,7 @@ class NarrativeState(BaseModel):
 
     # 信息分层
     public_information: list[str] = Field(
-        default_factory=list, description="当前公开信息"
+        default_factory=list, description="当前故事局势中多人共享的信息；读者得知不代表角色知情"
     )
     hidden_information: list[str] = Field(
         default_factory=list, description="当前隐藏信息(读者不知但系统追踪)"
@@ -124,15 +132,15 @@ class NarrativeState(BaseModel):
         if self.emotional_temperature:
             lines.append(f"情绪温度: {self.emotional_temperature}")
         if self.public_information:
-            lines.append(f"公开信息: {'; '.join(self.public_information)}")
+            lines.append(f"公开信息（故事局势中多人共享）: {'; '.join(self.public_information)}")
         if self.hidden_information:
-            lines.append(f"隐藏信息: {'; '.join(self.hidden_information)}")
+            lines.append(f"隐藏信息（读者尚不知道，系统追踪）: {'; '.join(self.hidden_information)}")
         if self.private_information_map:
             secret_lines = "；".join(
                 f"{secret}→{','.join(knowers)}"
                 for secret, knowers in self.private_information_map.items()
             )
-            lines.append(f"秘密知情分布: {secret_lines}")
+            lines.append(f"秘密知情分布（信息→知情角色ID）: {secret_lines}")
         if self.open_questions:
             lines.append(f"开放问题: {'; '.join(self.open_questions)}")
         if self.active_suspense_items:

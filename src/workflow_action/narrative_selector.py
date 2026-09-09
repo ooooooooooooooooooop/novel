@@ -93,11 +93,9 @@ def select_candidates(
         elif c.trigger_source == "work_preference":
             result.selected.append(c)  # 作品倾向（生活/关系承载）直接进
 
-    # Minimum Sufficient：若未设上限且结果过满，按触发强度裁剪到默认自然范围
+    # 显式上限：优先保留主叙事候选，同优先级维持原顺序；缺省不裁剪。
     if max_selected is not None and len(result.selected) > max_selected:
-        # 保留 scene_connection/thread_change（主叙事），裁掉最弱的
-        keep = [c for c in result.selected if c.trigger_source in ("thread_change", "scene_connection")]
-        keep_n = len(keep)
+        keep = [c for c in result.selected if c.trigger_source in ("thread_change", "scene_connection")][:max_selected]
         for c in result.selected:
             if len(keep) >= max_selected:
                 break
