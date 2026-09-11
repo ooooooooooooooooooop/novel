@@ -97,6 +97,9 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 # 外来 ignored / venv 外部 src / roots={} / 六根缺键 / type·size / carrier 篡改
 # canary-stderr·raw manifest / result_artifact 漂移 / 未知根·根外文件 / checkpoint
 # 冻结强制 / neutral 确定性与 null tree / skip message 漂移）→ 3122 + 16 = 3138。
+# Q1.3 去AI味规则重构的回归检查不在 tests/（加收集测试会触发
+# current_state.json 再认证，本机 public_clean 需 Linux 无法完成）；
+# 等效检查实现为 scripts/check_polish_guardrails.py，不占 collected 名额。
 EXPECTED_COLLECTED_TESTS = "3138"
 
 

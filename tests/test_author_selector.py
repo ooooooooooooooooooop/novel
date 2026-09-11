@@ -193,10 +193,11 @@ def test_style_no_profile_neutral():
 
 
 def test_style_taboo_penalty():
+    """禁忌词命中=review candidate：只提审不扣分（Q1.3 验证：命中≠判负）."""
     pkg = _package("A", _pu("A", goal="他冷冷地看了对方一眼"))
     score, notes = style_proxy_score(pkg, _style("冷冷地"))
-    assert score < 1.0
-    assert any("禁忌词" in n for n in notes)
+    assert score == 1.0
+    assert any("禁忌词" in n and "review candidate" in n for n in notes)
 
 
 def test_style_clean_high_score():

@@ -174,14 +174,21 @@ def reader_proxy_score(package: dict) -> tuple[float, list[str]]:
 
 
 def style_proxy_score(package: dict, style_profile: Optional[StyleProfile]) -> tuple[float, list[str]]:
-    """文风吻合离线代理：禁忌词命中扣分（真实文风评判在正文层）."""
+    """文风吻合离线代理：禁忌词命中仅提审不扣分.
+
+    Q1.3 自然修订验证（2026-09-11）：禁忌词命中是 review candidate，
+    不能未经功能核查直接扣分——词本身可能承担身体结算/节拍/回声
+    功能。真实文风评判在正文层（review candidate → 功能核查）。
+    """
     if style_profile is None:
         return 0.5, ["无风格档案，文风视角中性"]
     text = _package_text(package)
     taboo = [w for w in style_profile.taboo_words if w and w in text]
     if taboo:
-        penalty = min(0.4, 0.1 * len(taboo))
-        return max(0.0, 1.0 - penalty), [f"命中作者禁忌词 {len(taboo)} 处: {taboo[:3]}"]
+        return 1.0, [
+            f"命中作者禁忌词 {len(taboo)} 处（review candidate：命中≠扣分，"
+            f"先功能核查）: {taboo[:3]}"
+        ]
     return 1.0, ["无禁忌词命中"]
 
 

@@ -10,8 +10,11 @@ from src.domain_layer.style_knowledge import (
     DECISION_GROUNDING_AXIS,
     DESCRIPTION_TECHNIQUES,
     DIALOGUE_TECHNIQUES,
+    FUNCTION_CHECK_QUESTIONS,
+    FUNCTION_PROTECTION_LIST,
     GENRE_STYLE_GUIDANCE,
     OMISSION_AXIS,
+    POLISH_DISCIPLINE,
     SUBTLE_TECHNIQUES,
     TEMPERAMENT_BUCKETS,
     TONE_STYLE_TRAITS,
@@ -65,6 +68,21 @@ def get_ai_flavor_markers() -> list[AiFlavorMarker]:
 def get_weak_adverb_set() -> set[str]:
     """获取弱化副词集合."""
     return set(WEAK_ADVERB_SET)
+
+
+def get_function_check_questions() -> list[str]:
+    """marker 命中共用的功能核查问题（删除任何表面形式前先回答）."""
+    return list(FUNCTION_CHECK_QUESTIONS)
+
+
+def get_function_protection_list() -> list[str]:
+    """功能保护清单：命中 AI 味 marker 后仍须核查是否命中承重情形."""
+    return list(FUNCTION_PROTECTION_LIST)
+
+
+def get_polish_discipline() -> list[str]:
+    """润色处置纪律（NO_CHANGE 合法性、删除来源、保真改写、hook 优先）."""
+    return list(POLISH_DISCIPLINE)
 
 
 def lookup_marker(rule_id: str) -> AiFlavorMarker | None:

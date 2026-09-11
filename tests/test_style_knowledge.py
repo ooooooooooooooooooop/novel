@@ -4,7 +4,10 @@ from src.domain_layer.style_rules import (
     build_style_knowledge_context,
     build_tone_guidance,
     get_ai_flavor_markers,
+    get_function_check_questions,
+    get_function_protection_list,
     get_genre_style_guidance,
+    get_polish_discipline,
     get_tone_style_traits,
     get_weak_adverb_set,
     list_available_tones,
@@ -62,6 +65,22 @@ def test_marker_fields():
         assert marker["measure_unit"] in ("per_1000_chars", "absolute", "count")
         assert marker["severity"] in ("warning", "low")
         assert marker["instructions"]
+        # Q1.3 guardrail：marker 只能是提审（命中≠删除），不得直通道指挥删除。
+        assert "命中≠" in "；".join(marker["instructions"]), marker["rule_id"]
+    # 功能核查协议与保护清单存在且覆盖实测被误删的承重形式。
+    checks = get_function_check_questions()
+    assert len(checks) >= 5
+    protection = "；".join(get_function_protection_list())
+    for keyword in ("结算", "比喻", "回声", "hook", "节拍"):
+        assert keyword in protection
+    discipline = "；".join(get_polish_discipline())
+    assert "NO_CHANGE" in discipline
+    assert "冗余确认" in discipline
+    # 实测反例锁定：解释腔须区分复述与状态转移/hook；排比须保护结算型。
+    voice = "；".join(lookup_marker("ai_explanatory_voice")["instructions"])
+    assert "复述" in voice and "hook" in voice.lower()
+    parallel = "；".join(lookup_marker("ai_parallel_four")["instructions"])
+    assert "结算" in parallel
 
 
 def test_lookup_marker():

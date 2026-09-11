@@ -15,6 +15,8 @@ from pathlib import Path
 from src.boundary_control.style_metrics import analyze_style_metrics
 from src.domain_layer.style_rules import (
     get_ai_flavor_markers,
+    get_function_protection_list,
+    get_polish_discipline,
     list_available_tones,
 )
 from src.object_state.reviewissue import ReviewIssue
@@ -357,6 +359,14 @@ class StyleLintUnit:
             )
         return risks
 
+    @staticmethod
+    def _guardrail_suffix() -> str:
+        """共用提审纪律尾注：拼进每条 ReviewIssue，保证 marker 命中不构成
+        surface→destructive 直通道（Q1.3 自然修订验证 2026-09-11）."""
+        discipline = "；".join(get_polish_discipline())
+        protection = "；".join(get_function_protection_list())
+        return f"｜提审纪律: {discipline}｜功能保护清单: {protection}"
+
     def lint(self, text: str, location: str = "全文") -> list[ReviewIssue]:
         """对全文做 AI 味 lint，产出 ReviewIssue."""
         stats = analyze_style_metrics(text)
@@ -374,6 +384,7 @@ class StyleLintUnit:
                     description=(
                         f"{risk.measure}: {risk.value:.1f}"
                         f"（阈值{risk.threshold:.1f}）。建议: {risk.description}"
+                        f"{self._guardrail_suffix()}"
                     ),
                 )
             )
@@ -405,7 +416,10 @@ class StyleLintUnit:
                     violated_rule=f"禁忌词: {word}",
                     description=(
                         f"风格档案禁忌词 '{word}' 在文本中出现 {count} 次。"
-                        "作者自查清单要求回避此词，请替换为具体动作/身体反应。"
+                        "review candidate：命中≠删除。先功能核查——若该词承担"
+                        "身体结算/节拍/回声功能则保留或保真改写；确认不承重后"
+                        "才替换为具体动作/身体反应。"
+                        f"{self._guardrail_suffix()}"
                     ),
                 )
             )

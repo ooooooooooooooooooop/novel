@@ -380,7 +380,11 @@ class StyleProfile(BaseModel):
             lines.append("决策依据:")
             lines.extend(f"- {item}" for item in self.decision_grounding_notes)
         if self.taboo_words:
-            lines.append(f"禁忌词: {', '.join(self.taboo_words)}")
+            lines.append(
+                f"禁忌词: {', '.join(self.taboo_words)}"
+                "（review candidate：命中≠删除；先功能核查——该词若承担身体结算/"
+                "节拍/回声功能则保留或保真改写，确认不承重再替换）"
+            )
         stats = self.stats
         baseline = (
             f"量化基线: 弱化副词 {stats.weak_adverb_density_per_1000:.1f}/千字"
