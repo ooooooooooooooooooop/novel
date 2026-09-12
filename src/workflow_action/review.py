@@ -710,6 +710,19 @@ class ReviewUnit:
                 "DECISION_CHANGING_REALIZATION / NONE，"
                 "以及违反类型：ECHO / MOTIVE_GLOSS / TACTICAL_GLOSS / "
                 "EFFECT_RESTATEMENT / AMBIGUITY_FORECLOSURE / MISSING_PREMISE\n"
+                "- 人物选择显形（独立 family，issue_type 见下）：按固定顺序判定，"
+                "先问本场是否真的需要诊断性选择——过渡/执行/信息接收/气氛场景"
+                "不需要则为合法无发现（NO_DIAGNOSTIC_CHOICE_NEEDED，不报）；"
+                "需要时依次判："
+                "①是否至少两个真实可行选项？否则 fake_alternative；"
+                "②是否存在可感知取舍/代价？否则 cost_free_choice；"
+                "③决定权是否真属人物（非强迫/巧合/他人代决）？否则 agency_outsourced；"
+                "④最终是否经行为/对白/不行动落地（讨论半天没动作=未落地）？"
+                "否则 choice_not_enacted；"
+                "⑤落地后旁白是否又解释性格答案（『这说明他……』）？"
+                "是则 trait_gloss_after_choice；"
+                "⑥行为逻辑成立但换成任何正常主角都一样（缺角色特异性）？"
+                "generic_protagonist_choice——V1 仅 warning，不阻断\n"
                 "\n对每个对象层 issue，对照【本章正文】判定：已被正文自然兑现则降级或撤销，"
                 "被正文坐实则升级；正文层独有问题以新增 issue 形式报告。"
                 "正文层新增 issue 的 location 必须直接复制【本章正文】中的一段连续原文，"
@@ -828,12 +841,15 @@ class ReviewUnit:
 }}
 
 字段约束（与解析契约一致，必须遵守）：
+- route 仅可取 pass | rewrite | block 之一（不要写 revise/review/continue 等值）；
 - severity 仅可取 critical | blocking | warning | low 之一；
 - reminders[].family 仅可取 missing_consequence | missing_cost |
   relationship_bridge_needed | promise_followup_needed | knowledge_check_needed 之一；
 - reminders[] 仅允许字段：reminder_id / family / trigger_condition / window /
   escalation_issue_type / early_escalation_condition / closure_condition /
   priority / status / source_review，不得添加其他字段；
+- reminders[].status 仅可取 active | resolved | escalated 之一（默认 active，
+  不要自造 monitoring/open/other 等值）；
 - reminders[].escalation_issue_type 必须属于该 family 允许的升级类型：
   missing_consequence→missing_consequence；missing_cost→missing_cost；
   relationship_bridge_needed→relationship_jump|motivation_gap；

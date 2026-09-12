@@ -1,20 +1,20 @@
 {
   "attestation_version": 3,
-  "subject_commit": "385912b0fe45c717732879592665863389382d78",
-  "subject_tree": "c0d64fc434dd54679a9eb845a0deecddfad9552c",
-  "subject_checkout_head": "385912b0fe45c717732879592665863389382d78",
+  "subject_commit": null,
+  "subject_tree": null,
+  "subject_checkout_head": null,
   "attestation_commit": null,
   "carrier_binding": {
     "rule": "diff subject..HEAD limited to current_state.json and state_artifacts/**; carrier HEAD keeps head_status=UNVERIFIED (cannot self-attest)",
     "verified_by": "tests/test_state_source_contract.py"
   },
   "head_status": "UNVERIFIED",
-  "subject_status": "PASS",
-  "state_generated_at": "2026-09-12T17:28:10Z",
+  "subject_status": "UNVERIFIED",
+  "state_generated_at": "1970-01-01T00:00:00Z",
   "profiles": {
     "operator": {
       "profile": "operator",
-      "status": "PASS",
+      "status": "UNVERIFIED",
       "bundle_rel": "state_artifacts/385912b0fe45/operator",
       "subject_commit": "385912b0fe45c717732879592665863389382d78",
       "subject_tree": "c0d64fc434dd54679a9eb845a0deecddfad9552c",
@@ -47,38 +47,14 @@
       "collected_tests": 3143,
       "expected_collected_tests": 3143,
       "pytest": {
-        "command": "C:\\Users\\admin\\Desktop\\novel-attest-op\\.venv\\Scripts\\python.exe -m pytest tests -q --tb=short -p no:cacheprovider --confcutdir tests --junitxml C:\\Users\\admin\\Desktop\\novel-attest-op\\state_artifacts\\385912b0fe45\\operator.staging-385912b0\\pytest-junit.xml",
-        "exit_code": 0,
-        "results": {
-          "passed": 3138,
-          "skipped": 5,
-          "failed": 0,
-          "errors": 0,
-          "collected": 3143
-        },
-        "parse_error": null,
-        "started_at": "2026-09-12T17:09:58Z",
-        "completed_at": "2026-09-12T17:20:47Z",
-        "stdout": "pytest-stdout.txt",
-        "stderr": "pytest-stderr.txt",
-        "junit_xml": "pytest-junit.xml",
-        "stdout_sha256": "90d2e970ac01bda48f598c482dce8cc5a3d567d10e6576db6ef596df2fbf29e8",
-        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-        "junit_xml_sha256": "f4c29f1920f9a2aa1bbf7415adc85339241d66f883623feb02cd4e293a9bcefd",
-        "result_artifact_sha256": "d406c9ef444b3018d94f0d893b9b7ed1215139840c229c1853909b2fb1ee073a",
-        "junit_skips_classified_at": "2026-09-12T17:20:51Z"
+        "command": null,
+        "exit_code": null,
+        "results": null
       },
       "canary": {
-        "command": "C:\\Users\\admin\\Desktop\\novel-attest-op\\.venv\\Scripts\\python.exe scripts/tier0_canary_regression.py",
-        "exit_code": 0,
-        "verdict": "PASS",
-        "detail": "Tier 0 three-flow canary regression: PASS",
-        "started_at": "2026-09-12T17:20:51Z",
-        "completed_at": "2026-09-12T17:20:54Z",
-        "stdout": "canary-stdout.txt",
-        "stderr": "canary-stderr.txt",
-        "stdout_sha256": "39a32aaa85a7cc1d0f23c479739124390258974a6471fa33d5423714a74fa26d",
-        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        "command": null,
+        "exit_code": null,
+        "verdict": null
       },
       "skip_manifest": {
         "profile": "operator",
@@ -65254,7 +65230,7 @@
     },
     "public_clean": {
       "profile": "public_clean",
-      "status": "PASS",
+      "status": "UNVERIFIED",
       "bundle_rel": "state_artifacts/385912b0fe45/public_clean",
       "subject_commit": "385912b0fe45c717732879592665863389382d78",
       "subject_tree": "c0d64fc434dd54679a9eb845a0deecddfad9552c",
@@ -65287,38 +65263,14 @@
       "collected_tests": 3143,
       "expected_collected_tests": 3143,
       "pytest": {
-        "command": "/home/user_2025/novel-attest/.venv/bin/python -m pytest tests -q --tb=short -p no:cacheprovider --confcutdir tests --junitxml /home/user_2025/novel-attest/state_artifacts/385912b0fe45/public_clean.staging-385912b0/pytest-junit.xml",
-        "exit_code": 0,
-        "results": {
-          "passed": 3123,
-          "skipped": 20,
-          "failed": 0,
-          "errors": 0,
-          "collected": 3143
-        },
-        "parse_error": null,
-        "started_at": "2026-09-12T17:21:52Z",
-        "completed_at": "2026-09-12T17:26:53Z",
-        "stdout": "pytest-stdout.txt",
-        "stderr": "pytest-stderr.txt",
-        "junit_xml": "pytest-junit.xml",
-        "stdout_sha256": "8c9be2b4bec4f076a099db4bf7f4c0931d9d5c090ba00678162c084dd81f7ebc",
-        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-        "junit_xml_sha256": "05b227cc5c94201db69de61e0427225c3915d4eff3d67419d9b90a825e437305",
-        "result_artifact_sha256": "84c4af3bdaa8fc89f466facb50abca2d9d3e38e86f6d31052998c8ba3021567a",
-        "junit_skips_classified_at": "2026-09-12T17:26:55Z"
+        "command": null,
+        "exit_code": null,
+        "results": null
       },
       "canary": {
-        "command": "/home/user_2025/novel-attest/.venv/bin/python scripts/tier0_canary_regression.py",
-        "exit_code": 0,
-        "verdict": "PASS",
-        "detail": "Tier 0 three-flow canary regression: PASS",
-        "started_at": "2026-09-12T17:26:55Z",
-        "completed_at": "2026-09-12T17:26:57Z",
-        "stdout": "canary-stdout.txt",
-        "stderr": "canary-stderr.txt",
-        "stdout_sha256": "39a32aaa85a7cc1d0f23c479739124390258974a6471fa33d5423714a74fa26d",
-        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        "command": null,
+        "exit_code": null,
+        "verdict": null
       },
       "skip_manifest": {
         "profile": "public_clean",
@@ -65710,77 +65662,13 @@
       }
     }
   },
-  "subject_overall_status": "PASS",
+  "subject_overall_status": "UNVERIFIED",
   "collected_tests": 3143,
   "collected_tests_contract": "tests/test_cli_runtime_contract.py::EXPECTED_COLLECTED_TESTS",
-  "last_validated_commit": "385912b0fe45c717732879592665863389382d78",
-  "last_validated_tree": "c0d64fc434dd54679a9eb845a0deecddfad9552c",
+  "last_validated_commit": null,
+  "last_validated_tree": null,
   "last_certified_checkpoint": {
-    "status": "PASS",
-    "records": {
-      "docs/00_project/releases/tier0-release.json": {
-        "status": "PASS",
-        "certification_tag": "v0.1.2-tier0",
-        "record_path": "docs/00_project/releases/tier0-release.json",
-        "tag_object": "4b148c98b4a5931349a2af4f7f70248b28961101",
-        "tag_target_commit": "3287e0feb20691a0add37d1eec7173664beb3172",
-        "record_blob_sha256": "7f0a48b6f740e142e546553f8d37dc82ded1f379e4fe31510453407cf60809ca",
-        "tag_tree_blob_sha256": "a02bb1aaf8c22d7ed16d5931c4f51b3691ff68e25417e2150f4f7733f1199097",
-        "record_relationship": "post_tag_historical_record",
-        "tag_path_bytes_verified": true,
-        "record_commit": "e25983d4b7a1846e1db825bc8af0c25f44f8bdcd"
-      },
-      "docs/00_project/releases/q1-release.json": {
-        "status": "PASS",
-        "certification_tag": "v0.1.3-q1",
-        "record_path": "docs/00_project/releases/q1-release.json",
-        "tag_object": "dae52cecac9a5beb2b5e9f8d1291fd02ceed9c9f",
-        "tag_target_commit": "ff66b9b24e8fb5099ab3c1b2bfda3b6e60e46fa2",
-        "record_blob_sha256": "dd1f5de570564dddd9a459326c874bf52daf09a75ff87fce92426d0f1269d14e",
-        "tag_tree_blob_sha256": "dd1f5de570564dddd9a459326c874bf52daf09a75ff87fce92426d0f1269d14e",
-        "record_relationship": "tag_self_record",
-        "tag_path_bytes_verified": true,
-        "record_commit": "ff66b9b24e8fb5099ab3c1b2bfda3b6e60e46fa2",
-        "payload_git_commit": "9777087"
-      },
-      "docs/00_project/releases/tier0-canary-evidence.json": {
-        "status": "PASS",
-        "certification_tag": "v0.1.2-tier0",
-        "record_path": "docs/00_project/releases/tier0-canary-evidence.json",
-        "tag_object": "4b148c98b4a5931349a2af4f7f70248b28961101",
-        "tag_target_commit": "3287e0feb20691a0add37d1eec7173664beb3172",
-        "record_blob_sha256": "14c9ca0abf386fc97621f4ba152a1e5975553514a6201d4c0c0a9c913ed713d6",
-        "tag_tree_blob_sha256": "14c9ca0abf386fc97621f4ba152a1e5975553514a6201d4c0c0a9c913ed713d6",
-        "record_relationship": "tag_self_record",
-        "tag_path_bytes_verified": true,
-        "record_commit": "ff7a5afee4cc6460f18e1692cc00c45fc1742d81"
-      },
-      "docs/00_project/releases/tier0-canary-gate.json": {
-        "status": "PASS",
-        "certification_tag": "v0.1.2-tier0",
-        "record_path": "docs/00_project/releases/tier0-canary-gate.json",
-        "tag_object": "4b148c98b4a5931349a2af4f7f70248b28961101",
-        "tag_target_commit": "3287e0feb20691a0add37d1eec7173664beb3172",
-        "record_blob_sha256": "1f07e3a9b766cfcee7d67ccb9b3c13e66ecb8ed51bc84fdf4c9f6499f1d6d644",
-        "tag_tree_blob_sha256": "1f07e3a9b766cfcee7d67ccb9b3c13e66ecb8ed51bc84fdf4c9f6499f1d6d644",
-        "record_relationship": "tag_self_record",
-        "tag_path_bytes_verified": true,
-        "record_commit": "0fc9fe8f83b177820c3298db0bc49809c96bd390"
-      },
-      "docs/00_project/releases/tier0-three-flow-canary-aggregation.json": {
-        "status": "PASS",
-        "certification_tag": "v0.1.2-tier0",
-        "record_path": "docs/00_project/releases/tier0-three-flow-canary-aggregation.json",
-        "tag_object": "4b148c98b4a5931349a2af4f7f70248b28961101",
-        "tag_target_commit": "3287e0feb20691a0add37d1eec7173664beb3172",
-        "record_blob_sha256": "c2c4b3ecdb385a3a907dc32d5b8bee76afda2252c8efab2bb5f136392c37ae7f",
-        "tag_tree_blob_sha256": "c2c4b3ecdb385a3a907dc32d5b8bee76afda2252c8efab2bb5f136392c37ae7f",
-        "record_relationship": "tag_self_record",
-        "tag_path_bytes_verified": true,
-        "record_commit": "ff7a5afee4cc6460f18e1692cc00c45fc1742d81"
-      }
-    },
-    "failures": []
+    "status": "UNVERIFIED"
   },
   "evidence_paths": {
     "docs/00_project/releases/tier0-release.json": "3312773a6645a52899a231fe90fab0c35b0ba11f",
@@ -65790,8 +65678,5 @@
     "docs/00_project/releases/tier0-three-flow-canary-aggregation.json": "8b88e145d51c1755cdf7955a029d73c7b3da69cb"
   },
   "artifacts_dir": "state_artifacts/385912b0fe45",
-  "bundles": {
-    "operator": "state_artifacts/385912b0fe45/operator",
-    "public_clean": "state_artifacts/385912b0fe45/public_clean"
-  }
+  "bundles": {}
 }

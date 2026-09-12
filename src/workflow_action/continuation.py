@@ -339,6 +339,7 @@ new_state 是单元结束后的完整快照，保留仍有效的旧信息，不�
 8. 延续本作品的叙事组织方式——若原作单章常见多线并置/日常承载/离场人物近况自然回归，请保持这种组织；若原作单线紧凑，则保持其紧凑。不要因为续写而系统性改变作品的组织方式，也不要每章强行制造悬念钩子
 9. scene_experience 可选：提供时须落在读者体验五维（看见/阻碍/选择/结果/认知变化），让正文展开有现场感；省略时不注入
 9b. reader_handoffs 可选：本场景若有 1–3 个高价值认知交接点（读者应从证据中自己完成的关键推断），逐条声明。三层语义必须分离：evidence=正文将给的动作/对白/细节；reader_inference=希望读者自己得出的判断；explicitness=leave_implicit（默认，保持隐式）/explicit_when_condition（写明 explicit_when：什么情况下才允许显式，例如"只有人物意识到并因此改变行动时"）/must_explain（读者无法可靠推断：规则关键因果、角色不可见信息）。另须声明 evidence_sufficiency：sufficient=已计划足够可见证据；needs_more_evidence=想让读者推但还少一个必要前提（Prose 会先补证据再停）；must_explicit=信息无法合理推出必须明说。不为每段都填表——只标真正值得交还给读者的关键 beat；没有合适的则省略整个字段
+9c. diagnostic_choice 可选：本场景若有 1 个真正值得 dramatize 的取舍点，声明它。资格检查（不满足则省略整个字段，不硬造选择）：(a) 至少 2 个在人物当前知识/资源/规则下真实可行的选项；(b) 选项成本结构有有意义差异（不能只选 A 失去 X、选 B 什么都不失去）；(c) 决定权属于人物本人（非上级强迫/巧合替代/他人代决）。conditional_revelations 只能写条件性推断（"若选A会更支持'关系优先于收益'这一读者推断"），禁止写成人物事实（"此人物重感情"），不写进 CharacterModel
 10. hook_type 可选：若填，必须是当前层级的显式枚举（见【层级钩子类型】段；未提供该段时省略字段）——自由文本钩子走 hook 字段，hook_type 可留空
 11. 借力不出面：若原作主角常借力布局、委托他人出面处理事务、居中调度留有余裕，请保持这种行动方式；不要让主角因续写而事事亲为、亲自上阵硬碰。若原作主角本就亲力亲为，则保持其亲力亲为
 
@@ -376,7 +377,19 @@ new_state 是单元结束后的完整快照，保留仍有效的旧信息，不�
         "explicit_when": "什么情况下才允许显式（可省略）",
         "payoff": "预期回报（可省略）"
       }}
-    ]
+    ],
+    "diagnostic_choice": {{
+      "pressure": "当前什么压力迫使人物不能什么都要",
+      "alternatives": [
+        {{"option": "真实可行选项A", "viability_basis": "为何在人物知识/资源/规则下可行", "cost": "选它失去什么"}},
+        {{"option": "真实可行选项B", "viability_basis": "为何可行", "cost": "失去什么"}}
+      ],
+      "agency_basis": "为什么决定权属于人物本人",
+      "conditional_revelations": [
+        {{"if_option": "选项A", "preference_signal": "若选A会支持读者对人物偏好的哪种推断"}},
+        {{"if_option": "选项B", "preference_signal": "若选B支持哪种推断"}}
+      ]
+    }}
   }},
   "new_state": {{
     "state_id": "新状态ID",

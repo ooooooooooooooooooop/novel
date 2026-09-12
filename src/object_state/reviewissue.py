@@ -35,6 +35,12 @@ ReviewIssueType = Literal[
     "dialogue_flat",
     "exposition_heavy",
     "reader_cognitive_allocation",
+    "fake_alternative",
+    "cost_free_choice",
+    "agency_outsourced",
+    "choice_not_enacted",
+    "trait_gloss_after_choice",
+    "generic_protagonist_choice",
     "other",
 ]
 ReminderFamily = Literal[

@@ -12,6 +12,7 @@ from pydantic import (
     model_validator,
 )
 
+from src.object_state.diagnostic_choice import DiagnosticChoice
 from src.object_state.inference_handoff import InferenceHandoff
 from src.object_state.scene_experience import SceneExperience
 from src.object_state.statemodel import ClosureKind
@@ -144,6 +145,17 @@ class PlotUnit(BaseModel):
         "只标关键 beat）。Continue 可选产出，Prose 展开时注入为停止条件",
     )
 
+    # ---- CCR V1: 诊断性选择机会（人物通过选择显形的规划层）----
+    # 条件性规划对象：压力→≥2真实备选（各带代价）→人物决定权→各选项的
+    # 条件性偏好信号。最多 1 个/场景；不满足 anti-fake 资格则省略。
+    # Optional：空不渲染，与旧版逐字节一致（零回归契约）。
+    diagnostic_choice: Optional[DiagnosticChoice] = Field(
+        default=None,
+        description="诊断性选择机会：本场景值得 dramatize 的取舍点（≤1 个）。"
+        "Continue 可选产出，Prose 展开时注入；revealed preference 仅作"
+        "条件性信号，不得写成人物事实",
+    )
+
     # 线程生命周期信号不在 PlotUnit：pre-prose 规划器无法逐字引用未来正文，
     # factual OPEN/CLOSE 由 post-prose Review 阶段声明（review.extract_transitions）。
 
@@ -182,8 +194,12 @@ class PlotUnit(BaseModel):
             raise ValueError(f"{info.field_name} entries must be non-empty")
         return values
 
-    def to_prompt_context(self) -> str:
-        """生成给 LLM 的上下文描述."""
+    def to_prompt_context(self, writer_facing: bool = False) -> str:
+        """生成给 LLM 的上下文描述.
+
+        writer_facing=True（Prose/Rewrite 用）：diagnostic_choice 只渲染
+        编译后的执行契约（分析防火墙）；False 时渲染完整对象（Review/trace）。
+        """
         lines = [
             f"【PlotUnit: {self.unit_id} | {self.level}】",
             f"目标: {self.goal}",
@@ -212,5 +228,11 @@ class PlotUnit(BaseModel):
             lines.append("【认知交接点】")
             for handoff in self.reader_handoffs:
                 lines.append(handoff.to_prompt_context())
+        if self.diagnostic_choice:
+            lines.append(
+                self.diagnostic_choice.to_execution_context()
+                if writer_facing
+                else self.diagnostic_choice.to_prompt_context()
+            )
         lines.append(f"有效推进: {'是' if self.is_effective else '待确认'}")
         return "\n".join(lines)

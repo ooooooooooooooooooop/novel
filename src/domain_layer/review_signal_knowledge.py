@@ -97,6 +97,14 @@ FAILURE_TYPE_LEXICON: tuple[tuple[str, str, str], ...] = (
     # RCC V1：认知劳动分配——证据已完成但后挂解释尾巴（解释过满）。
     # 反向（该说没说）由信息凭证/兑现维度覆盖，不在此类重复。
     ("reader_cognitive_allocation", "medium", "条件性阻断"),
+    # CCR V1：人物通过选择显形——独立 family，固定判定序见 Review 维度。
+    ("fake_alternative", "medium/high", "条件性阻断"),
+    ("cost_free_choice", "medium/high", "条件性阻断"),
+    ("agency_outsourced", "medium/high", "条件性阻断"),
+    ("choice_not_enacted", "medium/high", "条件性阻断"),
+    ("trait_gloss_after_choice", "medium", "通常不阻断"),
+    # V1 warning-only：最易主观滥报，不参与 blocking。
+    ("generic_protagonist_choice", "low", "仅诊断不阻断"),
 )
 
 # --- 失败类型四层分类（docs/03_rules/08_failure_types.md §4） ---

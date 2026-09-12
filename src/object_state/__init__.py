@@ -97,6 +97,12 @@ from .readerreport import ReaderDimension, ReaderExperienceReport
 from .readerresponse import ReaderResponseRecord
 from .reviewissue import ReviewIssue, ReviewReminder
 from .scene_experience import SceneExperience
+from .diagnostic_choice import (
+    ChoiceAlternative,
+    ConditionalRevelation,
+    DiagnosticChoice,
+)
+from .inference_handoff import InferenceHandoff
 from .structural_search import (
     CandidatePrecommit,
     NearDuplicatePair,
@@ -210,6 +216,10 @@ __all__ = [
     "RollingLongHorizonSummary",
     "RuleDeletionAuditReport",
     "SceneExperience",
+    "ChoiceAlternative",
+    "ConditionalRevelation",
+    "DiagnosticChoice",
+    "InferenceHandoff",
     "StructuralDiversityReport",
     "StructuralProposal",
     "StructuralSearchResult",

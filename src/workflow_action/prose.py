@@ -242,7 +242,13 @@ def build_prompt(
         "PlotUnit 中的【认知交接点】若存在，是本场景的停止条件：证据给出后即停手，"
         "在 explicit_when 条件满足前不点破；evidence_sufficiency=needs_more_evidence "
         "时先补证据再停。",
-        "", "【PlotUnit】", plotunit.to_prompt_context(),
+        "", "【人物选择显形】",
+        "PlotUnit 中的【选择执行契约】若存在：本场必须让人物经行动/对白/不行动/"
+        "资源分配完成一个真实取舍——不是旁白宣布。至少一个代价要在选择发生前或"
+        "当下让读者可感知，但不得把备选方案和利弊逐项搬进内心独白；选择落地后"
+        "禁止再写『这说明他其实是……』『他终究还是把X看得比Y重要』这类性格答案。"
+        "不存在的场景禁止硬造戏剧化决断。",
+        "", "【PlotUnit】", plotunit.to_prompt_context(writer_facing=True),
     ]
     if workspec_context:
         lines += ["", "【作品约束】", workspec_context]
@@ -313,15 +319,24 @@ def build_revision_prompt(
             "- RESTORE_MISSING_PREMISE：推断缺必要前提——优先补动作/对白反应/"
             "场景事实让推断可完成；实在无法自然表现才保留最小明确句"
             "（补 premise，不是补讲解）",
+            "- RESTORE_MEANINGFUL_ALTERNATIVE：让被写成单选题的另一选项重新真正可行",
+            "- SURFACE_COST：把已存在但读者看不到的代价显形",
+            "- MOVE_COST_BEFORE_CHOICE：代价先可感知，人物再选择，结果再落地",
+            "- RETURN_AGENCY：把由巧合/他人替代完成的决定还给人物",
+            "- ENACT_CHOICE：把讨论、犹豫、计划落成实际行动",
+            "- CONVERT_TRAIT_TO_DIAGNOSTIC_BEHAVIOR：把『他很谨慎/重情/野心大』"
+            "换成压力下的行为",
+            "- REMOVE_TRAIT_GLOSS：保留行为，删掉重复性格答案",
             "- KEEP_EXPLICIT：规则关键/不可推断/认知本身造成状态变化时保留原文",
             "- NO_CHANGE：误判，原文本就正确",
+            "禁止以『选择不够鲜明』为由把人物改得更极端或降智——目标是恢复真实取舍",
             "每个修改必须带 protected_function：该段原本承担的叙事功能，"
             "修改后功能必须仍在（悬念方向、人物判断、因果、情绪基调不得因删解释而丢失）。"
             "不得把『需要读者自己推断』误改成『故作含蓄』——若删除解释后读者缺少必要证据，"
             "选择 KEEP_EXPLICIT 或 CONVERT_GLOSS_TO_EVIDENCE。",
         ]
     if plotunit is not None:
-        lines += ["", "【PlotUnit（结构依据）】", plotunit.to_prompt_context()]
+        lines += ["", "【PlotUnit（结构依据）】", plotunit.to_prompt_context(writer_facing=True)]
     lines += ["", "【当前章节正文】", chapter_text]
     if target_chapter_chars:
         lines.append(
