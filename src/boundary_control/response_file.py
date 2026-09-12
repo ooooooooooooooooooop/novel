@@ -808,3 +808,59 @@ def reset_consumed_responses(output_dir: Path) -> list[str]:
             path.unlink()
             removed.append(name)
     return removed
+
+
+# ----------------------------------------------------------------------
+# Post-commit cleanup 事务可见性与确定性恢复
+# ----------------------------------------------------------------------
+
+TXN_STATUS_FILE = "txn_status.json"
+
+
+def mark_txn_status(output_dir: Path, status: str, **extra: object) -> Path:
+    """持久化事务终态（COMMITTED / POST_COMMIT_CLEANUP_FAILED）."""
+    import json
+
+    path = Path(output_dir) / TXN_STATUS_FILE
+    payload = {"status": status, **extra}
+    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+                    encoding="utf-8")
+    return path
+
+
+def read_txn_status(output_dir: Path) -> dict | None:
+    """读取事务终态；无 marker 返回 None."""
+    import json
+
+    path = Path(output_dir) / TXN_STATUS_FILE
+    if not path.exists():
+        return None
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def detect_stale_cycle_responses(output_dir: Path) -> list[str]:
+    """列出仍残留的本周期 response 文件（post-commit 未清干净的证据）."""
+    output_dir = Path(output_dir)
+    return [name for name in CYCLE_RESPONSE_FILES
+            if (output_dir / name).exists()]
+
+
+def recover_post_commit_cleanup(output_dir: Path) -> list[str]:
+    """确定性恢复：仅清理由已 committed 周期遗留的 staged response.
+
+    前提：txn_status == POST_COMMIT_CLEANUP_FAILED（durable commit 已成功，
+    只剩响应文件未清）。只删 CYCLE_RESPONSE_FILES，不动 chapter/state/
+    package/frames；成功后 marker 归位 COMMITTED。非该状态调用抛错。
+    """
+    status = read_txn_status(output_dir)
+    if not status or status.get("status") != "POST_COMMIT_CLEANUP_FAILED":
+        raise ValueError(
+            "recover_post_commit_cleanup 仅适用于 POST_COMMIT_CLEANUP_FAILED 状态")
+    removed = reset_consumed_responses(output_dir)
+    mark_txn_status(output_dir, "COMMITTED",
+                    recovered=True, recovered_files=removed)
+    return removed

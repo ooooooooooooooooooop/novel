@@ -76,7 +76,7 @@ def test_to_prompt_line_with_validity():
             valid_from="第三章", valid_until="第五章"
         ),
     )
-    assert entry.to_prompt_line() == "✓ [relation](第三章~第五章) 令牌归c001所有"
+    assert entry.to_prompt_line() == "✓ [f1] [relation](第三章~第五章) 令牌归c001所有"
 
 
 def test_to_prompt_line_without_validity_unchanged():
@@ -86,7 +86,7 @@ def test_to_prompt_line_without_validity_unchanged():
         fact_type="relation",
         confirmed=True,
     )
-    assert entry.to_prompt_line() == "✓ [relation] 令牌归c001所有"
+    assert entry.to_prompt_line() == "✓ [f1] [relation] 令牌归c001所有"
 
 
 def test_fact_ledger_add_with_validity():

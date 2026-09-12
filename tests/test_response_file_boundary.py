@@ -2085,6 +2085,39 @@ def test_reset_consumed_responses_idempotent_when_absent(tmp_path):
     assert reset_consumed_responses(tmp_path) == []
 
 
+    # POST_COMMIT_CLEANUP_FAILED → 残留检测 → 确定性恢复 → COMMITTED：
+    # durable commit 成功但 reset 失败时 marker 记录失败态；残留 cycle
+    # response 可检测；recover 仅清 staged response 并归位 marker，
+    # 不动 chapter/state/package；非失败态拒绝恢复（不假装能恢复）。
+    from src.boundary_control.response_file import (
+        mark_txn_status, read_txn_status, detect_stale_cycle_responses,
+        recover_post_commit_cleanup,
+    )
+    import pytest
+    (tmp_path / "chapter_1.txt").write_text("committed prose", encoding="utf-8")
+    (tmp_path / "state_v2_model.json").write_text("{}", encoding="utf-8")
+    (tmp_path / "extend_frames.json").write_text("{}", encoding="utf-8")
+    for name in ("continue_response.txt", "prose_response.txt",
+                 "review_response.txt"):
+        (tmp_path / name).write_text("cycle", encoding="utf-8")
+    mark_txn_status(tmp_path, "POST_COMMIT_CLEANUP_FAILED",
+                    committed_chapter="chapter_1.txt",
+                    stale_responses=detect_stale_cycle_responses(tmp_path))
+    assert read_txn_status(tmp_path)["status"] == "POST_COMMIT_CLEANUP_FAILED"
+    assert sorted(detect_stale_cycle_responses(tmp_path)) == [
+        "continue_response.txt", "prose_response.txt", "review_response.txt"]
+    removed = recover_post_commit_cleanup(tmp_path)
+    assert sorted(removed) == sorted([
+        "continue_response.txt", "prose_response.txt", "review_response.txt"])
+    assert detect_stale_cycle_responses(tmp_path) == []
+    assert read_txn_status(tmp_path)["status"] == "COMMITTED"
+    assert (tmp_path / "chapter_1.txt").read_text() == "committed prose"
+    assert (tmp_path / "state_v2_model.json").exists()
+    assert (tmp_path / "extend_frames.json").exists()
+    with pytest.raises(ValueError):
+        recover_post_commit_cleanup(tmp_path)
+
+
 def test_cycle_response_files_exclude_cross_chapter_prompts():
     """周期响应清单不得包含跨章输入解析（rebuild/outline）的响应."""
     assert "rebuild_response.txt" not in CYCLE_RESPONSE_FILES

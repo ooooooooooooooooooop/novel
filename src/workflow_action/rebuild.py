@@ -153,6 +153,9 @@ class RebuildUnit:
      - linked_characters: 关联角色ID
      - linked_facts: 关联事实ID
 
+【类型约束】所有"列表"字段均为字符串数组：每项是一个字符串，
+不是对象（例如 factions 输出 ["势力名：说明"]，不要输出 [{{"name": ...}}]）。
+
 【Track 1 约束 — 必须遵守】
 {INFORMATION_LAYER_GUIDANCE}
 输入正文已明确向读者揭示的信息不能仅因角色不知情而放入 hidden_information。

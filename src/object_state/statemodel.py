@@ -37,6 +37,27 @@ class CompressionLevel(str, Enum):
     ARCHIVED = "archived" # 归档，仅保留指针
 
 
+class ThreadLifecycle(str, Enum):
+    """线程生命周期（承诺/义务/线程何时不再约束当下）.
+
+    OPEN：仍活跃，可进入 selection；
+    CLOSED：已被 accepted prose 履行/违背/解除/取代——保留在 state 中供审计，
+    但不再作为 active pressure 进入 Candidate Pool。
+    """
+
+    OPEN = "open"
+    CLOSED = "closed"
+
+
+class ClosureKind(str, Enum):
+    """线程关闭方式（仅 lifecycle=CLOSED 时有意义）."""
+
+    FULFILLED = "fulfilled"    # 承诺/义务被履行
+    VIOLATED = "violated"      # 承诺被明确违背（新后果须由正文事实另行产生）
+    DISCHARGED = "discharged"  # 被对方解除/条件取消等
+    SUPERSEDED = "superseded"  # 被新的更具体义务替代
+
+
 # ---------------------------------------------------------------------------
 # 八类状态之一：Knowledge State（按人物维护谁知道什么）
 # ---------------------------------------------------------------------------
@@ -125,6 +146,17 @@ class ThreadState(BaseModel):
     )
     compression: CompressionLevel = Field(
         default=CompressionLevel.ACTIVE, description="压缩层级"
+    )
+    lifecycle: ThreadLifecycle = Field(
+        default=ThreadLifecycle.OPEN,
+        description="生命周期：OPEN=仍约束当下；CLOSED=已履行/违背/解除/取代，"
+        "保留审计但不再作为 active candidate",
+    )
+    closure_kind: Optional[ClosureKind] = Field(
+        default=None, description="关闭方式（仅 CLOSED 时有意义）"
+    )
+    closure_evidence: str = Field(
+        default="", description="关闭依据：accepted prose 中的锚点/章节引用"
     )
     provenance: Provenance = Field(default=Provenance.CANON, description="来源分级")
 

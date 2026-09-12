@@ -118,7 +118,7 @@ class FactEntry(BaseModel):
             if self.validity_interval is not None
             else ""
         )
-        line = f"{status} [{self.fact_type}]{suffix} {self.statement}"
+        line = f"{status} [{self.fact_id}] [{self.fact_type}]{suffix} {self.statement}"
         if self.known_by:
             line += f" [知: {','.join(self.known_by)}]"
         if self.chronological_order:

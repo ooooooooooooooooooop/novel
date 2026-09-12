@@ -248,6 +248,7 @@ def build_prompt(
     lines += [
         "",
         "【输出格式】直接输出章节正文（纯文本，不要 JSON、不要前后缀说明）。",
+        f"正文去空白后不得少于 {MIN_PROSE_CHARS} 字符（硬下限，低于此值将被拒绝）。",
     ]
     return "\n".join(lines)
 

@@ -199,6 +199,7 @@ class ReviewUnit:
         objects: list,
         context: str = "audit",
         prose_text: str | None = None,
+        transition_contract: str = "",
     ) -> str:
         """生成审查 prompt.
 
@@ -212,7 +213,8 @@ class ReviewUnit:
         hard_issues = self._hard_rules(objects)
         domain_issues = self._domain_rules(objects)
         return self._build_prompt(
-            objects, hard_issues, domain_issues, context, prose_text
+            objects, hard_issues, domain_issues, context, prose_text,
+            transition_contract,
         )
 
     def parse_response(
@@ -249,6 +251,7 @@ class ReviewUnit:
             "character_knowledge_updates",
             "character_pressure_updates",
             "misinformation_updates",
+            "thread_transitions",
         )
         extra = sorted(set(data) - set(allowed_fields))
         if extra:
@@ -289,6 +292,24 @@ class ReviewUnit:
                 )
             self._apply_misinformation_updates(character_models, updates)
         return issues, reminders, route
+
+    @staticmethod
+    def extract_transitions(response: str) -> list:
+        """提取 review 响应中可选的 thread_transitions（State V2 lifecycle 契约）.
+
+        factual transition 的合法声明点在 post-prose 阶段——只有看过最终
+        正文的阶段才能逐字引用 evidence_anchor。Continue/PlotUnit 不再承载。
+        返回 ThreadTransition 列表；无字段/空列表返回 []；非法条目抛错
+        （属契约失败，可走同 prompt rematerialization）。
+        """
+        from src.object_state.plotunit import ThreadTransition
+        from src.workflow_action.preference_review import _parse_json
+
+        data = _parse_json(response)
+        raw = data.get("thread_transitions") or []
+        if not isinstance(raw, list):
+            raise ValueError("Review response field thread_transitions must be a list")
+        return [ThreadTransition(**t) for t in raw]
 
     @staticmethod
     def _apply_foreshadow_updates(foreshadows: list, updates: list) -> None:
@@ -619,6 +640,7 @@ class ReviewUnit:
         domain_issues: list[ReviewIssue],
         context: str,
         prose_text: str | None = None,
+        transition_contract: str = "",
     ) -> str:
         """生成审查 prompt."""
         obj_ctx = []
@@ -674,6 +696,29 @@ class ReviewUnit:
                 "信息层放置单独核对：正文明确揭示 hidden_information 的内容，"
                 "说明读者已经知道，不能因内容兑现就撤销字段放置问题。"
                 "旁白或内心活动不自动使其他角色知情；未描写不能单独证明秘密为真。"
+            )
+
+        # State V2 lifecycle 契约：仅在 post-prose Review 阶段声明 factual
+        # transition（此刻才看得见最终正文，anchor 才可能逐字落地）。
+        # 零成本：transition_contract 为空时 prompt 字节不变。
+        transitions_field = ""
+        transitions_note = ""
+        if transition_contract:
+            transitions_field = (
+                ',\n  "thread_transitions": [\n    {\n'
+                '      "action": "OPEN",\n'
+                '      "thread_label": "正文明确形成的新义务/后果压力",\n'
+                '      "thread_type": "承诺线",\n'
+                '      "evidence_anchor": "正文原句逐字片段"\n'
+                "    },\n    {\n"
+                '      "action": "CLOSE",\n'
+                '      "thread_id": "既有线程ID",\n'
+                '      "closure_kind": "fulfilled",\n'
+                '      "evidence_anchor": "正文原句逐字片段"\n'
+                "    }\n  ]"
+            )
+            transitions_note = (
+                "\n\n" + transition_contract
             )
 
         object_summary = "\n---\n".join(obj_ctx)
@@ -758,8 +803,21 @@ class ReviewUnit:
       "disproven": ["一度怀疑自己看见旧字只是眼花（后自我纠正）"],
       "corrected": [{{"from": "旧错误信念", "to": "修正后的信念"}}]
     }}
-  ]
+  ]{transitions_field}
 }}
+
+字段约束（与解析契约一致，必须遵守）：
+- severity 仅可取 critical | blocking | warning | low 之一；
+- reminders[].family 仅可取 missing_consequence | missing_cost |
+  relationship_bridge_needed | promise_followup_needed | knowledge_check_needed 之一；
+- reminders[] 仅允许字段：reminder_id / family / trigger_condition / window /
+  escalation_issue_type / early_escalation_condition / closure_condition /
+  priority / status / source_review，不得添加其他字段；
+- reminders[].escalation_issue_type 必须属于该 family 允许的升级类型：
+  missing_consequence→missing_consequence；missing_cost→missing_cost；
+  relationship_bridge_needed→relationship_jump|motivation_gap；
+  promise_followup_needed→promise_loss|missing_consequence；
+  knowledge_check_needed→information_leak。
 
 如无问题，返回空 issues 和 "pass" 路由。
 foreshadow_updates 可选：仅当某 active 伏笔在本章（含其后果/正文）已被兑现或
@@ -776,7 +834,7 @@ misinformation_updates 可选：仅当某角色的一条错误信念在本章被
 形态（如『被抛弃』→『明白是被迫离开但仍有怨』），用 corrected 的 [{{from, to}}]
 替换。注意：错误信念是 belief state，与 knowledge truth 分离——事实被证明不等于
 人物心理上已经接受，只移除确实不再持有的断言，不要因为『事实被证伪』就把信念
-从 misinformation 抹掉。仍成立的错误信念不要列入。"""
+从 misinformation 抹掉。仍成立的错误信念不要列入。{transitions_note}"""
 
     def is_pass(self, issues: list[ReviewIssue]) -> bool:
         """判断是否通过（无阻断性问题）."""

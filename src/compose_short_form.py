@@ -718,6 +718,10 @@ def main() -> int:
                         reader_contract.to_prompt_context() if reader_contract else ""
                     ),
                     viability_note=viability_note,
+                    occupied_unit_ids=[
+                        getattr(o, "unit_id") for o in objects
+                        if getattr(o, "unit_id", None)
+                    ],
                 ),
                 encoding="utf-8",
             )

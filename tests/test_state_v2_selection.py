@@ -137,6 +137,22 @@ def test_context_firewall_blocks_background():
     assert not relation_packet.is_empty()
     assert "甲信任乙，但乙尚不信任甲" in relation_packet.render()
 
+    # production 接入层（state_v2_loop.run_selection）：同样的 firewall 纪律——
+    # BACKGROUND/DORMANT/被 Suppressor 抑制的线程文本不得进入 writer 可见包。
+    from src.workflow_action import state_v2_loop
+    packet2, trace = state_v2_loop.run_selection(_sm(), chapter_number=451)
+    render2 = packet2.render()
+    bg_labels = {c.source_thread for c in
+                 build_candidate_pool(_sm()).candidates
+                 if c.candidate_id in set(trace["background_ids"] + trace["dormant_ids"])}
+    for s in bg_labels:
+        assert s not in render2
+    assert set(trace["suppressed"]).isdisjoint(set(trace["selected_ids"]))
+    assert trace["chapter_packet_sha256"] == state_v2_loop.sha_text(render2)
+    # 空状态 → 空包 → 零成本注入（与 legacy 字节一致）
+    empty_packet, _ = state_v2_loop.run_selection(StateModel(), chapter_number=1)
+    assert empty_packet.render() == ""
+
 
 def test_packet_zero_cost_empty():
     from src.workflow_action.narrative_selector import SelectionResult

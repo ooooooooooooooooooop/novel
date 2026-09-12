@@ -27,6 +27,7 @@ from src.object_state.statemodel import (
     CompressionLevel,
     Provenance,
     StateModel,
+    ThreadLifecycle,
     ThreadState,
 )
 
@@ -116,6 +117,8 @@ def build_candidate_pool(
     for t in sm.threads:
         if t.compression == CompressionLevel.ARCHIVED:
             continue  # 归档不产候选
+        if t.lifecycle == ThreadLifecycle.CLOSED:
+            continue  # 已关闭（履行/违背/解除/取代）：保留审计但不再是 active pressure
         trigger = _thread_has_trigger(t)
         if trigger:
             change = t.current_state or t.recent_change or "状态"

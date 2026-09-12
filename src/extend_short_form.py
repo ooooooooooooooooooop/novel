@@ -19,6 +19,7 @@ from src.boundary_control.handoff import HandoffBoundaryUnit
 from src.boundary_control.runtime_identity import file_content_hash, validate_run_hash
 from src.boundary_control.runtime_args import validate_long_runtime_args
 from src.boundary_control.runtime_state import require_continue_runtime_state
+from src.boundary_control import response_file
 from src.boundary_control.response_file import reset_consumed_responses
 from src.boundary_control.serialization import SerializationBoundaryUnit
 from src.boundary_control.validation import NoRegressionValidationUnit
@@ -85,6 +86,7 @@ from src.boundary_control.reader_gate import (
     write_reader_gate_report,
 )
 from src.workflow_action import prose as prose_action
+from src.workflow_action import state_v2_loop
 
 continuation_module = importlib.import_module("src.workflow_action.continuation")
 ContinueUnit = continuation_module.ContinueUnit
@@ -170,6 +172,12 @@ def main() -> int:
         help="从上次保存的状态继续（跳过 Rebuild，加载已有对象和 frame 状态）",
     )
     parser.add_argument("--output-dir", default="output", help="输出目录")
+    parser.add_argument(
+        "--recover-cycle",
+        action="store_true",
+        help="post-commit cleanup 失败后的确定性恢复：仅清理已 committed 周期的"
+        "残留 staged response，不动 chapter/state/package/frames",
+    )
     parser.add_argument(
         "--range",
         dest="chapter_range",
@@ -308,6 +316,29 @@ def main() -> int:
         action="store_true",
         help="跳过章节正文落盘（只产出 PlotUnit 结构；默认自动成文落盘 chapters/）",
     )
+    parser.add_argument(
+        "--state-mode",
+        default="legacy",
+        choices=["legacy", "state_v2"],
+        help="状态链路模式（默认 legacy，行为不变；state_v2=显式闭环：seed/post-state → "
+        "candidate_pool → selector → suppressor → Chapter Packet 注入 continue prompt → "
+        "accepted prose 后确定性更新+验证+提交 post-state。仅单候选路径支持，"
+        "失败 fail closed 不回退 legacy）",
+    )
+    parser.add_argument(
+        "--state-v2-seed",
+        default="",
+        metavar="PATH",
+        help="State V2 初始 seed JSON（{state_model, provenance_map}；首个 state_v2 章必需，"
+        "之后读 output/state_v2_model.json committed post-state）",
+    )
+    parser.add_argument(
+        "--state-v2-max-selected",
+        type=int,
+        default=None,
+        metavar="N",
+        help="state_v2 每章 SELECT 候选上限（默认不裁剪）",
+    )
     args = parser.parse_args()
     try:
         selected_range = validate_long_runtime_args(
@@ -336,6 +367,26 @@ def main() -> int:
     text = _read_text(text_path)
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
+    # Post-commit cleanup 事务守卫：durable commit 成功但 response reset 失败时，
+    # 下次 run 必须看到残留并拒绝静默继续（不得让旧 response 混入新周期、
+    # 重复提交）。--recover-cycle 执行确定性恢复后本 run 直接退出。
+    _txn = response_file.read_txn_status(output_dir)
+    if _txn and _txn.get("status") == "POST_COMMIT_CLEANUP_FAILED":
+        if args.recover_cycle:
+            removed = response_file.recover_post_commit_cleanup(output_dir)
+            print(f"[RECOVERY] 已清理上一 committed 周期的残留响应: {removed}")
+            print("[RECOVERY] txn_status → COMMITTED；下一章可从全新 prompt 开始")
+            return 0
+        stale = response_file.detect_stale_cycle_responses(output_dir)
+        print(
+            f"Error: 检测到 POST_COMMIT_CLEANUP_FAILED 残留响应: {stale}；"
+            f"已 commit 的 chapter {_txn.get('committed_chapter', '?')} 不会被"
+            f"重复提交。请先运行 --recover-cycle 完成恢复"
+        )
+        return 1
+    if args.state_mode == "state_v2" and args.proposals >= 2:
+        print("Error: --state-mode state_v2 仅支持单候选路径（--proposals 1），fail closed")
+        return 1
     # 文风锚点/前章结尾应基于『原书 + 已续写章节』，否则多章续写后仍锁死原书首章
     continuation_text = append_generated_chapters(
         text, output_dir.parent.parent / "chapters"
@@ -801,6 +852,37 @@ def main() -> int:
             print(f"[STEP: PROPOSALS] Prompt saved: {proposals_prompt_path}")
             print(f"[WAITING] Generate response to: {proposals_response_path}")
         else:
+            packet_context = ""
+            if args.state_mode == "state_v2":
+                sm = state_v2_loop.load_state(output_dir)
+                state_source = "post_state"
+                if sm is None:
+                    if not args.state_v2_seed:
+                        print("Error: --state-mode state_v2 需要 output/state_v2_model.json "
+                              "或 --state-v2-seed（fail closed，不回退 legacy）")
+                        return 1
+                    try:
+                        sm = state_v2_loop.validate_seed_doc(json.loads(
+                            Path(args.state_v2_seed).read_text(encoding="utf-8")))
+                    except (state_v2_loop.StateV2Error, ValueError, OSError) as exc:
+                        print(f"Error: state_v2 seed 拒绝：{exc}")
+                        return 1
+                    state_source = "seed"
+                ch_num_sel = prose_action.next_chapter_number(
+                    output_dir.parent.parent / "chapters")
+                packet, sel_trace = state_v2_loop.run_selection(
+                    sm, ch_num_sel, max_selected=args.state_v2_max_selected)
+                packet_context = packet.render()
+                # factual lifecycle transition 由 post-prose Review 阶段声明
+                # （Continue 是 pre-prose 规划器，无法逐字引用未来正文）——
+                # packet_context 只承载选择压力，不承载 transition 契约。
+                (output_dir / "state_v2_pre.json").write_text(
+                    sm.model_dump_json(indent=2) + "\n", encoding="utf-8")
+                (output_dir / "state_v2_pending.json").write_text(
+                    json.dumps({"chapter": ch_num_sel, "state_source": state_source,
+                                "pre_state_sha256": state_v2_loop.sha_text(sm.model_dump_json()),
+                                **sel_trace}, ensure_ascii=False, indent=2),
+                    encoding="utf-8")
             continue_prompt_path.write_text(
                 cont.build_prompt(
                     state=narrative_state,
@@ -828,9 +910,20 @@ def main() -> int:
                         reader_contract.to_prompt_context() if reader_contract else ""
                     ),
                     viability_note=viability_note,
+                    packet_context=packet_context,
+                    occupied_unit_ids=[
+                        getattr(o, "unit_id") for o in objects
+                        if getattr(o, "unit_id", None)
+                    ],
                 ),
                 encoding="utf-8",
             )
+            if args.state_mode == "state_v2":
+                pending_path0 = output_dir / "state_v2_pending.json"
+                pend = json.loads(pending_path0.read_text(encoding="utf-8"))
+                pend["writer_prompt_sha256"] = file_content_hash(continue_prompt_path)
+                pending_path0.write_text(
+                    json.dumps(pend, ensure_ascii=False, indent=2), encoding="utf-8")
             print(f"[STEP: CONTINUE] Prompt saved: {continue_prompt_path}")
             print(f"[WAITING] Generate response to: {continue_response_path}")
         print("[RESUME] Re-run this script after saving response")
@@ -1001,6 +1094,34 @@ def main() -> int:
     print("\n" + "=" * 50)
     print("Step 5: Review (post-prose, reads chapter)")
     print("=" * 50)
+    # State V2：factual lifecycle transition 由 post-prose Review 声明
+    # （只有看过最终正文的阶段才有资格逐字引用 evidence_anchor）。
+    sv2_transition_contract = ""
+    if args.state_mode == "state_v2":
+        # OPEN thread 清单必须对 Review 可见——CLOSE 要引用真实 thread_id，
+        # 不得要求模型猜 id。
+        _open_lines = []
+        _sm_now = state_v2_loop.load_state(output_dir)
+        if _sm_now is not None:
+            _open_lines = [
+                f"- {t.thread_id}: {t.label}"
+                for t in _sm_now.threads
+                if t.lifecycle.value == "open"]
+        sv2_transition_contract = (
+            "thread_transitions 可选：仅当【本章正文】明确发生了义务/后果压力的"
+            "形成或终结时输出；"
+            "OPEN: 正文明确形成新义务/承诺/后果（thread_label 必填，"
+            "thread_id 由系统生成）；"
+            "CLOSE: 正文明确履行/违背/解除/取代既有线程（thread_id 必须是"
+            "下列当前 OPEN 线程之一；closure_kind 仅可取小写 "
+            "fulfilled|violated|discharged|superseded）；"
+            "evidence_anchor 必须逐字摘自【本章正文】（原句片段，转述不通过）；"
+            "正文未发生的事件不得声明，计划/意图不算事实；"
+            "对已有 OPEN 线程的履行/违背应 CLOSE 原线程，不得 OPEN 语义重复的"
+            "新线程替代。\n"
+            "当前 OPEN 线程：\n" + ("\n".join(_open_lines) if _open_lines else "（无）")
+        )
+    review_transitions = []
     review_prompt_path = output_dir / "review_prompt.txt"
     if review_response_path.exists():
         response = _read_response_text(review_response_path)
@@ -1015,6 +1136,12 @@ def main() -> int:
             foreshadows=_review_foreshadows,
             character_models=_review_chars,
         )
+        if args.state_mode == "state_v2":
+            try:
+                review_transitions = review.extract_transitions(response)
+            except ValueError as exc:
+                print(f"Error: review thread_transitions 契约失败：{exc}")
+                return 1
 
         # 合并代码预检 issues
         hard_issues = review._hard_rules(review_objects)
@@ -1028,6 +1155,7 @@ def main() -> int:
                 review_objects,
                 context="extend",
                 prose_text=draft_text if draft_text is not None else None,
+                transition_contract=sv2_transition_contract,
             ),
             encoding="utf-8",
         )
@@ -1125,6 +1253,7 @@ def main() -> int:
                         review_objects,
                         context="extend-rereview",
                         prose_text=draft_text if draft_text is not None else None,
+                        transition_contract=sv2_transition_contract,
                     ),
                     encoding="utf-8",
                 )
@@ -1145,6 +1274,12 @@ def main() -> int:
                 foreshadows=_rereview_foreshadows,
                 character_models=_rereview_chars,
             )
+            if args.state_mode == "state_v2":
+                try:
+                    review_transitions = review.extract_transitions(response)
+                except ValueError as exc:
+                    print(f"Error: review thread_transitions 契约失败：{exc}")
+                    return 1
             hard_issues = review._hard_rules(review_objects)
             domain_issues = review._domain_rules(review_objects)
             temporal_issues = _extend_temporal_issues(objects)
@@ -1177,6 +1312,9 @@ def main() -> int:
         "pre_review": pre_review_result,
         "prose_context": "draft" if draft_text is not None else None,
     }
+    if args.state_mode == "state_v2":
+        review_data["thread_transitions_declared"] = [
+            t.model_dump(mode="json") for t in review_transitions]
     if args.character_update == "on":
         review_data["character_updates"] = character_updates
     extend_result_path = output_dir / "extend_result.json"
@@ -1399,20 +1537,48 @@ def main() -> int:
             print(f"Committed chapter: {chapter_file}")
             print(f"  run manifest: {output_dir / 'run_manifest.json'} (status=committed)")
         else:
-            # v2 原样：先写正文，再归档/provenance（旧时序保持字节不变）
-            chapter_file = prose_action.chapter_path(
-                chapters_dir, prose_action.next_chapter_number(chapters_dir)
-            )
+            # v2 提交事务边界：所有校验/proposed state 先于任何 durable write；
+            # 全部通过后才落盘正文 + post-state + package（避免 partial-commit）。
+            chapter_number_v2 = prose_action.next_chapter_number(chapters_dir)
+            chapter_file = prose_action.chapter_path(chapters_dir, chapter_number_v2)
+            final_objects_v2 = objects + [plotunit, new_state]
+            final_package_v2 = serializer.build_package(*final_objects_v2)
+            if not _validate_no_regression(final_package_v2):
+                return 1
+            new_cursor_v2 = frame_unit.advance_cursor(frames)
+            # State V2 proposed post-state：先算好；校验失败时无任何 durable write
+            sv2_post = None
+            sv2_delta = None
+            sv2_pending = None
+            if args.state_mode == "state_v2":
+                pending_path = output_dir / "state_v2_pending.json"
+                pre_path = output_dir / "state_v2_pre.json"
+                if not pending_path.exists() or not pre_path.exists():
+                    print("Error: state_v2 pending/pre-state 缺失，无法生成 post-state"
+                          "（fail closed，未写任何 durable state）")
+                    return 1
+                try:
+                    sm_pre = state_v2_loop.StateModel.model_validate_json(
+                        pre_path.read_text(encoding="utf-8"))
+                    sv2_post, sv2_delta = state_v2_loop.commit_post_state(
+                        sm_pre, plotunit, new_state,
+                        chapter_number_v2, draft_text or "",
+                        thread_transitions=review_transitions)
+                except Exception as exc:
+                    print(f"Error: state_v2 post-state 更新失败（commit 前）：{exc}")
+                    return 1
+                sv2_pending = json.loads(pending_path.read_text(encoding="utf-8"))
+            # ---- durable commit ----
             chapter_file.write_text(draft_text, encoding="utf-8")
             chapter_committed = True
             prose_action.archive_draft(
                 output_dir,
-                int(chapter_file.stem[len("chapter_"):]),
+                chapter_number_v2,
                 draft_text,
             )
             prose_action.record_chapter_provenance(
                 output_dir,
-                int(chapter_file.stem[len("chapter_"):]),
+                chapter_number_v2,
                 review_issues=issues,
                 final_draft_chars=len("".join((draft_text or "").split())),
                 active_frame_id=(
@@ -1426,7 +1592,7 @@ def main() -> int:
             )
             print(f"Committed chapter: {chapter_file}")
             # v2 模式下的兼容编排更新
-            ch_num = int(chapter_file.stem[len("chapter_"):]) if chapter_file else 1
+            ch_num = chapter_number_v2
             committed_state = load_committed_orchestration_state(output_dir)
             plan = derive_orchestration_plan(committed_state, objects, chapter_number=ch_num)
             commit_orchestration_transition(
@@ -1436,9 +1602,60 @@ def main() -> int:
                 chapter_number=ch_num,
                 run_id=derive_run_id("extend", ch_num),
             )
+            # State V2 post-state 落盘（proposed state 已在 commit 前通过校验）
+            if sv2_post is not None:
+                state_v2_loop.save_state(output_dir, sv2_post)
+                record = {
+                    **sv2_pending,
+                    "writer_prompt_sha256": sv2_pending.get("writer_prompt_sha256")
+                        or file_content_hash(continue_prompt_path),
+                    "prose_sha256": state_v2_loop.sha_text(draft_text or ""),
+                    "committed_post_state_sha256": state_v2_loop.sha_text(
+                        sv2_post.model_dump_json()),
+                    **sv2_delta,
+                }
+                state_v2_loop.append_trace(output_dir, record)
+                (output_dir / "state_v2_pending.json").unlink()
+                (output_dir / "state_v2_pre.json").unlink()
+                print(f"State V2 committed: post-state -> {output_dir / 'state_v2_model.json'}")
 
     # F5 原文长段去重：记录 draft 与原文逐字重叠片段（只标注，不改 route）
     if chapter_committed:
+        if (args.state_mode == "state_v2" and flow_version == "3"
+                and chapter_file is not None):
+            # State V2 闭环提交：accepted prose → 确定性更新 → 验证 → committed post-state。
+            # 失败不回退 legacy（fail closed）。
+            pending_path = output_dir / "state_v2_pending.json"
+            pre_path = output_dir / "state_v2_pre.json"
+            if not pending_path.exists() or not pre_path.exists():
+                print("Error: state_v2 pending/pre-state 缺失，章节已提交但 post-state "
+                      "无法生成（fail closed，不回退 legacy）")
+                return 1
+            try:
+                sm_pre = state_v2_loop.StateModel.model_validate_json(
+                    pre_path.read_text(encoding="utf-8"))
+                sm_post, delta_trace = state_v2_loop.commit_post_state(
+                    sm_pre, plotunit, new_state,
+                    int(chapter_file.stem[len("chapter_"):]), draft_text or "",
+                    thread_transitions=review_transitions)
+            except Exception as exc:
+                print(f"Error: state_v2 post-state 更新失败：{exc}")
+                return 1
+            state_v2_loop.save_state(output_dir, sm_post)
+            pending = json.loads(pending_path.read_text(encoding="utf-8"))
+            record = {
+                **pending,
+                "writer_prompt_sha256": pending.get("writer_prompt_sha256")
+                    or file_content_hash(continue_prompt_path),
+                "prose_sha256": state_v2_loop.sha_text(draft_text or ""),
+                "committed_post_state_sha256": state_v2_loop.sha_text(
+                    sm_post.model_dump_json()),
+                **delta_trace,
+            }
+            state_v2_loop.append_trace(output_dir, record)
+            pending_path.unlink()
+            pre_path.unlink()
+            print(f"State V2 committed: post-state -> {output_dir / 'state_v2_model.json'}")
         overlap_spans = prose_action.find_overlapping_spans(draft_text or "", text)
         if overlap_spans:
             review_data["prose_overlap"] = overlap_spans
@@ -1475,13 +1692,17 @@ def main() -> int:
                 )
 
     if flow_version == "2":
-        # v2 原样：build package → 校验 → advance Frame → save state（旧时序）
-        final_objects = objects + [plotunit, new_state]
-        final_package = serializer.build_package(*final_objects)
-        if not _validate_no_regression(final_package):
-            return 1
-
-        new_cursor = frame_unit.advance_cursor(frames)
+        # v2：已提交路径复用 commit 前校验过的包/游标（避免重复 advance）；
+        # 未提交路径（no_prose 等）维持原时序。
+        if chapter_committed:
+            final_package = final_package_v2
+            new_cursor = new_cursor_v2
+        else:
+            final_objects = objects + [plotunit, new_state]
+            final_package = serializer.build_package(*final_objects)
+            if not _validate_no_regression(final_package):
+                return 1
+            new_cursor = frame_unit.advance_cursor(frames)
         if new_cursor:
             print(f"\nFrame cursor advanced to: {new_cursor['current_frame_id']}")
             frames_path.write_text(json.dumps(frames, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -1493,7 +1714,21 @@ def main() -> int:
         print(f"Saved: {rebuild_package_path}")
 
     if chapter_committed:
-        reset_consumed_responses(output_dir)
+        try:
+            reset_consumed_responses(output_dir)
+            response_file.mark_txn_status(output_dir, "COMMITTED")
+        except OSError as exc:
+            response_file.mark_txn_status(
+                output_dir, "POST_COMMIT_CLEANUP_FAILED",
+                committed_chapter=str(chapter_file),
+                stale_responses=response_file.detect_stale_cycle_responses(
+                    output_dir))
+            print(
+                f"[CYCLE] POST_COMMIT_CLEANUP_FAILED: durable commit 已完成，"
+                f"但 staged response 清理失败（{exc}）；"
+                f"运行 --recover-cycle 完成确定性恢复"
+            )
+            return 1
         print(
             f"[CYCLE] 本章 staged 响应已消费，下一章将从全新 prompt 开始"
             f"（避免重跑复用上一章响应产生重复章节）"

@@ -83,6 +83,7 @@ class ContinueUnit:
         packet_context: str = "",
         contract_context: str = "",
         viability_note: str = "",
+        occupied_unit_ids: list | None = None,
     ) -> str:
         """生成续写 prompt."""
         return self._build_prompt(
@@ -105,6 +106,7 @@ class ContinueUnit:
             packet_context,
             contract_context,
             viability_note,
+            occupied_unit_ids,
         )
 
     def parse_response(self, response: str) -> tuple[PlotUnit, NarrativeState, list[str], list[str]]:
@@ -167,6 +169,7 @@ class ContinueUnit:
         packet_context: str = "",
         contract_context: str = "",
         viability_note: str = "",
+        occupied_unit_ids: list | None = None,
     ) -> str:
         char_ctx = "\n---\n".join(c.to_prompt_context() for c in characters)
         # 离场人物在场感（§14 盲续写迭代：让单章多线并置时能自然召回离场人物近况。
@@ -292,6 +295,13 @@ class ContinueUnit:
                 structure_section = (
                     f"\n\n【结构模板: {structure_template}】\n{nodes_text}"
                 )
+        # 已占用 PlotUnit id 显式化（hidden contract fix）：唯一性由 parser 强制，
+        # id 空间必须对模型可见，否则只能撞号再失败。
+        occupied_ids_note = ""
+        if occupied_unit_ids:
+            occupied_ids_note = (
+                f"；当前已占用 unit_id: {'、'.join(sorted(occupied_unit_ids))}"
+            )
 
         return f"""你是一位叙事续写专家。请基于当前叙事状态，生成下一个 PlotUnit。
 
@@ -382,6 +392,10 @@ new_state 是单元结束后的完整快照，保留仍有效的旧信息，不�
 
 注意：
 - new_facts 只写入已确认的 hard facts，不确定的放入 confidence_gaps
+- new_facts 的 fact_id 必须全局唯一，不得与既有 FactLedger 中已有
+  fact_id 重复（建议按既有最大编号递增，如 f11、f12）
+- plotunit.unit_id 必须唯一，不得与既有 PlotUnit 的 unit_id 重复
+  （建议递增编号，如 pu_004）{occupied_ids_note}
 - 角色关系变化如果是长期结论，更新 CharacterModel.relations
 - 但 CharacterModel 字段只存压缩结论，支撑证据不要写入
 """

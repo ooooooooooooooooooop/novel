@@ -9,9 +9,58 @@ from pydantic import (
     StrictBool,
     ValidationInfo,
     field_validator,
+    model_validator,
 )
 
 from src.object_state.scene_experience import SceneExperience
+from src.object_state.statemodel import ClosureKind
+
+
+class ThreadTransition(BaseModel):
+    """线程生命周期信号（State V2 consequence writeback 契约）.
+
+    只能由 accepted prose 对应的 PlotUnit 发出；evidence_anchor 必须可定位到
+    最终接受的正文。selector/plan 说"将承诺/将履行"不得触发创建或关闭：
+    OPEN 与 CLOSE 对称——没发生的承诺不记，发生了的承诺才记。
+
+    OPEN：正文明确形成了新的义务/后果压力（承诺、站队、暴露、资源消耗），
+    由系统生成 thread_id；CLOSE：既有线程被履行/违背/解除/取代。
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    action: Literal["OPEN", "CLOSE"] = Field(default="CLOSE")
+    thread_id: str = Field(
+        default="", description="CLOSE 必填：既有线程 ID；OPEN 留空（系统生成）"
+    )
+    thread_label: str = Field(
+        default="", description="OPEN 必填：新线程标签（义务/压力内容）"
+    )
+    thread_type: str = Field(
+        default="情节线", description="OPEN：线程类型（如 承诺线/关系线/信息线）"
+    )
+    closure_kind: Optional[ClosureKind] = Field(
+        default=None, description="CLOSE 必填：FULFILLED/VIOLATED/DISCHARGED/SUPERSEDED"
+    )
+    evidence_anchor: str = Field(
+        description="accepted prose 中的可定位锚点或章节引用（非空）"
+    )
+
+    @field_validator("evidence_anchor")
+    @classmethod
+    def _anchor_must_be_non_blank(cls, value: str, info: ValidationInfo) -> str:
+        if not value.strip():
+            raise ValueError(f"{info.field_name} must be non-empty")
+        return value
+
+    @model_validator(mode="after")
+    def _fields_match_action(self) -> "ThreadTransition":
+        if self.action == "OPEN" and not self.thread_label.strip():
+            raise ValueError("OPEN transition requires non-empty thread_label")
+        if self.action == "CLOSE" and (not self.thread_id.strip()
+                                     or self.closure_kind is None):
+            raise ValueError("CLOSE transition requires thread_id and closure_kind")
+        return self
 
 
 class PlotUnit(BaseModel):
@@ -84,6 +133,9 @@ class PlotUnit(BaseModel):
         description="场景体验中间层：主角看见/阻碍/选择依据/结果/认知变化。"
         "Continue 生成 PlotUnit 时可选产出，Prose 展开时注入正文",
     )
+
+    # 线程生命周期信号不在 PlotUnit：pre-prose 规划器无法逐字引用未来正文，
+    # factual OPEN/CLOSE 由 post-prose Review 阶段声明（review.extract_transitions）。
 
     # 有效性标记(运行时判断)
     is_effective: StrictBool = Field(

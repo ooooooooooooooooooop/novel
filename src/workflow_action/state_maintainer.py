@@ -22,6 +22,7 @@ from src.object_state.statemodel import (
     RelationshipEntry,
     StateModel,
     StrategicPosition,
+    ThreadLifecycle,
     ThreadState,
 )
 
@@ -35,6 +36,7 @@ def update_from_plotunit(
     plotunit: object,
     new_state: object,
     chapter_number: int,
+    thread_transitions: list | None = None,
 ) -> StateModel:
     """基于一个 PlotUnit + 新 NarrativeState 增量更新 StateModel.
 
@@ -76,30 +78,9 @@ def update_from_plotunit(
             else:
                 existing[0].intent = goal
 
-    # 4. threads：本单元的标签/参与者 → 找到或建立对应线程，标记 ACTIVE + last_chapter
-    unit_label = getattr(plotunit, "goal", None) or ""
-    # 用 participants + formula_node 关联线程
-    thread_hit = None
-    for t in sm.threads:
-        # 简化的关联：线程 label 出现在 unit goal 里，或参与者名出现在线程里
-        if t.label and unit_label and t.label[:2] in unit_label:
-            thread_hit = t
-            break
-    if thread_hit is None and participants:
-        # 没有匹配线程则建一个"当前事件"线程（粗粒度）
-        thread_hit = ThreadState(
-            thread_id=f"thread_ch{chapter_number}",
-            thread_type="当前事件",
-            label=unit_label[:12] or "当前事件",
-            current_state=unit_label,
-            last_chapter=chapter_number,
-            compression=CompressionLevel.ACTIVE,
-            provenance=Provenance.CANON,
-        )
-        sm.threads.append(thread_hit)
-    if thread_hit:
-        thread_hit.last_chapter = chapter_number
-        thread_hit.compression = CompressionLevel.ACTIVE
+    # 4. threads：不由 goal 自动创建/更新——goal 是本章写作意图，不是已发生
+    # 事实；factual thread 仅由 accepted-prose-grounded OPEN transition 建立
+    # （见 step 7；grounding 已在 commit_post_state 预过滤，plan≠fact）。
 
     # 5. relationships：participants 两两触碰
     for i in range(len(participants)):
@@ -116,7 +97,8 @@ def update_from_plotunit(
     # 6. narrative_opportunities：其他线程欠账上涨
     if sm.last_chapter is not None and sm.threads:
         for t in sm.threads:
-            if t.compression in (CompressionLevel.WARM, CompressionLevel.ACTIVE) and t.last_chapter:
+            if (t.compression in (CompressionLevel.WARM, CompressionLevel.ACTIVE)
+                    and t.lifecycle == ThreadLifecycle.OPEN and t.last_chapter):
                 overdue = chapter_number - t.last_chapter
                 if overdue >= 15:
                     existing = [o for o in sm.narrative_opportunities if t.label in o.description]
@@ -127,6 +109,43 @@ def update_from_plotunit(
                                 last_seen=t.last_chapter, priority=min(10, 3 + overdue // 5),
                             )
                         )
+
+    # 7. thread_transitions：accepted prose 声明的生命周期信号。
+    #    OPEN：创建新 factual thread（thread_id 由系统生成，撞 id 跳过）；
+    #    CLOSE：只关已存在且仍 OPEN 的线程。不存在的/已关闭的静默跳过并留痕。
+    for tr in thread_transitions or []:
+        action = tr.action if hasattr(tr, "action") else tr.get("action", "CLOSE")
+        if action == "OPEN":
+            label = (tr.thread_label if hasattr(tr, "thread_label")
+                     else tr.get("thread_label", ""))
+            if not str(label).strip():
+                continue
+            tid = (tr.thread_id if hasattr(tr, "thread_id")
+                   else tr.get("thread_id")) or f"thread_ch{chapter_number}_{len(sm.threads) + 1}"
+            if any(t.thread_id == tid for t in sm.threads):
+                continue
+            sm.threads.append(ThreadState(
+                thread_id=tid,
+                thread_type=(tr.thread_type if hasattr(tr, "thread_type")
+                             else tr.get("thread_type")) or "情节线",
+                label=str(label)[:24],
+                current_state=str(label),
+                last_chapter=chapter_number,
+                compression=CompressionLevel.ACTIVE,
+                provenance=Provenance.CANON,
+            ))
+            continue
+        tid = tr.thread_id if hasattr(tr, "thread_id") else tr.get("thread_id")
+        target = [t for t in sm.threads if t.thread_id == tid]
+        if not target:
+            continue
+        target = target[0]
+        if target.lifecycle == ThreadLifecycle.CLOSED:
+            continue
+        target.lifecycle = ThreadLifecycle.CLOSED
+        target.closure_kind = tr.closure_kind if hasattr(tr, "closure_kind") else tr.get("closure_kind")
+        target.closure_evidence = (
+            tr.evidence_anchor if hasattr(tr, "evidence_anchor") else tr.get("evidence_anchor", ""))
 
     sm.last_chapter = chapter_number
     return sm

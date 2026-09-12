@@ -282,6 +282,13 @@ def test_extend_prose_before_review_prompt_contains_prose(tmp_path):
     assert result["route"] == "pass"
     committed = list((output_dir.parent.parent / "chapters").glob("chapter_*.txt"))
     assert len(committed) == 1
+    # 提交事务边界：committed 后 cycle 响应必须已消费、package 已推进
+    # （partial-commit 回归：commit 后校验失败不得留下未 reset 的响应）
+    for stale in ("continue_response.txt", "prose_response.txt", "review_response.txt"):
+        assert not (output_dir / stale).exists(), stale
+    assert (output_dir / "extend_rebuild_package.json").exists()
+    assert (output_dir / "extend_frames.json").exists()
+    assert (output_dir / "chapter_provenance.json").exists()
 
 
 def test_extend_pre_review_blocks_prose_on_structural_issue(tmp_path):
