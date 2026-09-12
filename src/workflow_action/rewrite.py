@@ -65,8 +65,8 @@ class RewriteUnit:
 [
   {{
     "target_type": "CharacterModel|FactLedger|NarrativeState|PlotUnit|WorldModel|ForeshadowGraph",
-    "target_id": "对象ID或留空",
-    "field": "字段名，支持点号路径，如 entries.0.confirmed",
+    "target_id": "目标对象自身的ID（如 character_id=liang_jun）；对象ID写在这里，不要写进 field",
+    "field": "目标对象内的字段路径，支持点号路径，如 entries.0.confirmed",
     "action": "add|remove|replace",
     "old_value": "可选，用于校验",
     "new_value": "新值",
@@ -287,10 +287,35 @@ class RewriteUnit:
 
         return False
 
+    def _fix_is_applicable(self, objects: list, fix: dict) -> bool:
+        """Dry-run applicability check: target resolves and field path is
+        reachable (for 'add', an unresolvable leaf is allowed). No mutation."""
+        target = self._select_target(
+            objects, fix.get("target_type"), fix.get("target_id")
+        )
+        if target is None:
+            return False
+        try:
+            self._resolve_path(target, fix["field"])
+        except (AttributeError, IndexError, KeyError):
+            return fix.get("action") == "add" and fix.get("old_value") is None
+        return True
+
     def apply_required_fixes(self, objects: list, fixes: list[dict]) -> int:
         """Apply a rewrite response that is required to fix blocking issues."""
         if not fixes:
             raise ValueError("rewrite produced no fixes for blocking issues")
+
+        for index, fix in enumerate(fixes, start=1):
+            if self._fix_is_applicable(objects, fix):
+                continue
+            target_type = fix.get("target_type", "<missing target_type>")
+            field = fix.get("field", "<missing field>")
+            action = fix.get("action", "<missing action>")
+            raise ValueError(
+                f"rewrite fix {index} not applicable (unsupported path/target): "
+                f"{target_type}.{field} -> {action}"
+            )
 
         applied = 0
         for index, fix in enumerate(fixes, start=1):

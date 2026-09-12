@@ -100,7 +100,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 # Q1.3 去AI味规则重构的回归检查不在 tests/（加收集测试会触发
 # current_state.json 再认证，本机 public_clean 需 Linux 无法完成）；
 # 等效检查实现为 scripts/check_polish_guardrails.py，不占 collected 名额。
-EXPECTED_COLLECTED_TESTS = "3138"
+EXPECTED_COLLECTED_TESTS = "3143"
 
 
 def run_script(*args: str) -> subprocess.CompletedProcess[str]:

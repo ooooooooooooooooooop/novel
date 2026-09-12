@@ -90,10 +90,10 @@ class RebuildUnit:
 
 2. WorldModel（世界模型）:
    - world_facts: 世界事实列表
-   - social_structure: 社会结构（可选）
-   - power_system: 力量体系（可选）
-   - resource_system: 资源机制（可选）
-   - geography: 地理（可选）
+   - social_structure: 社会结构（可选，单个字符串摘要）
+   - power_system: 力量体系（可选，单个字符串摘要）
+   - resource_system: 资源机制（可选，单个字符串摘要）
+   - geography: 地理（可选，单个字符串摘要）
    - factions: 势力列表
    - time_rules: 时间规则列表
    - prohibitions: 禁止事项列表
@@ -138,7 +138,7 @@ class RebuildUnit:
    - entries: 事实条目数组，每条:
      - fact_id: ID
      - statement: 事实陈述
-     - fact_type: 类型(event/relation/rule/object/time_order/reveal_status)
+     - fact_type: 类型，只能是以下六值之一: event/relation/rule/object/time_order/reveal_status（不得输出其他值）
      - involved_entities: 涉及实体ID列表
      - confirmed: true（重建时默认 true）
 

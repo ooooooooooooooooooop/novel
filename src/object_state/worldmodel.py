@@ -68,6 +68,37 @@ class WorldModel(BaseModel):
             raise ValueError(f"{info.field_name} entries must be non-empty")
         return values
 
+    @field_validator(
+        "social_structure",
+        "power_system",
+        "resource_system",
+        "geography",
+        "death_rule",
+        mode="before",
+    )
+    @classmethod
+    def _optional_scalar_accepts_str_list(
+        cls, value, info: ValidationInfo
+    ):
+        """Boundary conformance: these fields are canonical scalar summaries.
+
+        Model boundary may emit ``str | list[str]``; a list is normalized to a
+        joined string with an auditable trace. Non-string list elements are an
+        explicit contract rejection, never a silent coercion.
+        """
+        if isinstance(value, list):
+            if not all(isinstance(item, str) for item in value):
+                raise ValueError(
+                    f"{info.field_name} list items must all be strings"
+                )
+            joined = "; ".join(item for item in value if item.strip()) or None
+            print(
+                f"[CONFORM] WorldModel.{info.field_name}: "
+                f"list[str]({len(value)}) -> str"
+            )
+            return joined
+        return value
+
     @field_validator("death_rule")
     @classmethod
     def _optional_death_rule_must_be_non_blank(

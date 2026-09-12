@@ -328,3 +328,31 @@ def test_apply_required_fixes_rejects_unapplied_fix():
     with pytest.raises(ValueError, match="did not apply"):
         rewrite.apply_required_fixes([state], [fix])
     assert state.current_situation == "old situation"
+
+
+def test_apply_required_fixes_rejects_unapplicable_before_any_mutation():
+    """An unsupported path must be rejected before earlier fixes mutate."""
+    rewrite = RewriteUnit()
+    state = NarrativeState(
+        state_id="ns_001",
+        current_time="old time",
+        current_location="old place",
+        current_situation="old situation",
+    )
+    applicable = {
+        "target_type": "NarrativeState",
+        "field": "current_situation",
+        "action": "replace",
+        "old_value": "old situation",
+        "new_value": "new situation",
+    }
+    unapplicable = {
+        "target_type": "CharacterModel",
+        "field": "characters.liang_jun",
+        "action": "add",
+        "new_value": {"name": "x"},
+    }
+
+    with pytest.raises(ValueError, match="not applicable"):
+        rewrite.apply_required_fixes([state], [applicable, unapplicable])
+    assert state.current_situation == "old situation"
