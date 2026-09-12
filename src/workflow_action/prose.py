@@ -229,6 +229,19 @@ def build_prompt(
         "", INFORMATION_LAYER_GUIDANCE,
         "released_information 面向读者；角色说出或据此行动仍须符合其知情范围。"
         "只展开本章允许揭示的内容，不补写未提供的秘密或擅自解释隐藏动机。",
+        "", "【读者认知分配】",
+        "连接可以留给读者，前提不能藏在作者脑子里。"
+        "当动作、对白、细节已足以让读者完成目标推断时，该叙事 beat 已完成："
+        "不要替读者翻译证据的含义、讲解刚演完的博弈/策略、或用比喻重述已实现的效果。"
+        "但 STOP 有下界——先自查：该推断需要的每个关键前提是否都已进入读者可见文本？"
+        "缺前提不得要求读者凭空补，此时只二选一：补一个动作/对白/事实让推断成立，"
+        "或直接说出那个正文无法自行提供、但理解所必需的最小信息；不得恢复整段解释。"
+        "仅三种情况允许显式说明：(a) 角色不可见、读者无从推断的关键信息；"
+        "(b) 读者无法可靠推断的规则或关键因果；(c) 认知本身改变人物的选择、"
+        "关系或行动——此时写『意识到』带来的决定，不再补『所以刚才其实意味着……』。"
+        "PlotUnit 中的【认知交接点】若存在，是本场景的停止条件：证据给出后即停手，"
+        "在 explicit_when 条件满足前不点破；evidence_sufficiency=needs_more_evidence "
+        "时先补证据再停。",
         "", "【PlotUnit】", plotunit.to_prompt_context(),
     ]
     if workspec_context:
@@ -274,6 +287,10 @@ def build_revision_prompt(
         "",
         "【阻断性问题】",
     ]
+    has_rcc_issue = any(
+        getattr(issue, "issue_type", "") == "reader_cognitive_allocation"
+        for issue in blocking_issues
+    )
     for issue in blocking_issues:
         desc = getattr(issue, "description", str(issue))
         issue_type = getattr(issue, "issue_type", "issue")
@@ -282,6 +299,27 @@ def build_revision_prompt(
         suggested = getattr(issue, "suggested_fix", None)
         if suggested:
             lines.append(f"  建议: {suggested}")
+    if has_rcc_issue:
+        lines += [
+            "",
+            "【认知劳动分配修订操作】（局部手术，不重写整章）",
+            "对每个 reader_cognitive_allocation issue 只执行以下一种操作：",
+            "- DELETE_REDUNDANT_GLOSS：解释段无独有贡献，直接删除解释尾巴",
+            "- KEEP_UNIQUE_DELTA：解释中只有一处新增信息有价值，只保留该 delta",
+            "- CONVERT_GLOSS_TO_EVIDENCE：把『他是在施压』换成真正产生压力的动作/对白"
+            "（不是换个漂亮说法）",
+            "- MOVE_REALIZATION_TO_DECISION：认知有用但位置错——不在证据后立即讲解，"
+            "等它真正改变人物动作时再以决定形式出现",
+            "- RESTORE_MISSING_PREMISE：推断缺必要前提——优先补动作/对白反应/"
+            "场景事实让推断可完成；实在无法自然表现才保留最小明确句"
+            "（补 premise，不是补讲解）",
+            "- KEEP_EXPLICIT：规则关键/不可推断/认知本身造成状态变化时保留原文",
+            "- NO_CHANGE：误判，原文本就正确",
+            "每个修改必须带 protected_function：该段原本承担的叙事功能，"
+            "修改后功能必须仍在（悬念方向、人物判断、因果、情绪基调不得因删解释而丢失）。"
+            "不得把『需要读者自己推断』误改成『故作含蓄』——若删除解释后读者缺少必要证据，"
+            "选择 KEEP_EXPLICIT 或 CONVERT_GLOSS_TO_EVIDENCE。",
+        ]
     if plotunit is not None:
         lines += ["", "【PlotUnit（结构依据）】", plotunit.to_prompt_context()]
     lines += ["", "【当前章节正文】", chapter_text]

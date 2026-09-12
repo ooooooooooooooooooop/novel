@@ -94,6 +94,9 @@ FAILURE_TYPE_LEXICON: tuple[tuple[str, str, str], ...] = (
     ("interpretive_space", "low/medium", "通常不阻断"),
     ("scene_presence", "low/medium", "通常不阻断"),
     ("dialogue_flat", "low/medium", "通常不阻断"),
+    # RCC V1：认知劳动分配——证据已完成但后挂解释尾巴（解释过满）。
+    # 反向（该说没说）由信息凭证/兑现维度覆盖，不在此类重复。
+    ("reader_cognitive_allocation", "medium", "条件性阻断"),
 )
 
 # --- 失败类型四层分类（docs/03_rules/08_failure_types.md §4） ---

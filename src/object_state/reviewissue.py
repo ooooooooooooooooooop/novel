@@ -34,6 +34,7 @@ ReviewIssueType = Literal[
     "scene_presence",
     "dialogue_flat",
     "exposition_heavy",
+    "reader_cognitive_allocation",
     "other",
 ]
 ReminderFamily = Literal[

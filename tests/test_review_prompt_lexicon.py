@@ -14,7 +14,7 @@ def test_review_prompt_contains_failure_type_lexicon():
     assert "【失败类型字典】" in prompt
 
 
-def test_failure_type_lexicon_covers_all_20_types():
+def test_failure_type_lexicon_covers_all_21_types():
     types = [t[0] for t in FAILURE_TYPE_LEXICON]
     expected = {
         "fact_conflict",
@@ -37,6 +37,7 @@ def test_failure_type_lexicon_covers_all_20_types():
         "interpretive_space",
         "scene_presence",
         "dialogue_flat",
+        "reader_cognitive_allocation",
     }
     assert set(types) == expected
 

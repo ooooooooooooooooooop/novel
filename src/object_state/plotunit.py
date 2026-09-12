@@ -12,6 +12,7 @@ from pydantic import (
     model_validator,
 )
 
+from src.object_state.inference_handoff import InferenceHandoff
 from src.object_state.scene_experience import SceneExperience
 from src.object_state.statemodel import ClosureKind
 
@@ -134,6 +135,15 @@ class PlotUnit(BaseModel):
         "Continue 生成 PlotUnit 时可选产出，Prose 展开时注入正文",
     )
 
+    # ---- RCC V1: 认知交接点（读者认知劳动分配的规划层）----
+    # 每个场景最多 1–3 个高价值交接点：证据→读者自推→何时才允许显式。
+    # Optional：空不渲染，与旧版逐字节一致（零回归契约）。
+    reader_handoffs: Optional[list[InferenceHandoff]] = Field(
+        default=None,
+        description="认知交接点：本场景把哪些推断工作交还给读者（≤3 个，"
+        "只标关键 beat）。Continue 可选产出，Prose 展开时注入为停止条件",
+    )
+
     # 线程生命周期信号不在 PlotUnit：pre-prose 规划器无法逐字引用未来正文，
     # factual OPEN/CLOSE 由 post-prose Review 阶段声明（review.extract_transitions）。
 
@@ -198,5 +208,9 @@ class PlotUnit(BaseModel):
             lines.append(f"可删无损: {'是' if self.removable_without_loss else '否'}")
         if self.scene_experience:
             lines.append(self.scene_experience.to_prompt_context(self.unit_id))
+        if self.reader_handoffs:
+            lines.append("【认知交接点】")
+            for handoff in self.reader_handoffs:
+                lines.append(handoff.to_prompt_context())
         lines.append(f"有效推进: {'是' if self.is_effective else '待确认'}")
         return "\n".join(lines)
