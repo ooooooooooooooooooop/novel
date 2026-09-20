@@ -165,6 +165,9 @@ def test_extend_flow_v3_transactional_commit(tmp_path):
 
     # Review PASS → committed（事务边界提交）
     _write_json(output_dir / "review_response.txt", {"issues": [], "reminders": [], "route": "pass"})
+    # dim6a：_long_prose 含动作链 → pacing 仲裁 staged 步需要 operator 响应
+    (output_dir / "pacing_adj_response.txt").write_text(
+        '{"candidates": []}', encoding="utf-8")
     r = _run_script("src/extend_short_form.py", str(input_path), "--output-dir", str(output_dir))
     assert r.returncode == 0, r.stdout + r.stderr
     assert "Committed chapter" in r.stdout
@@ -212,6 +215,8 @@ def test_extend_flow_v2_produces_no_manifest(tmp_path):
     (output_dir / "prose_response.txt").write_text(_long_prose(), encoding="utf-8")
     r = _run_script("src/extend_short_form.py", str(input_path), "--output-dir", str(output_dir))
     _write_json(output_dir / "review_response.txt", {"issues": [], "reminders": [], "route": "pass"})
+    (output_dir / "pacing_adj_response.txt").write_text(
+        '{"candidates": []}', encoding="utf-8")
     r = _run_script("src/extend_short_form.py", str(input_path), "--output-dir", str(output_dir))
     assert r.returncode == 0, r.stdout + r.stderr
     assert "Extend complete: PASS" in r.stdout
@@ -251,6 +256,8 @@ def test_compose_flow_v3_transactional_commit(tmp_path, monkeypatch, capsys):
         output_dir / "compose_review_response.txt",
         {"issues": [], "reminders": [], "route": "pass"},
     )
+    (output_dir / "pacing_adj_response.txt").write_text(
+        '{"candidates": []}', encoding="utf-8")
     from src import compose_short_form as entry
     from src.object_state import FactLedger
     original_gate = entry.evaluate_commit_reader_gate

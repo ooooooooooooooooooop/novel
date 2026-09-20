@@ -282,6 +282,7 @@ def test_review_extend_route_decision():
         unit_id="pu_001",
         level="scene",
         goal="测试目标",
+        participants=["c001"],
         conflict="测试冲突",
         input_state_ref="ns_001",
         output_state_ref="ns_002",
@@ -291,12 +292,33 @@ def test_review_extend_route_decision():
         current_time="测试时间",
         current_location="测试地点",
         current_situation="测试局势",
+        active_characters=["c001"],
+    )
+    new_state = NarrativeState(
+        state_id="ns_002",
+        current_time="稍后",
+        current_location="测试地点",
+        current_situation="新局势",
+        active_characters=["c001"],
+    )
+    character = CharacterModel(
+        character_id="c001",
+        name="测试角色",
+        identity="调查者",
+        outer_goal="完成调查",
+        inner_need="获得确认",
+        fear="遗漏线索",
+        flaw="过于谨慎",
+        strength="观察细致",
+        stance="中立",
     )
 
     review = ReviewUnit()
 
     # 验证 build_prompt 对 extend 场景不抛异常（_domain_rules 会执行）
-    prompt = review.build_prompt([workspec, plotunit, state], context="extend")
+    prompt = review.build_prompt(
+        [workspec, state, new_state, character, plotunit], context="extend"
+    )
     assert "extend" in prompt
 
     # 验证 parse_response 对 rewrite 路由

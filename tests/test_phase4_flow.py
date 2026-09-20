@@ -93,6 +93,12 @@ def _drive_to_prose(output_dir: Path, input_path: Path, prose: str):
 
 def _review_pass(output_dir: Path, input_path: Path):
     _write_json(output_dir / "review_response.txt", {"issues": [], "reminders": [], "route": "pass"})
+    # MN/dim6a：fixture 正文可能命中比喻/动作链候选 → 仲裁 staged 步需要
+    # operator 响应；空 candidates = 无阻断事实
+    (output_dir / "metaphor_adj_response.txt").write_text(
+        '{"candidates": []}', encoding="utf-8")
+    (output_dir / "pacing_adj_response.txt").write_text(
+        '{"candidates": []}', encoding="utf-8")
     return _run_script("src/extend_short_form.py", str(input_path), "--output-dir", str(output_dir))
 
 
@@ -140,6 +146,10 @@ def test_extend_v3_clean_draft_commits_with_facts_hash(tmp_path, monkeypatch, ca
                                "fact_type": "event", "confirmed": True}]
     _write_json(output_dir / "continue_response.txt", candidate)
     _write_json(output_dir / "review_response.txt", {"issues": [], "reminders": [], "route": "pass"})
+    (output_dir / "metaphor_adj_response.txt").write_text(
+        '{"candidates": []}', encoding="utf-8")
+    (output_dir / "pacing_adj_response.txt").write_text(
+        '{"candidates": []}', encoding="utf-8")
     original_gate = entry.evaluate_commit_reader_gate
     inspected = []
     def inspect_gate(**kwargs):

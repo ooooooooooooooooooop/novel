@@ -93,6 +93,7 @@ from .qualitythresholds import (
     QualityThresholds,
 )
 from .readerexpectation import ReaderExpectation, ReaderExpectationLedger
+from .expectation_intent import ExpectationUpdateIntent
 from .readerreport import ReaderDimension, ReaderExperienceReport
 from .readerresponse import ReaderResponseRecord
 from .reviewissue import ReviewIssue, ReviewReminder
@@ -102,7 +103,14 @@ from .diagnostic_choice import (
     ConditionalRevelation,
     DiagnosticChoice,
 )
+from .depiction_intent import DepictionIntent
 from .inference_handoff import InferenceHandoff
+from .dialogue_strategy import (
+    DialogueBeat,
+    DialogueStrategy,
+    TacticalMove,
+    TargetDelta,
+)
 from .structural_search import (
     CandidatePrecommit,
     NearDuplicatePair,
@@ -219,7 +227,13 @@ __all__ = [
     "ChoiceAlternative",
     "ConditionalRevelation",
     "DiagnosticChoice",
+    "ExpectationUpdateIntent",
+    "DepictionIntent",
     "InferenceHandoff",
+    "DialogueBeat",
+    "DialogueStrategy",
+    "TacticalMove",
+    "TargetDelta",
     "StructuralDiversityReport",
     "StructuralProposal",
     "StructuralSearchResult",

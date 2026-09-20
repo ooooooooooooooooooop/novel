@@ -775,6 +775,9 @@ class StagedResponseRunner:
 # Rewrite→Re-Review，正文层修订 prose_revise 为新增槽位）。
 # compose 流的响应用 compose_* 前缀命名（compose_continue / compose_review），
 # 与 extend 的 continue / review 并列——漏列会泄漏到下一章（多章续写坏点）。
+# 仲裁响应（dialogue/detail/metaphor/pacing adj）与 viability 同款
+# `if not exists` 消费模式，同属本周期 staged 响应——漏列会使上一章的
+# 仲裁事实被下一章静默复用（陈旧仲裁复用漏洞）。
 CYCLE_RESPONSE_FILES: tuple[str, ...] = (
     "continue_response.txt",
     "compose_continue_response.txt",
@@ -790,6 +793,18 @@ CYCLE_RESPONSE_FILES: tuple[str, ...] = (
     "compose_rewrite_response.txt",
     "extend_rereview_response.txt",
     "compose_rereview_response.txt",
+    "dialogue_adj_response.txt",
+    "detail_adj_response.txt",
+    "metaphor_adj_response.txt",
+    "pacing_adj_response.txt",
+    "expectation_adj_response.txt",
+    "atomicity_response.txt",
+    "atomicity_split_response.txt",
+    "atomicity_regate_response.txt",
+    "blank_adj_response.txt",
+    "depiction_adj_response.txt",
+    "reader_state_response.txt",
+    "viability_response.txt",
 )
 
 

@@ -25,7 +25,18 @@ OVERDUE_ESCALATION_MULTIPLIER = 2
 
 
 class ReaderExpectation(BaseModel):
-    """一条读者预期：读者正在等什么答案."""
+    """一条读者预期：读者正在等什么答案.
+
+    dim7 扩展（Information-Gap / Prediction Control）：
+    - mode：curiosity=答案未知（"到底是什么"）；suspense=结果空间已知、
+      关心哪个结果发生。suspense 才需要 stakes。
+    - possibilities：读者当前合理可能性空间（来自 accepted prose 的
+      grounded 抽取，非作者意图）。
+    - dominant_prediction：正文已建立的读者默认预测——surprise 的
+      earned/unearned 判定基线；无基线的反转不算 earned。
+    - evidence_refs：支撑 possibilities/prediction 的证据引用
+      （必须来自 accepted prose）。
+    """
 
     model_config = ConfigDict(extra="forbid")
 
@@ -33,7 +44,10 @@ class ReaderExpectation(BaseModel):
     reader_question: str = Field(
         description="读者视角的问题——把伏笔内容翻译成『读者想知道什么』"
     )
-    source_thread_id: str = Field(description="来源 Foreshadow thread_id")
+    source_thread_id: Optional[str] = Field(
+        default=None,
+        description="来源 Foreshadow thread_id；场景级即时悬念可无来源（None）",
+    )
     importance: Literal["high", "medium", "low"] = Field(
         description="对读者追读的重要性（高=读者最想知道）"
     )
@@ -47,20 +61,59 @@ class ReaderExpectation(BaseModel):
     window_plotunits: int = Field(
         default=DEFAULT_WINDOW_PLOTUNITS, ge=1, description="预期窗口（PlotUnit 数）"
     )
-    status: Literal["waiting", "advanced", "overdue", "stale"] = Field(
+    status: Literal["waiting", "advanced", "overdue", "stale", "resolved"] = Field(
         default="waiting",
         description="waiting=在窗口内等待; advanced=已推进; "
-        "overdue=超过窗口无推进（拖延）; stale=远超窗口（失去吸引力风险）",
+        "overdue=超过窗口无推进（拖延）; stale=远超窗口（失去吸引力风险）; "
+        "resolved=已兑现/已回答（保留审计不再追问）",
     )
 
-    @field_validator(
-        "expectation_id", "reader_question", "source_thread_id", "opened_at"
+    # ---- dim7 扩展字段（全部可空/默认空：旧序列化零回归契约）----
+    mode: Literal["curiosity", "suspense"] = Field(
+        default="curiosity",
+        description="curiosity=答案本身未知；suspense=结果空间已知、"
+        "关心哪个结果发生（需要 stakes）",
     )
+    possibilities: list[str] = Field(
+        default_factory=list,
+        description="读者当前合理可能性空间（grounded 于 accepted prose）",
+    )
+    dominant_prediction: Optional[str] = Field(
+        default=None,
+        description="正文已建立的读者默认预测（surprise 判定基线）",
+    )
+    evidence_refs: list[str] = Field(
+        default_factory=list,
+        description="支撑可能性/预测的证据引用（须来自 accepted prose）",
+    )
+    stakes: Optional[str] = Field(
+        default=None, description="suspense 模式的代价/风险描述"
+    )
+
+    @field_validator("expectation_id", "reader_question", "opened_at")
     @classmethod
     def _text_must_be_non_blank(cls, value: str, info: ValidationInfo) -> str:
         if not value.strip():
             raise ValueError(f"{info.field_name} must be non-empty")
         return value
+
+    @field_validator("source_thread_id", "dominant_prediction", "stakes")
+    @classmethod
+    def _opt_text_must_be_non_blank(
+        cls, value: Optional[str], info: ValidationInfo
+    ) -> Optional[str]:
+        if value is not None and not value.strip():
+            raise ValueError(f"{info.field_name} must be non-empty when provided")
+        return value
+
+    @field_validator("possibilities", "evidence_refs")
+    @classmethod
+    def _dim7_list_items_must_be_non_blank(
+        cls, values: list[str], info: ValidationInfo
+    ) -> list[str]:
+        if any(not v.strip() for v in values):
+            raise ValueError(f"{info.field_name} entries must be non-empty")
+        return values
 
 
 class ReaderExpectationLedger(BaseModel):
@@ -79,6 +132,26 @@ class ReaderExpectationLedger(BaseModel):
         """按状态过滤."""
         return [e for e in self.expectations if e.status == status]
 
+    def open_expectations(self) -> list[ReaderExpectation]:
+        """未关闭的预期（dim7 due-event 判定的作用域）."""
+        return [
+            e for e in self.expectations if e.status != "resolved"
+        ]
+
+    def get(self, expectation_id: str) -> Optional[ReaderExpectation]:
+        for e in self.expectations:
+            if e.expectation_id == expectation_id:
+                return e
+        return None
+
+    def upsert(self, entry: ReaderExpectation) -> None:
+        """按 expectation_id 更新或追加（post-prose grounded 写回）."""
+        for i, e in enumerate(self.expectations):
+            if e.expectation_id == entry.expectation_id:
+                self.expectations[i] = entry
+                return
+        self.expectations.append(entry)
+
     def top_questions(self, limit: int = 5) -> list[ReaderExpectation]:
         """读者当前最想知道什么（按 importance + 逾期状态排序）. 高优先在前."""
         order = {"high": 0, "medium": 1, "low": 2}
@@ -96,6 +169,25 @@ class ReaderExpectationLedger(BaseModel):
             if e.status in ("overdue", "stale")
         ]
 
+    def to_open_context(self) -> str:
+        """Continue 用的开放预期清单（带 expectation_id 供 intents 引用）."""
+        open_items = self.open_expectations()
+        if not open_items:
+            return ""
+        lines = [
+            "当前开放预期（读者正在等待/怀疑/预测——expectation_intents 引用其 id）："
+        ]
+        for e in open_items:
+            line = f"- [{e.expectation_id}] [{e.mode}/{e.status}] {e.reader_question}"
+            if e.dominant_prediction:
+                line += f"｜读者默认预测：{e.dominant_prediction}"
+            elif e.possibilities:
+                line += f"｜可能性空间：{'；'.join(e.possibilities[:4])}"
+            if e.mode == "suspense" and e.stakes:
+                line += f"｜代价：{e.stakes}"
+            lines.append(line)
+        return "\n".join(lines)
+
     def to_prompt_context(self) -> str:
         """生成给 LLM 的上下文描述（读者视角的等待清单）."""
         if not self.expectations:
@@ -108,12 +200,19 @@ class ReaderExpectationLedger(BaseModel):
                 "overdue": "拖延",
                 "stale": "失去吸引力风险",
             }[e.status]
-            lines.append(
+            line = (
                 f"- [{e.importance}/{status_tag}] {e.reader_question}"
                 f"（建立于 {e.opened_at}"
                 + (f"，推进 {e.advancement_count} 次" if e.advancement_count else "，未推进")
                 + "）"
             )
+            if e.mode == "suspense":
+                line += f"〔悬念：{e.stakes or '结果未定'}〕"
+            if e.dominant_prediction:
+                line += f"〔读者默认预测：{e.dominant_prediction}〕"
+            elif e.possibilities:
+                line += f"〔读者可能性空间：{'；'.join(e.possibilities[:4])}〕"
+            lines.append(line)
         if self.overdue_expectations():
             lines.append(
                 "注意: 以下预期已拖延过久，读者耐心可能流失: "

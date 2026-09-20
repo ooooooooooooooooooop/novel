@@ -248,6 +248,19 @@ def build_prompt(
         "当下让读者可感知，但不得把备选方案和利弊逐项搬进内心独白；选择落地后"
         "禁止再写『这说明他其实是……』『他终究还是把X看得比Y重要』这类性格答案。"
         "不存在的场景禁止硬造戏剧化决断。",
+    ]
+    if plotunit.dialogue_strategy:
+        lines += [
+            "", "【对白作为社会行动】",
+            "PlotUnit 中的【对白执行契约】若存在：人物通过实际说法推进目的，"
+            "而不是解释目的；对方须对刚形成的压力作有效回应，不得无视后换话题；"
+            "至少一次交换须改变信息、承诺、杠杆或行动空间；不得让读者明白而把"
+            "不能直说的事说破；对白后不得用旁白翻译潜台词。"
+            "沉默/克制不能替代本来必须发生的追问、拒绝或表态——只有当沉默本身"
+            "改变局面时，它才算有效回应。"
+            "不存在的场景正常说话——寒暄、交代、确认不需要潜台词。",
+        ]
+    lines += [
         "", "【PlotUnit】", plotunit.to_prompt_context(writer_facing=True),
     ]
     if workspec_context:
@@ -297,6 +310,48 @@ def build_revision_prompt(
         getattr(issue, "issue_type", "") == "reader_cognitive_allocation"
         for issue in blocking_issues
     )
+    has_dlg_issue = any(
+        getattr(issue, "issue_type", "") in {
+            "unearned_directness", "objective_unpursued", "flat_tactic",
+            "no_response_pressure", "subtext_glossed", "no_turn_delta",
+            "dialogue_loop_stasis", "excessive_redundant_tail",
+            "formal_echo_after_ack", "subtext_overengineering",
+            "redundancy",
+        }
+        for issue in blocking_issues
+    )
+    has_detail_issue = any(
+        getattr(issue, "issue_type", "") in {
+            "decorative_inventory", "functionless_detail", "detail_overload",
+            "functional_but_detached",
+        }
+        for issue in blocking_issues
+    )
+    has_metaphor_issue = any(
+        getattr(issue, "issue_type", "") == "gratuitous_metaphor"
+        for issue in blocking_issues
+    )
+    has_pacing_issue = any(
+        getattr(issue, "issue_type", "")
+        == "event_chain_without_state_delta"
+        for issue in blocking_issues
+    )
+    has_expectation_issue = any(
+        getattr(issue, "issue_type", "") == "suspense_by_withholding"
+        for issue in blocking_issues
+    )
+    has_blank_issue = any(
+        getattr(issue, "issue_type", "") in {
+            "blank_inference_made_explicit", "blank_under_evidenced",
+        }
+        for issue in blocking_issues
+    )
+    has_depiction_issue = any(
+        getattr(issue, "issue_type", "") in {
+            "depiction_named_only", "depiction_absent",
+        }
+        for issue in blocking_issues
+    )
     for issue in blocking_issues:
         desc = getattr(issue, "description", str(issue))
         issue_type = getattr(issue, "issue_type", "issue")
@@ -334,6 +389,134 @@ def build_revision_prompt(
             "修改后功能必须仍在（悬念方向、人物判断、因果、情绪基调不得因删解释而丢失）。"
             "不得把『需要读者自己推断』误改成『故作含蓄』——若删除解释后读者缺少必要证据，"
             "选择 KEEP_EXPLICIT 或 CONVERT_GLOSS_TO_EVIDENCE。",
+        ]
+    if has_dlg_issue:
+        lines += [
+            "",
+            "【对白社会行动修订操作】（仅针对对白族 issue，局部手术）",
+            "- RESTORE_SOCIAL_CONSTRAINT：把被无故说破的信息重新放回合理边界",
+            "- TURN_INFORMATION_INTO_MOVE：把纯信息台词变成推进目的的社会行动",
+            "- RESTORE_RESPONSE_PRESSURE：让下一轮实际回应刚形成的压力",
+            "- PURSUE_INTERACTION_OBJECTIVE：让人物通过说法真正争取需要的结果",
+            "- REMOVE_SUBTEXT_GLOSS：潜台词已成立，删除旁白翻译",
+            "- CREATE_TURN_DELTA：让无效交锋真正改变信息/承诺/杠杆/行动空间",
+            "- COLLAPSE_REDUNDANT_EXCHANGE：保留已确立的条款/边界/风险条件与"
+            "最后一个有效动作，把零新增 delta 的重复确认轮次压掉或转入下一行动——"
+            "不得改写成另一套更漂亮的车轱辘",
+            "- COMPRESS_FORMAL_ECHO：保留第一次完整表达与后续轮次真正新增的"
+            "社会动作，把逐字/近逐字重述改为指代、确认、动作或直接进入下一步——"
+            "微功能保留，正文不再整段重说同一措辞",
+            "- COLLAPSE_NARRATIVE_RESTATEMENT：叙述段落复述已确立的计划/事实/"
+            "情绪且零新增状态时，保留首次完整陈述，后续同命题段落压成"
+            "指代/一句带过/或转入行动——不得第三遍原样重说",
+            "折叠保留约束（折叠类操作必须遵守）：第一次实质回应（首次回答/"
+            "承诺/拒绝的完整表达）不得删除或压成谜语；尚未获得实质回应的"
+            "追问/压力不得被沉默或省略吞掉——这些不是冗余，删了等同制造"
+            " no_response_pressure；被压掉的只能是『已确认命题的重复确认轮次』。",
+            "沉默/克制不能替代本来必须发生的追问、拒绝或表态——只有当沉默本身"
+            "改变局面时，它才算有效回应；否则必须让该交换真实发生。",
+        ]
+    if has_detail_issue:
+        lines += [
+            "",
+            "【细节功能修订操作】（仅针对细节族 issue，局部手术）",
+            "- FUNCTIONALIZE_DETAIL：给被判无功能的细节接上当前用途——让它"
+            "帮读者定位空间、约束/使能行动、提供感官在场、标记关系或投射"
+            "氛围；接功能靠改写法（细节如何被使用/被注意/改变局面），"
+            "不是补一句「这很有用」式声明",
+            "- CUT_INVENTORY_LIST：删掉成簇无功能的枚举物体，保留其中确有"
+            "功能的项并让其承担功能",
+            "- REINTEGRATE_DETAIL：细节功能成立但表达为声明/罗列式插入——"
+            "只改承载方式：把该细节改写为附着在具体动作/感知/判断/空间阻碍"
+            "上并使其改变当前状态；细节对象本身不重选、不删除",
+            "- THIN_DETAIL_DENSITY：在关键交锋/动作段落中移除打断节奏的"
+            "无关环境描写，让当前读者任务不被稀释",
+            "细节保留约束（必须遵守）：不得删除空间定位信息、行动约束"
+            "（距离/掩体/出口/工具）、连续性物件、线索伏笔、关系标记物，"
+            "以及已在后文/当前行动中兑现的累积氛围；不得把「细节多」治成"
+            "「场景真空」——删后读者必须仍能定位与追踪行动。",
+        ]
+    if has_metaphor_issue:
+        lines += [
+            "",
+            "【比喻必要性修订操作】（仅针对 gratuitous_metaphor issue，局部手术）",
+            "- REPLACE_WITH_LITERAL：该显式比喻经最强直述替换验证无任何实质"
+            "损失——移除整个类比构式（标记词+喻体+呼应尾），用 issue 描述中"
+            "给出的直述替换稿落地。约束：替换稿必须保留原命题与全部对象/关系"
+            "指涉、保持语法角色与上下文衔接、不引入新事实；严禁把该比喻"
+            "改写成另一个比喻/类比（替换后再次出现 像/如/仿佛/宛如/如同 "
+            "构式即视为未完成本操作）；不得顺手重写整段或删除比喻之外仍"
+            "承担功能的句子。",
+            "比喻保留约束（必须遵守）：issue 未列出的比喻一律不动；"
+            "被列比喻若其实承担了压缩结构关系/映射/人物认知立场（视点 delta)/"
+            "意象承接等不可直述功能，是仲裁误判——但该判断已在仲裁层完成，"
+            "此处不得自行发明新功能来保留它，只可执行 REPLACE_WITH_LITERAL。",
+        ]
+    if has_pacing_issue:
+        lines += [
+            "",
+            "【语义节奏修订操作】（仅针对 event_chain_without_state_delta issue，局部手术）",
+            "- COMPRESS_EVENT_CHAIN：删除/合并无功能的中间步骤——"
+            "如「开门，进屋，脱鞋，放下钥匙，走到厨房」→「他进屋径直去了厨房」。"
+            "硬约束：不改变事件最终结果；不改变必要因果顺序；不删除后文依赖的"
+            "物件/位置/动作；不引入新事实；保持视角；只动 issue 定位的链。"
+            "边界（PC-BEAT-COLLAPSE-01 / PC-DIALOGUE-COLLAPSE-01 冻结）："
+            "①不得跨越既有段落/空行边界合并——段界本身是节拍结构，只允许在"
+            "同一自然段内删并中间步骤；②对白发言轮（引号行/应答轮）不属于"
+            "可压缩节点，严禁把 shown dialogue 转成叙述摘要仅为提速——对白"
+            "冗余由对白机制负责。",
+            "- SURFACE_EXISTING_STATE_DELTA：仅当状态变化已存在于下游正文/"
+            "场景计划/细节契约中、但被机械动作链隔开时，把它提前或并接到动作"
+            "结果处。严禁为「更有推进感」现场发明后果、情绪或信息——没有已存在"
+            "的 delta 时只可压缩。",
+            "节奏保留约束（必须遵守）：承担悬念时序/仪式感/人物刻画/空间因果/"
+            "感官铺垫/喜剧或戏剧节拍的动作链不得压缩；压缩后读者必须仍能追踪"
+            "位置与动作连续性。",
+        ]
+    if has_expectation_issue:
+        lines += [
+            "",
+            "【读者预期修订操作】（仅针对 suspense_by_withholding issue，局部手术）",
+            "- DELIVER_DUE_ANSWER：该回答/行动/兑现在当前因果链已到期——"
+            "让它在本场真实发生（人物给出回答、采取行动、承诺兑现）。"
+            "是「发生」不是「解释」：不得用一段说明代替事件发生；"
+            "兑现内容须与已有事实/承诺相容，不得发明新答案。",
+            "- REMOVE_ARTIFICIAL_DELAY：删除仅为推迟到期事件而存在的人为"
+            "延迟手段——突然打断、欲言又止、无理由转场、「以后再告诉你」、"
+            "人到场却反复拖。删除后因果链继续走，不补新障碍。",
+            "- SURFACE_EXISTING_EVIDENCE：把世界状态/当前事件中已存在的"
+            "证据写进读者可见层（让已有线索被看到）。严禁凭空造新线索/"
+            "新事实——只能呈现已存在者。",
+            "预期保留约束（必须遵守）：不得为延期再开新悬念；"
+            "未列 issue 的开放预期不动；合法悬念（问题未解但读者可能性/"
+            "风险/预测已有变化）不是拖延，不得强行兑现。",
+        ]
+    if has_blank_issue:
+        lines += [
+            "",
+            "【留白修订操作】（仅针对 blank_* issue，局部手术）",
+            "- SUPPRESS_STATED_INFERENCE：已声明留给读者的推断被正文说破——"
+            "删去陈述/总结/解释该结论的句子（旁白、内心总结、对白点破都算），"
+            "让已呈现的证据自己闭合。只删说破的部分，不动证据本身。",
+            "- RESTORE_BLANK_EVIDENCE：声明留白但证据不足——把计划中缺失的"
+            "证据以读者可见的动作/对白/细节补出（补证据，不是补讲解）；"
+            "补不出足够证据则不保留此留白，改为最小明说或删除该推断设计。",
+            "留白保留约束（必须遵守）：留白的目标推断不得改写进正文任何"
+            "显式形式；证据补足后正文仍不得替读者说出最后一步；"
+            "不得为解决留白再开新解释段落。",
+        ]
+    if has_depiction_issue:
+        lines += [
+            "",
+            "【白描修订操作】（仅针对 depiction_* issue，局部手术）",
+            "- GROUND_DEPICTION：已声明的体验质感只剩抽象命名或整体缺席——"
+            "在责任 beat 内把质感落成可观察的动作/神态/语气/器物/空间/节奏，"
+            "让读者【感受到】而非【被告知】。载体不限于计划清单，任何有效"
+            "可观察呈现都算；但稀薄到可替换的痕迹不算承载。",
+            "白描保留约束（必须遵守）：目标质感不得用抽象词直接命名兑现"
+            "（「他很烦躁」「气氛压抑」类句子不是载体）；补载体时不得顺手"
+            "把质感再说破一遍；责任 beat 外的段落不承担该意图——若场景已"
+            "合法转线不在该 beat，则不强行塞回。",
         ]
     if plotunit is not None:
         lines += ["", "【PlotUnit（结构依据）】", plotunit.to_prompt_context(writer_facing=True)]

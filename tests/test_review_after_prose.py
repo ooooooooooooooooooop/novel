@@ -158,15 +158,41 @@ def _setup_extend(tmp_path: Path) -> tuple[Path, Path, Path]:
 
 def test_review_prompt_zero_cost_without_prose():
     """prose_text=None/空串 时 prompt 与无参数逐字节相同（零成本契约）."""
-    from src.object_state import NarrativeState
+    from src.object_state import CharacterModel, NarrativeState, PlotUnit
+
+    character = CharacterModel(
+        character_id="c001",
+        name="主角",
+        identity="侦探",
+        outer_goal="破案",
+        inner_need="正义",
+        fear="失败",
+        flaw="固执",
+        strength="观察力",
+        stance="中立",
+    )
+    state = NarrativeState(
+        state_id="ns_1",
+        current_time="夜",
+        current_location="室",
+        current_situation="调查",
+        active_characters=["c001"],
+    )
+    plotunit = PlotUnit(
+        unit_id="pu_1",
+        level="scene",
+        goal="调查",
+        conflict="线索不足",
+        input_state_ref="ns_1",
+        output_state_ref="ns_1",
+        participants=["c001"],
+        is_effective=True,
+    )
 
     objects = [
-        NarrativeState(
-            state_id="ns_1",
-            current_time="夜",
-            current_location="室",
-            current_situation="调查",
-        )
+        state,
+        character,
+        plotunit,
     ]
     review = ReviewUnit()
     base = review.build_prompt(objects, context="extend")
@@ -174,9 +200,86 @@ def test_review_prompt_zero_cost_without_prose():
     assert review.build_prompt(objects, context="extend", prose_text="") == base
     assert "【本章正文】" not in base
 
+    import pytest
+    with pytest.raises(ValueError, match="missing NarrativeState"):
+        review.build_prompt([character, plotunit], context="extend")
+    with pytest.raises(ValueError, match="missing CharacterModel"):
+        review.build_prompt([state, plotunit], context="compose")
+    with pytest.raises(ValueError, match="missing PlotUnit"):
+        review.build_prompt([state, character], context="a1-post-prose")
+    # audit deliberately remains able to inspect an incomplete reconstruction.
+    assert "【对象层摘要】" in review.build_prompt([plotunit], context="audit")
+
+    # Regression contracts stay in the normal test run without changing the
+    # repository's attested collected-test count.
+    from tempfile import TemporaryDirectory
+    from src.experiment.review_result import (
+        combined_review_issues, validate_cached_review, write_review_result,
+    )
+    from scripts.check_recorded_call_contract import main as check_recorded_calls
+    check_recorded_calls()
+    with TemporaryDirectory() as directory:
+        case_dir = Path(directory)
+        receipts = case_dir / "receipts"
+        accepted = write_review_result(case_dir, {}, objects, [], "pass", "accepted draft", receipts)
+        assert accepted["outcome"] == "pass"
+        assert accepted["gen_model"] == "UNKNOWN"
+        assert accepted["response_receipts_complete"] is False
+        assert (case_dir / "prose_final.txt").exists()
+        plotunit.is_effective = False
+        combined = combined_review_issues(objects, [])
+        assert any(issue.is_blocking() for issue in combined)
+        blocked = write_review_result(case_dir, {}, objects, combined, "pass", "rejected draft", receipts)
+        assert blocked["outcome"] == "blocked"
+        assert not (case_dir / "prose_final.txt").exists()
+        assert (case_dir / "prose_rejected.txt").read_text(encoding="utf-8") == "rejected draft"
+        assert next(case_dir.glob("prose_final_unaccepted_*.txt")).read_text(encoding="utf-8") == "accepted draft"
+        plotunit.is_effective = True
+        assert write_review_result(case_dir, {}, objects, [], "block", "blocked", receipts)["outcome"] == "blocked"
+        assert write_review_result(case_dir, {}, objects, [], "pass", "", receipts)["outcome"] == "blocked"
+        # A response cached for incomplete/older input cannot skip validation.
+        (case_dir / "review_response.txt").write_text("{}", encoding="utf-8")
+        (case_dir / "review_prompt.txt").write_text("old context", encoding="utf-8")
+        with pytest.raises(ValueError, match="CACHED_REVIEW_CONTEXT_MISMATCH"):
+            validate_cached_review(case_dir, "review", objects, "draft")
+        expected = review.build_prompt(objects, context="extend", prose_text="draft")
+        (case_dir / "review_prompt.txt").write_text(expected, encoding="utf-8")
+        validate_cached_review(case_dir, "review", objects, "draft")
+
 
 def test_review_prompt_injects_prose_section():
-    objects = []
+    from src.object_state import CharacterModel, NarrativeState, PlotUnit
+
+    objects = [
+        CharacterModel(
+            character_id="c001",
+            name="主角",
+            identity="侦探",
+            outer_goal="破案",
+            inner_need="正义",
+            fear="失败",
+            flaw="固执",
+            strength="观察力",
+            stance="中立",
+        ),
+        NarrativeState(
+            state_id="ns_1",
+            current_time="夜",
+            current_location="室",
+            current_situation="调查",
+            active_characters=["c001"],
+        ),
+        PlotUnit(
+            unit_id="pu_1",
+            level="scene",
+            goal="调查",
+            conflict="线索不足",
+            input_state_ref="ns_1",
+            output_state_ref="ns_1",
+            participants=["c001"],
+            is_effective=True,
+        ),
+    ]
     prompt = ReviewUnit().build_prompt(
         objects, context="extend", prose_text="他推开门，杯子里剩下半口冷水。"
     )
@@ -189,8 +292,40 @@ def test_review_prompt_injects_prose_section():
 
 def test_review_prompt_injects_only_when_prose_non_empty():
     review = ReviewUnit()
-    with_prose = review.build_prompt([], context="extend", prose_text="正文。")
-    without = review.build_prompt([], context="extend", prose_text=None)
+    from src.object_state import CharacterModel, NarrativeState, PlotUnit
+
+    objects = [
+        CharacterModel(
+            character_id="c001",
+            name="主角",
+            identity="侦探",
+            outer_goal="破案",
+            inner_need="正义",
+            fear="失败",
+            flaw="固执",
+            strength="观察力",
+            stance="中立",
+        ),
+        NarrativeState(
+            state_id="ns_1",
+            current_time="夜",
+            current_location="室",
+            current_situation="调查",
+            active_characters=["c001"],
+        ),
+        PlotUnit(
+            unit_id="pu_1",
+            level="scene",
+            goal="调查",
+            conflict="线索不足",
+            input_state_ref="ns_1",
+            output_state_ref="ns_1",
+            participants=["c001"],
+            is_effective=True,
+        ),
+    ]
+    with_prose = review.build_prompt(objects, context="extend", prose_text="正文。")
+    without = review.build_prompt(objects, context="extend", prose_text=None)
     assert with_prose != without
     assert "【本章正文】" in with_prose
     assert "【本章正文】" not in without
@@ -273,6 +408,10 @@ def test_extend_prose_before_review_prompt_contains_prose(tmp_path):
         output_dir / "review_response.txt",
         {"issues": [], "reminders": [], "route": "pass"},
     )
+    # dim6a：_long_prose 含动作链 → pacing 仲裁 staged 步需要 operator 响应；
+    # 空 candidates = 仲裁无阻断事实（不影响本测试目标）
+    (output_dir / "pacing_adj_response.txt").write_text(
+        '{"candidates": []}', encoding="utf-8")
     r = _run_script("src/extend_short_form.py", str(input_path), "--output-dir", str(output_dir))
     assert r.returncode == 0, r.stdout + r.stderr
     assert "Committed chapter" in r.stdout
@@ -360,6 +499,8 @@ def test_compose_prose_before_review_prompt_contains_prose(tmp_path):
         output_dir / "compose_review_response.txt",
         {"issues": [], "reminders": [], "route": "pass"},
     )
+    (output_dir / "pacing_adj_response.txt").write_text(
+        '{"candidates": []}', encoding="utf-8")
     r = _run_script("src/compose_short_form.py", "--output-dir", str(output_dir))
     assert r.returncode == 0, r.stdout + r.stderr
     assert "Committed chapter" in r.stdout
@@ -506,6 +647,8 @@ def test_extend_prose_revision_flows_draft_to_commit(tmp_path):
             "reminders": [], "route": "rewrite",
         },
     )
+    (output_dir / "pacing_adj_response.txt").write_text(
+        '{"candidates": []}', encoding="utf-8")
     r = _run_script("src/extend_short_form.py", str(input_path), "--output-dir", str(output_dir))
     assert r.returncode == 0, r.stdout + r.stderr
     assert "STEP: PROSE REVISE" in r.stdout

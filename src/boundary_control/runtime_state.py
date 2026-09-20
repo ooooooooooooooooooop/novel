@@ -9,6 +9,7 @@ from src.object_state import (
     FactLedger,
     ForeshadowGraph,
     NarrativeState,
+    ReaderExpectationLedger,
     WorkSpec,
     WorldModel,
 )
@@ -56,3 +57,15 @@ def require_continue_runtime_state(
     foreshadows = require_single_object(objects, ForeshadowGraph)
     characters = [obj for obj in objects if isinstance(obj, CharacterModel)]
     return workspec, worldmodel, narrative_state, characters, facts, foreshadows
+
+
+def find_reader_expectation_ledger(
+    objects: list,
+) -> ReaderExpectationLedger | None:
+    """取最新持久化的 ReaderExpectationLedger；旧状态没有则返回 None.
+
+    dim7：ledger 是跨章 persistent reader model（stable_memory 层），
+    旧提交状态不含该对象属正常——调用方按需新建。
+    """
+    matches = [o for o in objects if isinstance(o, ReaderExpectationLedger)]
+    return matches[-1] if matches else None

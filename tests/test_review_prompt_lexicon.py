@@ -14,7 +14,7 @@ def test_review_prompt_contains_failure_type_lexicon():
     assert "【失败类型字典】" in prompt
 
 
-def test_failure_type_lexicon_covers_all_27_types():
+def test_failure_type_lexicon_covers_all_34_types():
     types = [t[0] for t in FAILURE_TYPE_LEXICON]
     expected = {
         "fact_conflict",
@@ -44,6 +44,30 @@ def test_failure_type_lexicon_covers_all_27_types():
         "choice_not_enacted",
         "trait_gloss_after_choice",
         "generic_protagonist_choice",
+        "unearned_directness",
+        "objective_unpursued",
+        "flat_tactic",
+        "no_response_pressure",
+        "subtext_glossed",
+        "no_turn_delta",
+        "dialogue_loop_stasis",
+        "excessive_redundant_tail",
+        "formal_echo_after_ack",
+        "subtext_overengineering",
+        "decorative_inventory",
+        "functionless_detail",
+        "detail_overload",
+        "functional_but_detached",
+        "gratuitous_metaphor",
+        "metaphor_overload",
+        "event_chain_without_state_delta",
+        "suspense_by_withholding",
+        "surprise_without_prediction_baseline",
+        "surprise_requires_hidden_premise",
+        "blank_inference_made_explicit",
+        "blank_under_evidenced",
+        "depiction_named_only",
+        "depiction_absent",
     }
     assert set(types) == expected
 

@@ -2118,10 +2118,22 @@ def test_reset_consumed_responses_idempotent_when_absent(tmp_path):
         recover_post_commit_cleanup(tmp_path)
 
 
-def test_cycle_response_files_exclude_cross_chapter_prompts():
-    """周期响应清单不得包含跨章输入解析（rebuild/outline）的响应."""
+def test_cycle_response_files_exclude_cross_chapter_prompts(tmp_path):
+    """周期响应清单不得包含跨章输入解析（rebuild/outline）的响应.
+
+    同时钉住：仲裁响应（dialogue/detail/metaphor/pacing `*_adj_response.txt`）
+    与 viability_response.txt 是周期内 `if not exists` 消费的 staged
+    响应，必须在清单内——漏列会让上一章残留仲裁事实被下一章静默复用
+    （陈旧仲裁复用漏洞）。reset 行为由
+    test_reset_consumed_responses_removes_cycle_files_keeps_rebuild
+    遍历清单覆盖。
+    """
     assert "rebuild_response.txt" not in CYCLE_RESPONSE_FILES
     assert "outline_response.txt" not in CYCLE_RESPONSE_FILES
+    for name in ("dialogue_adj_response.txt", "detail_adj_response.txt",
+                 "metaphor_adj_response.txt", "pacing_adj_response.txt",
+                 "viability_response.txt"):
+        assert name in CYCLE_RESPONSE_FILES
     assert "continue_response.txt" in CYCLE_RESPONSE_FILES
     assert "prose_response.txt" in CYCLE_RESPONSE_FILES
     assert "review_response.txt" in CYCLE_RESPONSE_FILES

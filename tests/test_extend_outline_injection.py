@@ -313,6 +313,12 @@ def test_extend_long_form_outline_in_batch_prompt(tmp_path):
     (output_dir / "review_response.txt").write_text(
         _MIN_REVIEW_PASS_RESPONSE, encoding="utf-8"
     )
+    # MN/dim6a：_MIN_PROSE 若命中比喻/动作链候选 → 仲裁 staged 步需要
+    # operator 响应；空 candidates = 无阻断事实
+    (output_dir / "metaphor_adj_response.txt").write_text(
+        '{"candidates": []}', encoding="utf-8")
+    (output_dir / "pacing_adj_response.txt").write_text(
+        '{"candidates": []}', encoding="utf-8")
 
     r6 = _run(args)
     assert r6.returncode == 0, r6.stdout + r6.stderr

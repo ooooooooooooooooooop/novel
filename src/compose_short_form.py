@@ -17,7 +17,10 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from src.boundary_control.handoff import HandoffBoundaryUnit
 from src.boundary_control.runtime_identity import model_content_hash, validate_run_hash
-from src.boundary_control.runtime_state import require_continue_runtime_state
+from src.boundary_control.runtime_state import (
+    find_reader_expectation_ledger,
+    require_continue_runtime_state,
+)
 from src.boundary_control.response_file import reset_consumed_responses
 from src.boundary_control.serialization import SerializationBoundaryUnit
 from src.boundary_control.validation import NoRegressionValidationUnit
@@ -64,6 +67,10 @@ from src.workflow_action.proposal_generator import (
     parse_proposals_response,
 )
 from src.workflow_action.review import ReviewUnit
+import src.workflow_action.review as review_mod
+import src.workflow_action.expectation_ops as expectation_ops
+import src.workflow_action.blank_ops as blank_ops
+import src.workflow_action.depiction_ops as depiction_ops
 from src.workflow_action.rewrite import RewriteUnit
 from src.domain_layer.style_rules import build_temperament_guidance
 from src.workflow_action.style import load_style_context
@@ -722,6 +729,11 @@ def main() -> int:
                         getattr(o, "unit_id") for o in objects
                         if getattr(o, "unit_id", None)
                     ],
+                    reader_expectation_context=(
+                        (lambda _led: _led.to_open_context() if _led else "")(
+                            find_reader_expectation_ledger(objects)
+                        )
+                    ),
                 ),
                 encoding="utf-8",
             )
@@ -732,6 +744,16 @@ def main() -> int:
     print(f"Generated PlotUnit: {plotunit.unit_id}")
     print(f"Goal: {plotunit.goal}")
     print(f"New facts: {len(new_facts)}")
+
+    # Step 2.6: Handoff atomicity hard gate（dim8a REPAIR_AND_REPILOT 裁决）——
+    # prose 消费前运行时准入：COMPOSITE/UNCERTAIN → 拆分 → children 重过
+    # 同一 gate + preservation check；失败拦下记 telemetry。
+    _gate_state, _gated = blank_ops.atomicity_gate_step(plotunit, output_dir)
+    if _gate_state == "waiting":
+        print(f"[STEP: ATOMICITY GATE] waiting for {_gated}")
+        print("[RESUME] Re-run this script after saving response")
+        return 0
+    plotunit.reader_handoffs = _gated
 
     # Step 2.5: Character Update（可选，--character-update on；默认 off 零成本）
     character_updates: list[dict] = []
@@ -900,6 +922,219 @@ def main() -> int:
             foreshadows=_review_foreshadows,
             character_models=_review_chars,
         )
+        # 对白仲裁阶段（V1.8）：ds 门控 + 对白轮次阈值触发（机械逐字信号
+        # 只作 prompt 内提示，转述级重复同样进入仲裁）；
+        # V1.1 补充：机械命题重现信号（含叙述句段重现）可独立触发仲裁——
+        # D02 证据：ds 未点火时混合复述整体漏检
+        if draft_text:
+            _dlg_turns = review_mod.dialogue_turns_numbered(draft_text)
+            _has_ds = getattr(plotunit, "dialogue_strategy", None)
+            _rep_sig = (review_mod._dialogue_theme_recurrence(draft_text)
+                        + review_mod._narrative_proposition_recurrence(
+                            draft_text))
+            _adj_ok = (_has_ds and len(_dlg_turns) >= 6) or (
+                _rep_sig and len(_dlg_turns) >= 4)
+            if _adj_ok:
+                adj_prompt_path = output_dir / "dialogue_adj_prompt.txt"
+                adj_resp_path = output_dir / "dialogue_adj_response.txt"
+                if not adj_resp_path.exists():
+                    adj_prompt_path.write_text(
+                        review_mod.build_dialogue_adjudication_prompt(
+                            draft_text, _rep_sig),
+                        encoding="utf-8",
+                    )
+                    print(
+                        f"[STEP: DIALOGUE ADJUDICATE] Prompt saved: "
+                        f"{adj_prompt_path}")
+                    print(f"[WAITING] Generate response to: {adj_resp_path}")
+                    print("[RESUME] Re-run this script after saving response")
+                    return 0
+                _adj_facts = review_mod.parse_dialogue_adjudication(
+                    _read_response_text(adj_resp_path))
+                _adj_verdict = review_mod.dialogue_echo_verdict(
+                    _adj_facts, draft_text)
+                llm_issues, _syn = review_mod.apply_dialogue_adjudication(
+                    llm_issues, _adj_verdict,
+                    facts=_adj_facts, prose_text=draft_text)
+                print(f"[DIALOGUE ADJ] verdict={_adj_verdict}"
+                      + (" (injected)" if _syn else ""))
+        # 细节仲裁阶段（DFD V1）：detail_contract 在场或枚举候选命中时触发
+        if draft_text:
+            _det_cands = review_mod._detail_inventory_candidates(draft_text)
+            _has_dc = getattr(plotunit, "detail_contract", None)
+            if _det_cands or _has_dc:
+                dadj_prompt_path = output_dir / "detail_adj_prompt.txt"
+                dadj_resp_path = output_dir / "detail_adj_response.txt"
+                if not dadj_resp_path.exists():
+                    _dc_ctx = (_has_dc.to_prompt_context()
+                               if _has_dc else "")
+                    dadj_prompt_path.write_text(
+                        review_mod.build_detail_adjudication_prompt(
+                            draft_text, _det_cands, _dc_ctx),
+                        encoding="utf-8",
+                    )
+                    print(
+                        f"[STEP: DETAIL ADJUDICATE] Prompt saved: "
+                        f"{dadj_prompt_path}")
+                    print(f"[WAITING] Generate response to: {dadj_resp_path}")
+                    print("[RESUME] Re-run this script after saving response")
+                    return 0
+                _dadj_facts = review_mod.parse_detail_adjudication(
+                    _read_response_text(dadj_resp_path))
+                _dadj_verdict = review_mod.detail_function_verdict(_dadj_facts)
+                llm_issues, _dsyn = review_mod.apply_detail_adjudication(
+                    llm_issues, _dadj_verdict,
+                    facts=_dadj_facts, prose_text=draft_text)
+                print(f"[DETAIL ADJ] verdict={_dadj_verdict}"
+                      + (" (injected)" if _dsyn else ""))
+
+        # 比喻仲裁阶段（MN V1）：机械候选命中显式类比构式即触发——
+        # 窄仲裁抽事实（功能/直述替换/adequacy/损失）→ 确定性裁决
+        if draft_text:
+            _mn_cands = review_mod._metaphor_candidates(draft_text)
+            if _mn_cands:
+                madj_prompt_path = output_dir / "metaphor_adj_prompt.txt"
+                madj_resp_path = output_dir / "metaphor_adj_response.txt"
+                if not madj_resp_path.exists():
+                    madj_prompt_path.write_text(
+                        review_mod.build_metaphor_adjudication_prompt(
+                            draft_text, _mn_cands),
+                        encoding="utf-8",
+                    )
+                    print(
+                        f"[STEP: METAPHOR ADJUDICATE] Prompt saved: "
+                        f"{madj_prompt_path}")
+                    print(f"[WAITING] Generate response to: {madj_resp_path}")
+                    print("[RESUME] Re-run this script after saving response")
+                    return 0
+                _madj_facts = review_mod.parse_metaphor_adjudication(
+                    _read_response_text(madj_resp_path))
+                _madj_verdict = review_mod.metaphor_necessity_verdict(
+                    _madj_facts)
+                llm_issues, _msyn = review_mod.apply_metaphor_adjudication(
+                    llm_issues, _madj_verdict,
+                    facts=_madj_facts, prose_text=draft_text)
+                print(f"[METAPHOR ADJ] verdict={_madj_verdict}"
+                      + (" (injected)" if _msyn else ""))
+
+        # 节奏仲裁阶段（dim6a）：事件链候选命中即触发
+        if draft_text:
+            _pc_cands = review_mod._event_chain_candidates(draft_text)
+            if _pc_cands:
+                padj_prompt_path = output_dir / "pacing_adj_prompt.txt"
+                padj_resp_path = output_dir / "pacing_adj_response.txt"
+                if not padj_resp_path.exists():
+                    padj_prompt_path.write_text(
+                        review_mod.build_pacing_adjudication_prompt(
+                            draft_text, _pc_cands),
+                        encoding="utf-8",
+                    )
+                    print(
+                        f"[STEP: PACING ADJUDICATE] Prompt saved: "
+                        f"{padj_prompt_path}")
+                    print(f"[WAITING] Generate response to: {padj_resp_path}")
+                    print("[RESUME] Re-run this script after saving response")
+                    return 0
+                _padj_facts = review_mod.parse_pacing_adjudication(
+                    _read_response_text(padj_resp_path))
+                _padj_facts["dialogue_bound_spans"] = [
+                    c["span"] for c in _pc_cands
+                    if c.get("dialogue_bound")]
+                _padj_verdict = review_mod.pacing_verdict(_padj_facts)
+                llm_issues, _psyn = review_mod.apply_pacing_adjudication(
+                    llm_issues, _padj_verdict,
+                    facts=_padj_facts, prose_text=draft_text)
+                print(f"[PACING ADJ] verdict={_padj_verdict}"
+                      + (" (injected)" if _psyn else ""))
+
+        # 预期仲裁阶段（dim7）：台账有开放预期才触发
+        if draft_text:
+            _exp_ledger = find_reader_expectation_ledger(objects)
+            _exp_cands = (
+                expectation_ops.due_event_candidates(_exp_ledger)
+                if _exp_ledger is not None else []
+            )
+            if _exp_cands:
+                eadj_prompt_path = output_dir / "expectation_adj_prompt.txt"
+                eadj_resp_path = output_dir / "expectation_adj_response.txt"
+                if not eadj_resp_path.exists():
+                    eadj_prompt_path.write_text(
+                        expectation_ops.build_expectation_adjudication_prompt(
+                            draft_text, _exp_cands),
+                        encoding="utf-8",
+                    )
+                    print(
+                        f"[STEP: EXPECTATION ADJUDICATE] Prompt saved: "
+                        f"{eadj_prompt_path}")
+                    print(f"[WAITING] Generate response to: {eadj_resp_path}")
+                    print("[RESUME] Re-run this script after saving response")
+                    return 0
+                _eadj_facts = expectation_ops.parse_expectation_adjudication(
+                    _read_response_text(eadj_resp_path))
+                _eadj_result = expectation_ops.expectation_verdict(
+                    _eadj_facts, _exp_ledger)
+                llm_issues, _eblocking = (
+                    expectation_ops.apply_expectation_adjudication(
+                        llm_issues, _eadj_result, ledger=_exp_ledger))
+                print(f"[EXPECTATION ADJ] verdicts="
+                      f"{expectation_ops.expectation_verdict_names(_eadj_result)}"
+                      + (" (injected)" if _eadj_result.get("verdicts") else ""))
+
+        # 留白核验阶段（dim8a）：PlotUnit 声明了留白交接点才触发
+        if draft_text:
+            _blank_cands = blank_ops.blank_candidates(plotunit)
+            if _blank_cands:
+                badj_prompt_path = output_dir / "blank_adj_prompt.txt"
+                badj_resp_path = output_dir / "blank_adj_response.txt"
+                if not badj_resp_path.exists():
+                    badj_prompt_path.write_text(
+                        blank_ops.build_blank_adjudication_prompt(
+                            draft_text, _blank_cands),
+                        encoding="utf-8",
+                    )
+                    print(
+                        f"[STEP: BLANK ADJUDICATE] Prompt saved: "
+                        f"{badj_prompt_path}")
+                    print(f"[WAITING] Generate response to: {badj_resp_path}")
+                    print("[RESUME] Re-run this script after saving response")
+                    return 0
+                _badj_facts = blank_ops.parse_blank_adjudication(
+                    _read_response_text(badj_resp_path))
+                _badj_result = blank_ops.blank_verdict(
+                    _badj_facts, _blank_cands)
+                llm_issues, _bblocking = blank_ops.apply_blank_adjudication(
+                    llm_issues, _badj_result, plotunit=plotunit)
+                print(f"[BLANK ADJ] verdicts="
+                      f"{blank_ops.blank_verdict_names(_badj_result)}"
+                      + (" (injected)" if _badj_result.get("verdicts") else ""))
+
+        # 白描核验阶段（dim8b）：PlotUnit 声明了白描意图才触发
+        if draft_text:
+            _dep_cands = depiction_ops.depiction_candidates(plotunit)
+            if _dep_cands:
+                dadj_prompt_path = output_dir / "depiction_adj_prompt.txt"
+                dadj_resp_path = output_dir / "depiction_adj_response.txt"
+                if not dadj_resp_path.exists():
+                    dadj_prompt_path.write_text(
+                        depiction_ops.build_depiction_adjudication_prompt(
+                            draft_text, _dep_cands),
+                        encoding="utf-8",
+                    )
+                    print(
+                        f"[STEP: DEPICTION ADJUDICATE] Prompt saved: "
+                        f"{dadj_prompt_path}")
+                    print(f"[WAITING] Generate response to: {dadj_resp_path}")
+                    print("[RESUME] Re-run this script after saving response")
+                    return 0
+                _dadj_facts = depiction_ops.parse_depiction_adjudication(
+                    _read_response_text(dadj_resp_path))
+                _dadj_result = depiction_ops.depiction_verdict(
+                    _dadj_facts, _dep_cands)
+                llm_issues, _dblocking = depiction_ops.apply_depiction_adjudication(
+                    llm_issues, _dadj_result, plotunit=plotunit)
+                print(f"[DEPICTION ADJ] verdicts="
+                      f"{depiction_ops.depiction_verdict_names(_dadj_result)}"
+                      + (" (injected)" if _dadj_result.get("verdicts") else ""))
         hard_issues = review._hard_rules(review_objects)
         domain_issues = review._domain_rules(review_objects)
         issues = hard_issues + domain_issues + llm_issues
@@ -956,6 +1191,22 @@ def main() -> int:
                 revised = prose_action.parse_response(
                     _read_response_text(prose_revise_response_path)
                 )
+                # PC-BEAT/DIALOGUE-COLLAPSE-01：纯 pacing 修订须守
+                # 确定性边界（不跨段/空行合并、不 shown→told）。越界
+                # 响应=无效响应，丢弃后重新等待生成（staged 语义）。
+                if blocking_issues and all(
+                        getattr(i, "issue_type", "")
+                        in review_mod._PACING_BLOCKING_TYPES
+                        for i in blocking_issues):
+                    _pc_viol = review_mod.pacing_rewrite_boundary_violations(
+                        draft_text, revised)
+                    if _pc_viol:
+                        prose_revise_response_path.unlink()
+                        print(f"[PACING BOUNDARY] 修订越界: {_pc_viol}；"
+                              f"已丢弃该响应，请重新生成: "
+                              f"{prose_revise_response_path}")
+                        print("[RESUME] Re-run this script after saving response")
+                        return 0
                 prose_action.record_prose_revision(
                     output_dir,
                     cycle_id=plotunit.unit_id,
@@ -1101,6 +1352,31 @@ def main() -> int:
             print("注意：本章正文仍是未提交 draft（output/prose_draft.txt），未进入 chapters/；"
                   "请人工处理或删除。")
         return 1
+
+    # dim7 grounding：accepted prose → reader-state 抽取 → grounded 台账更新。
+    # 裁决冻结：intents 是计划不是事实——只能由正文逐字命中的 evidence 更新。
+    _exp_ledger_commit = find_reader_expectation_ledger(objects)
+    if (draft_text and _exp_ledger_commit is not None
+            and _exp_ledger_commit.open_expectations()):
+        rs_prompt_path = output_dir / "reader_state_prompt.txt"
+        rs_resp_path = output_dir / "reader_state_response.txt"
+        if not rs_resp_path.exists():
+            rs_prompt_path.write_text(
+                expectation_ops.build_reader_state_prompt(
+                    _exp_ledger_commit, draft_text),
+                encoding="utf-8",
+            )
+            print(f"[STEP: READER STATE] Prompt saved: {rs_prompt_path}")
+            print(f"[WAITING] Generate response to: {rs_resp_path}")
+            print("[RESUME] Re-run this script after saving response")
+            return 0
+        _rs_parsed = expectation_ops.parse_reader_state_response(
+            _read_response_text(rs_resp_path))
+        _rs_tel = expectation_ops.apply_reader_state_grounding(
+            _exp_ledger_commit, _rs_parsed, draft_text,
+            chapter_ref=plotunit.unit_id)
+        print(f"Expectation ledger: {_rs_tel['applied']} update(s) applied, "
+              f"{_rs_tel['opened']} opened, {_rs_tel['rejected']} rejected")
 
     # flow v3：Review PASS → reviewed（提交前置态）
     if flow_version == "3":

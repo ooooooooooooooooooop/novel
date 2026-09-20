@@ -259,6 +259,11 @@ def run_mastery_canary_subprocess(novels_root: Path, novel_name: str = "canary_s
         json.dumps(review_pass, ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
+    # MN/dim6a：夹具正文含比喻/动作链 → 仲裁 staged 步需要 operator 响应
+    (output_dir / "metaphor_adj_response.txt").write_text(
+        '{"candidates": []}', encoding="utf-8")
+    (output_dir / "pacing_adj_response.txt").write_text(
+        '{"candidates": []}', encoding="utf-8")
 
     # 运行 compose 提交 Chapter 1
     cp_res3 = _run_cli(["compose", novel_name, "--proposals", "2", "--structural-search", "on"], novels_root)
@@ -403,6 +408,12 @@ def run_mastery_canary_subprocess(novels_root: Path, novel_name: str = "canary_s
         json.dumps(review_pass, ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
+    # Chapter 1 commit 后 adj 响应文件不在 reset 清单（与 dlg/detail/mn 同款），
+    # 若已被清则补写——幂等
+    (output_dir / "metaphor_adj_response.txt").write_text(
+        '{"candidates": []}', encoding="utf-8")
+    (output_dir / "pacing_adj_response.txt").write_text(
+        '{"candidates": []}', encoding="utf-8")
 
     # resume 提交 Chapter 2
     cp_ch2_res3 = _run_cli(["resume", novel_name], novels_root)

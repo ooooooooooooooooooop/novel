@@ -12,7 +12,11 @@ from pydantic import (
     model_validator,
 )
 
+from src.object_state.depiction_intent import DepictionIntent
+from src.object_state.detail_contract import DetailContract
+from src.object_state.expectation_intent import ExpectationUpdateIntent
 from src.object_state.diagnostic_choice import DiagnosticChoice
+from src.object_state.dialogue_strategy import DialogueStrategy
 from src.object_state.inference_handoff import InferenceHandoff
 from src.object_state.scene_experience import SceneExperience
 from src.object_state.statemodel import ClosureKind
@@ -156,6 +160,50 @@ class PlotUnit(BaseModel):
         "条件性信号，不得写成人物事实",
     )
 
+    # ---- Dialogue V1: 对白社会策略（对话作为社会行动的规划层）----
+    # 隐藏质量注解：interaction objective / social constraint /
+    # information asymmetry / 稀疏策略 beats（1-4）。Prose 只见编译后
+    # 执行契约；完整对象供 post-prose Review。≤1 个/场景，普通寒暄不建。
+    dialogue_strategy: Optional[DialogueStrategy] = Field(
+        default=None,
+        description="对白社会策略：本场值得建模的社会博弈（≤1 个）。"
+        "Continue 可选产出；writer 只见执行契约，完整对象供 Review 对照",
+    )
+
+    # ---- DFD V1: 细节功能契约（环境细节承重功能的规划层）----
+    # 隐藏质量注解：当前读者任务 + 计划承重细节（功能+读者效应+共享簇）
+    # + 细节预算。Prose 只见编译后执行契约；完整对象供 post-prose
+    # Review 对照。≤1 个/场景，无环境着墨需求的场景不建。
+    detail_contract: Optional[DetailContract] = Field(
+        default=None,
+        description="细节功能契约：本场景值得建模的环境细节功能分配（≤1 个）。"
+        "Continue 可选产出；writer 只见执行契约，完整对象供 Review 对照",
+    )
+
+    # ---- dim7: 读者预期更新意图（信息缺口/预测管理的规划层）----
+    # 隐藏质量注解：对读者预期的计划操作（OPEN/NARROW/STRENGTHEN/
+    # WEAKEN/FLIP/RESOLVE + answer_due_now）。Prose 只见编译后行为契约；
+    # intended_prediction 永不进 writer-facing 文本。≤2 个/单元，
+    # 只动关键信息缺口；计划≠事实，post-prose grounding 才更新台账。
+    # Optional：空不渲染，与旧版逐字节一致（零回归契约）。
+    expectation_intents: Optional[list[ExpectationUpdateIntent]] = Field(
+        default=None,
+        description="读者预期更新意图：本场景对读者预期做什么操作（≤2 个）。"
+        "Continue 可选产出；writer 只见执行契约，完整对象供 Review/grounding 对照",
+    )
+
+    # ---- dim8b: 白描意图（experiential quality 的规划层）----
+    # 隐藏质量注解：本单元应让读者感受到的 ambient 质感（烦躁/戒备/疏离/
+    # 关系温度），且由可观察载体呈现而非抽象命名。beat_link=责任绑定
+    # （谁/哪个 beat 承载）；planned_carriers=开放 realization space。
+    # 稀疏资格：重要+命名损失体验+有载体空间。≤2 个/单元。
+    # Optional：空不渲染，与旧版逐字节一致（零回归契约）。
+    depiction_intents: Optional[list[DepictionIntent]] = Field(
+        default=None,
+        description="白描意图：本单元要承载的体验质感（≤2 个，稀疏资格）。"
+        "Continue 可选产出；writer 只见执行契约，完整对象供 post-prose 核验",
+    )
+
     # 线程生命周期信号不在 PlotUnit：pre-prose 规划器无法逐字引用未来正文，
     # factual OPEN/CLOSE 由 post-prose Review 阶段声明（review.extract_transitions）。
 
@@ -234,5 +282,37 @@ class PlotUnit(BaseModel):
                 if writer_facing
                 else self.diagnostic_choice.to_prompt_context()
             )
+        if self.dialogue_strategy:
+            lines.append(
+                self.dialogue_strategy.to_execution_context()
+                if writer_facing
+                else self.dialogue_strategy.to_prompt_context()
+            )
+        if self.detail_contract:
+            lines.append(
+                self.detail_contract.to_execution_context()
+                if writer_facing
+                else self.detail_contract.to_prompt_context()
+            )
+        if self.expectation_intents:
+            if writer_facing:
+                lines.append("【读者预期执行契约】")
+                lines.extend(
+                    intent.to_execution_context()
+                    for intent in self.expectation_intents
+                )
+            else:
+                lines.append("【读者预期更新意图】")
+                lines.extend(
+                    intent.to_prompt_context()
+                    for intent in self.expectation_intents
+                )
+        if self.depiction_intents:
+            lines.append(
+                "【白描执行契约】" if writer_facing else "【白描意图】")
+            for intent in self.depiction_intents:
+                lines.append(
+                    intent.to_execution_context()
+                    if writer_facing else intent.to_prompt_context())
         lines.append(f"有效推进: {'是' if self.is_effective else '待确认'}")
         return "\n".join(lines)

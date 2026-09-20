@@ -56,3 +56,7 @@ outputs/
 real_corpus_manifest.local.json
 observed_events_full_traceable.json
 arbitration_A3.json
+
+# 临时上传缓存与 Windows 重定向垃圾文件（非证据）
+.tmp.driveupload/
+nul

@@ -84,6 +84,7 @@ class ContinueUnit:
         contract_context: str = "",
         viability_note: str = "",
         occupied_unit_ids: list | None = None,
+        reader_expectation_context: str = "",
     ) -> str:
         """生成续写 prompt."""
         return self._build_prompt(
@@ -107,6 +108,7 @@ class ContinueUnit:
             contract_context,
             viability_note,
             occupied_unit_ids,
+            reader_expectation_context,
         )
 
     def parse_response(self, response: str) -> tuple[PlotUnit, NarrativeState, list[str], list[str]]:
@@ -170,6 +172,7 @@ class ContinueUnit:
         contract_context: str = "",
         viability_note: str = "",
         occupied_unit_ids: list | None = None,
+        reader_expectation_context: str = "",
     ) -> str:
         char_ctx = "\n---\n".join(c.to_prompt_context() for c in characters)
         # 离场人物在场感（§14 盲续写迭代：让单章多线并置时能自然召回离场人物近况。
@@ -302,6 +305,13 @@ class ContinueUnit:
             occupied_ids_note = (
                 f"；当前已占用 unit_id: {'、'.join(sorted(occupied_unit_ids))}"
             )
+        # 读者预期台账（dim7）：OPEN 预期是 expectation_intents 的作用对象。
+        # 零成本：台账空/无开放预期时为空段，prompt 字节不变。
+        expectation_section = ""
+        if reader_expectation_context:
+            expectation_section = (
+                f"\n\n【读者预期台账】\n{reader_expectation_context}"
+            )
 
         return f"""你是一位叙事续写专家。请基于当前叙事状态，生成下一个 PlotUnit。
 
@@ -320,7 +330,7 @@ class ContinueUnit:
 
 【活跃承诺/伏笔】
 {thread_ctx}
-{structure_section}{frame_section}{emotion_section}{hook_section}
+{structure_section}{frame_section}{emotion_section}{hook_section}{expectation_section}
 
 【续写要求】
 
@@ -338,8 +348,12 @@ new_state 是单元结束后的完整快照，保留仍有效的旧信息，不�
 7. 忠于原文：不得引入与已发生事件（时间线）矛盾的事件；新线索必须能与既有事实自洽，不得凭空捏造与原文无关的设定
 8. 延续本作品的叙事组织方式——若原作单章常见多线并置/日常承载/离场人物近况自然回归，请保持这种组织；若原作单线紧凑，则保持其紧凑。不要因为续写而系统性改变作品的组织方式，也不要每章强行制造悬念钩子
 9. scene_experience 可选：提供时须落在读者体验五维（看见/阻碍/选择/结果/认知变化），让正文展开有现场感；省略时不注入
-9b. reader_handoffs 可选：本场景若有 1–3 个高价值认知交接点（读者应从证据中自己完成的关键推断），逐条声明。三层语义必须分离：evidence=正文将给的动作/对白/细节；reader_inference=希望读者自己得出的判断；explicitness=leave_implicit（默认，保持隐式）/explicit_when_condition（写明 explicit_when：什么情况下才允许显式，例如"只有人物意识到并因此改变行动时"）/must_explain（读者无法可靠推断：规则关键因果、角色不可见信息）。另须声明 evidence_sufficiency：sufficient=已计划足够可见证据；needs_more_evidence=想让读者推但还少一个必要前提（Prose 会先补证据再停）；must_explicit=信息无法合理推出必须明说。不为每段都填表——只标真正值得交还给读者的关键 beat；没有合适的则省略整个字段
+9b. reader_handoffs 可选：本场景若有 1–3 个高价值认知交接点（读者应从证据中自己完成的关键推断），逐条声明。三层语义必须分离：evidence=正文将给的动作/对白/细节；reader_inference=希望读者自己得出的判断；explicitness=leave_implicit（默认，保持隐式）/explicit_when_condition（写明 explicit_when：什么情况下才允许显式，例如"只有人物意识到并因此改变行动时"）/must_explain（读者无法可靠推断：规则关键因果、角色不可见信息）。另须声明 evidence_sufficiency：sufficient=已计划足够可见证据；needs_more_evidence=想让读者推但还少一个必要前提（Prose 会先补证据再停）；must_explicit=信息无法合理推出必须明说。**粒度契约：每个 handoff 只能声明一个最小可独立完成的推断单位——若目标含两个可独立陈述、独立被证据支持、独立判真假的命题（如"A 而且 B"/"A 但 B"），必须拆成多个 handoff，不得合并声明**。不为每段都填表——只标真正值得交还给读者的关键 beat；没有合适的则省略整个字段
 9c. diagnostic_choice 可选：本场景若有 1 个真正值得 dramatize 的取舍点，声明它。资格检查（不满足则省略整个字段，不硬造选择）：(a) 至少 2 个在人物当前知识/资源/规则下真实可行的选项；(b) 选项成本结构有有意义差异（不能只选 A 失去 X、选 B 什么都不失去）；(c) 决定权属于人物本人（非上级强迫/巧合替代/他人代决）。conditional_revelations 只能写条件性推断（"若选A会更支持'关系优先于收益'这一读者推断"），禁止写成人物事实（"此人物重感情"），不写进 CharacterModel
+9d. dialogue_strategy 可选：本场景若有 1 场值得建模的社会博弈对话才声明（≤4 个稀疏 beat，只有策略位移才切）。资格检查（不满足则省略整个字段）：(a) 至少一方有需通过对话推进的目的；(b) 存在不能简单直说的社会/信息/利益约束；(c) 对方有真实 agency（可抵抗、还价、反制）；(d) 对话结果可能改变信息/承诺/杠杆/关系/行动空间。普通寒暄、交代地点、无争议确认、功能性短对白一律不建。interaction_objective 只能写条件性计划，不得写成人物事实
+9e. detail_contract 可选：本场景若存在值得着墨的环境/空间/物品（新地点、行动舞台、关系场域、情绪载具）才声明（1-6 处承重细节）。资格检查（不满足则省略整个字段）：(a) 本场有环境着墨需求；(b) 细节差异实质影响读者定位、行动理解或氛围积累。纯对白场、普通过场（走廊/上车下车）不建。每处承重细节必须声明：functions（ORIENTATION/ACTION_CONSTRAINT/SENSORY/RELATIONAL/ATMOSPHERE 选1-2）+ realized_effect（该细节在当前句段要产生的具体读者效应——不得只复述功能标签；「用了颜色」≠完成感官功能）+ carrier（细节通过什么载体进入句段：挂在谁的动作/感知/判断/空间阻碍/关系变化上、改变了什么状态——不允许「物件被声明存在」式落地）。多个细节可共享 shared_cluster 共同兑现一个功能（如战斗前空间枚举共享定位+行动约束），但共享功能必须在当前行动/后文可兑现。已建立细节的再现必须新增状态/作用/意义，不得仅为证明其存在而重复出现
+9f. expectation_intents 可选：本场景若对【读者预期台账】中的开放预期有明确的管理动作才声明（≤2 个，只动关键信息缺口）。资格检查（不满足则省略整个字段）：(a) 台账中存在本场景真正触及的开放预期，或本场确实建立一个新的关键信息缺口/结果空间；(b) 本场景会对读者可能性空间、预测或兑现状态产生真实变化——普通场景不造。intent 取值：OPEN=建立新预期 / NARROW=收窄可能性空间（呈现已有线索不解释指向）/ STRENGTHEN=强化当前预测方向 / WEAKEN=动摇当前预测 / FLIP=结果违反已建立的读者预测（须有证据基础，不得天降）/ RESOLVE=兑现关闭。answer_due_now=true 仅当当前因果链已经要求回答/行动（被当面问到、物证到场、deadline 到达、前置任务完成、承诺到兑现节点）——届时本场必须兑现，不得用停顿/打断/欲言又止推迟。intended_prediction 是隐藏作者意图（如想引导的误判方向），不会给正文写手；evidence_to_surface 只能引用已存在的事实/线索，不得凭空造新线索
+9g. depiction_intents 可选：本场景若有值得刻意承载的体验质感（ambient quality：戒备中的敬畏/平静下的隐忧/亲昵下的酸涩/恭敬下的畏惧算计/夜色中的寂寥……希望读者【感受到】的调性，不是要读者【推断出】的命题——推断归 reader_handoffs），逐条声明（≤2 个）。资格检查（三条全满足才声明，否则省略整个字段）：(a) 该质感对本 beat 的读者体验重要——漏掉它场景只剩骨架；(b) 若用抽象命名兑现（「他很烦躁」）会损失体验价值；(c) 存在可观察载体空间（动作/神态/语气/器物/空间/节奏可承载它）。普通自陈/信息交代/每场景例行情绪不进。字段语义：target_quality=目标体验质感（experiential quality 词组，不是命题）；beat_link=责任绑定（硬字段——这个质感由哪个 beat/谁的哪段行动承载，写清「谁负责、在哪个 beat 负责」）；planned_carriers=可行的可观察载体候选（开放集合，正文可换用其他有效载体）；placement/rationale 可省略
 10. hook_type 可选：若填，必须是当前层级的显式枚举（见【层级钩子类型】段；未提供该段时省略字段）——自由文本钩子走 hook 字段，hook_type 可留空
 11. 借力不出面：若原作主角常借力布局、委托他人出面处理事务、居中调度留有余裕，请保持这种行动方式；不要让主角因续写而事事亲为、亲自上阵硬碰。若原作主角本就亲力亲为，则保持其亲力亲为
 
@@ -389,7 +403,50 @@ new_state 是单元结束后的完整快照，保留仍有效的旧信息，不�
         {{"if_option": "选项A", "preference_signal": "若选A会支持读者对人物偏好的哪种推断"}},
         {{"if_option": "选项B", "preference_signal": "若选B支持哪种推断"}}
       ]
-    }}
+    }},
+    "dialogue_strategy": {{
+      "participants": ["对话方A", "对话方B"],
+      "interaction_objective": "这场对白真正想改变什么（关系/信息/承诺/行动层面）",
+      "social_constraint": "为什么不能直说（体面/立场/信息优势/风险）",
+      "information_asymmetry": "谁知道什么、谁不知道什么、什么不能明说",
+      "stakes": "策略失败当场损失什么",
+      "beats": [
+        {{"actor": "行动方", "tactical_move": "PROBE/EVADE/PRESS/BARGAIN/COMMIT/REFUSE/REDIRECT/WITHHOLD",
+          "target_delta": "INFORMATION/COMMITMENT/LEVERAGE/FACE_OR_STATUS/ACTION_SPACE",
+          "pressure_basis": "为什么这一步能产生压力", "success_signal": "对方什么反应算奏效",
+          "response_to": "第2个beat起填：回应哪个前序局面"}}
+      ]
+    }},
+    "detail_contract": {{
+      "reader_task": "本场景当前读者任务：读者此刻需要建立/追踪/感受什么",
+      "load_bearing_details": [
+        {{"detail": "计划写的细节内容",
+          "functions": ["ORIENTATION/ACTION_CONSTRAINT/SENSORY/RELATIONAL/ATMOSPHERE 选1-2"],
+          "realized_effect": "读了它读者获得什么定位/判断/感受",
+          "carrier": "细节挂在什么动作/感知/判断/阻碍上、改变了什么状态",
+          "shared_cluster": "共享功能簇id（可省略）"}}
+      ],
+      "detail_budget": 5
+    }},
+    "expectation_intents": [
+      {{
+        "expectation_id": "目标预期id（台账中的 id；OPEN 新预期时给新 id）",
+        "reader_question": "该预期的读者视角问题",
+        "intent": "OPEN/NARROW/STRENGTHEN/WEAKEN/FLIP/RESOLVE",
+        "intended_prediction": "隐藏作者意图：希望读者形成的预测（可省略）",
+        "evidence_to_surface": ["计划呈现给读者的已有证据/线索"],
+        "answer_due_now": false
+      }}
+    ],
+    "depiction_intents": [
+      {{
+        "target_quality": "目标体验质感（如：戒备中的敬畏）",
+        "beat_link": "责任绑定：该质感由哪个 beat/谁的哪段行动承载",
+        "planned_carriers": ["可行的可观察载体候选（开放集合）"],
+        "placement": "单元内位置（可省略）",
+        "rationale": "为何此刻需要这个质感（可省略）"
+      }}
+    ]
   }},
   "new_state": {{
     "state_id": "新状态ID",

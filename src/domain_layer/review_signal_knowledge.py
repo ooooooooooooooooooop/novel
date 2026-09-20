@@ -105,6 +105,88 @@ FAILURE_TYPE_LEXICON: tuple[tuple[str, str, str], ...] = (
     ("trait_gloss_after_choice", "medium", "通常不阻断"),
     # V1 warning-only：最易主观滥报，不参与 blocking。
     ("generic_protagonist_choice", "low", "仅诊断不阻断"),
+    # Dialogue V1：对白作为社会行动——独立 family。
+    ("unearned_directness", "medium/high", "条件性阻断"),
+    ("objective_unpursued", "medium/high", "条件性阻断"),
+    ("flat_tactic", "medium", "条件性阻断"),
+    ("no_response_pressure", "medium/high", "条件性阻断"),
+    ("subtext_glossed", "medium", "通常不阻断"),
+    # V1 warning-only：主观性高，抓"聪明对白但剧情静止"。
+    ("no_turn_delta", "low", "仅诊断不阻断"),
+    # V1.4：同一已确立命题被多轮复读确认、零新 delta 且阻滞场景推进。
+    # 与 no_turn_delta 的边界：主要 delta 已完成后的尾部复述=warning；
+    # 循环确认本身阻滞推进=blocking。
+    ("dialogue_loop_stasis", "medium/high", "条件性阻断"),
+    # V1.5：objective 已完成、确认功能已耗尽后仍继续重复确认同一社会状态。
+    # 与 no_turn_delta 的边界：允许一次有功能的确认(warning)；
+    # 确认完成后继续重复=blocking。
+    ("excessive_redundant_tail", "medium/high", "条件性阻断"),
+    # V1.6：命题已获实质确认后，以逐字/高度近似措辞再次重述；
+    # 重复形式本身无功能证据（宣读/程序记录/引用纠正/仪式施压/新受众）
+    # 即判 blocking——形式性复述损伤独立于语义冗余。
+    ("formal_echo_after_ack", "medium/high", "条件性阻断"),
+    # V1 warning-only 反向风格哨兵：人人绕说/该问不问/为神秘牺牲清晰度。
+    ("subtext_overengineering", "low", "仅诊断不阻断"),
+    # --- DFD V1：细节功能密度（dim4 环境/细节） ---
+    # 成簇无功能细节枚举（装修清单）：连续多处环境细节均不承担
+    # 当前读者任务（定位/行动约束/感官/关系/氛围）= blocking。
+    # 判定须满足 realized_current_effect——功能标签不得自证；
+    # 共享功能簇（如空间建立镜头共享定位+行动约束）不算无功能。
+    ("decorative_inventory", "medium/high", "条件性阻断"),
+    # V1.1：功能成立但表达失配——细节确实传达了定位/约束/感官信息，
+    # 但以「物件被声明存在」/装修清单式写法落地。与 decorative_inventory
+    # 的边界：后者无功能可删，本类有功能但需重写承载方式（rewrite 只改
+    # 表达形态，不重选细节对象）。
+    ("functional_but_detached", "medium/high", "条件性阻断"),
+    # 孤立无功能细节：单个细节删掉读者无损失，但未成簇——warning。
+    ("functionless_detail", "low", "仅诊断不阻断"),
+    # 细节过载：密度稀释当前读者任务——warning，V1 不硬拦。
+    ("detail_overload", "low", "仅诊断不阻断"),
+    # --- MN V1：比喻必要性（dim4 显式类比构式） ---
+    # 显式比喻（明喻/类比构式）经最强直述替换验证后无任何实质损失——
+    # 替换无损 = 比喻不承担必需功能 = blocking。前置 literal_adequacy
+    # gate：替换稿不合格（命题/对象丢失、偷换为另一比喻、加新信息、
+    # 语境不合）→ not_evaluable，不算必要也不算无必要，不干预。
+    # 功能标签（含 affective_load）不拥有保留否决权。
+    ("gratuitous_metaphor", "medium/high", "条件性阻断"),
+    # 比喻密度过载：仅遥测/warning，MN V1 明确不作阻断依据——密度
+    # 不是必要性的替代指标，防以数量代判断。
+    ("metaphor_overload", "low", "仅诊断不阻断"),
+    # --- dim6a：语义节奏（event-state cadence） ---
+    # 事件链（连续动作/位移/程序小句）走完后 narrative_state_delta 八轴
+    # 无一实际变化，且链本身不承担 suspense/ritual/characterization/
+    # spatial_causality/sensory_buildup/timing 功能，压缩基本无损 → blocking。
+    # 与 weak_progression 边界：后者管单元级整体推进，本类管 span 级
+    # 「写了很多事但状态没动」。纯空间坐标改变不自动算 state delta。
+    ("event_chain_without_state_delta", "medium/high", "条件性阻断"),
+    # --- dim7：信息缺口/预测管理（Expectation progression + prediction baseline） ---
+    # OPEN 预期的回答/行动已因果到期（当面问到/物证到场/deadline/前置完成/
+    # 承诺到点），正文未兑现、无正文真实阻碍、且读者状态未获有效更新
+    # （可能性/风险/预测无变化）→ blocking。合法悬念=问题未解但读者
+    # 状态有变化；本类=为留悬念推迟本应发生的回答/行动/兑现。
+    ("suspense_by_withholding", "medium/high", "条件性阻断"),
+    # 发生 reveal/FLIP 但此前读者无 grounded dominant_prediction——
+    # 无基线的反转不算 earned surprise。仅报告不自动改写（规划缺陷）。
+    ("surprise_without_prediction_baseline", "low", "仅诊断不阻断"),
+    # 反转成立依赖 POV/场景逻辑本应可见却被一直藏住的关键前提——
+    # 另一种 withholding。仅报告不自动改写。
+    ("surprise_requires_hidden_premise", "low", "仅诊断不阻断"),
+    # --- dim8a：计划性留白（对已声明 InferenceHandoff 的定向核验） ---
+    # 声明留白（explicitness != must_explain）的推断被正文直接陈述/
+    # 等价解释——读者预定的推理劳动被取消（太满侧）。只核验 Continue
+    # 已声明的交接点；review 不得事后补造留白意图。
+    ("blank_inference_made_explicit", "medium/high", "条件性阻断"),
+    # 声明留白但正文未交付足以支撑该推断的可见证据——留下的不是
+    # 留白而是信息缺失（太少侧）。target 非唯一答案：判合理读者
+    # 能否完成 inferential step，不要求唯一解。
+    ("blank_under_evidenced", "medium/high", "条件性阻断"),
+    # --- dim8b：白描意图（对已声明 DepictionIntent 的定向核验） ---
+    # 声明的体验质感被抽象词直接命名且无可观察载体——读者被告知而非
+    # 感受到。只核验 Continue 已声明的意图；review 不得事后补造意图。
+    ("depiction_named_only", "medium/high", "条件性阻断"),
+    # 声明的体验质感在责任 beat 内既未命名也无任何可观察载体——
+    # 质感缺席静默通过。owning beat 不在场（合法转线）不误拦。
+    ("depiction_absent", "medium/high", "条件性阻断"),
 )
 
 # --- 失败类型四层分类（docs/03_rules/08_failure_types.md §4） ---
@@ -116,14 +198,19 @@ FAILURE_LAYERS: tuple[tuple[str, frozenset[str]], ...] = (
     ("progression_character", frozenset({
         "weak_progression", "character_distortion",
         "motivation_gap", "relationship_jump", "missing_cost",
+        "event_chain_without_state_delta",
     })),
     ("structure_promise", frozenset({
         "promise_loss", "abrupt_payoff", "missing_consequence",
-        "duplication_of_threads",
+        "duplication_of_threads", "suspense_by_withholding",
+        "surprise_without_prediction_baseline",
+        "surprise_requires_hidden_premise",
     })),
     ("expression_surface", frozenset({
         "redundancy", "style_drift", "generative_indicia",
         "emotion_landing", "interpretive_space", "scene_presence", "dialogue_flat",
+        "decorative_inventory", "functionless_detail", "detail_overload",
+        "gratuitous_metaphor", "metaphor_overload",
     })),
 )
 
