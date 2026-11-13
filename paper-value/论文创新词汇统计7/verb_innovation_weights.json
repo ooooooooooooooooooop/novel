@@ -1,0 +1,40 @@
+{
+  "_description": "动词创新性权重锚点配置（混合方案）",
+  "_method": "IDF自适应为主，锚点微调为辅。只保留歧义较小的锚点词。",
+
+  "anchor_high": {
+    "_description": "强制高权重锚点（≥0.9），表示强创新性动词",
+    "verbs": ["invent", "pioneer", "originate", "devise", "innovate"]
+  },
+
+  "anchor_medium_high": {
+    "_description": "中高权重锚点（0.7-0.9），表示发现/提出类动词",
+    "verbs": ["discover", "uncover", "propose"]
+  },
+
+  "anchor_low": {
+    "_description": "强制低权重锚点（≤0.3），表示描述/综述性动词",
+    "verbs": ["describe", "report", "review", "survey", "summarize", "overview", "discuss"]
+  },
+
+  "anchor_very_low": {
+    "_description": "极低权重锚点（≤0.15），表示非研究性动词",
+    "verbs": ["erratum", "retract", "withdraw"]
+  },
+
+  "idf_weight_range": {
+    "_description": "IDF归一化后映射到的权重范围",
+    "min": 0.2,
+    "max": 1.0
+  },
+
+  "_removed_due_to_ambiguity": {
+    "_description": "因歧义问题移除的锚点词，改由IDF自动决定",
+    "reveal": "大量'检查显示'而非'发现新现象'",
+    "create": "'creates funding'等非创新用法",
+    "introduce": "'introduce questions'是介绍而非引入新方法",
+    "correct": "方法校正而非勘误"
+  },
+
+  "_note": "非锚点动词的权重由IDF自动计算：高频动词(如study/show)低权重，低频动词高权重"
+}

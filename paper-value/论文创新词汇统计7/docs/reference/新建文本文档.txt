@@ -1,0 +1,229 @@
+ ---
+  严重级 (Critical / High)                                                                                              
+  #29 — vocab_size**2 Laplace 分母杀死 Synergy 信号
+
+  文件: calculate_innovation.py:1656-1658
+
+  联合概率分母为 total_docs + vocab_size^2 = total_docs + 10^10，对任何实际语料（百万级）来说分母被 10^10 主导，p_uv
+  坍缩到 ~10^-10 级，PMI 系统性为强负值，被 max(0, ...) 截断为 0。四个核心创新信号之一被完全消灭。
+
+  #30 — Adoption 与 Consistency 的 Top-K 选取了不同概念集
+
+  文件: calculate_impact_v6.py:1655-1669
+
+  adoption_raw 按 contribution 排序取 Top-K，consistency 按 consistency 值独立排序取 Top-K。两组概念通常不同——adoption
+  可能由概念 X/Y/Z 驱动，consistency 却测量了完全不同的 A/B/C（可能是高频通用词）。Consistency
+  本应验证"被采纳的概念是否持续"，却实际测量了"碰巧持续性最高的任意概念"。
+
+  #31 — novelty_drop 用累积频率，consistency 用年度频率——信号不可比
+
+  文件: calculate_impact_v6.py:1575-1576, 1596-1601
+
+  Adoption 的 novelty_drop = log2(freq_cumulative_current / freq_cumulative_pub) 基于单调递增的累积频率；Consistency 的
+  sustained_years 基于逐年频率与发表年年度基线的比较。一个概念可能累积增长显著（高 novelty_drop）但年度频率未达基线（低
+  consistency），反之亦然。两个信号通过不兼容的频率视角衡量采纳。
+
+  #32 — Pass0 SQL 无 ORDER BY，依赖未保证的行顺序
+
+  文件: calculate_impact_v6.py:1022-1024, 1340-1348
+
+  注释声称"同一 paper 的 rpu 记录天然连续"，但去掉了 ORDER BY。SQLite 不保证无 ORDER BY
+  时的行顺序。若查询计划使用索引扫描导致同一 paper_id 的行不连续，flush_current_paper()
+  会过早触发，将一篇论文拆成多个片段，静默破坏 object_yearly 和 task_yearly 计数。Pass1 (1757-1764) 有同样问题。
+
+  #33 — stds['score_v2'] 从原始幅度计算，却应用于百分位数信号
+
+  文件: calculate_innovation.py:2075-2096
+
+  stds['score_v2'] 是 innovation_magnitude 原始值的标准差（如 ~0.5），但 SignalCombiner.combine 中 score_v2
+  实际传入的是百分位数 (0-100)。1/0.5 = 2.0 的权重作用于 0-100 尺度的信号，导致 PCA 正则分数被系统性过度加权。
+
+  #34 — Verb IDF 权重与 Peak Surprisal 双重计数任务稀有度
+
+  文件: calculate_innovation.py:1990-1992
+
+  get_peak_novelty 本身已通过低 pair count 给稀有 task 更高 surprisal。get_verb_weight 又通过 IDF 给稀有 task
+  更高乘数。两者相乘形成非线性放大：稀有动词既得高 surprisal
+  又得高权重，常见动词两边都低。这超出了"为无信息常见动词降权"的设计意图。
+
+  #35 — PCA Phase 2 特征在 IDF 更新后提取——时间信息泄露
+
+  文件: calculate_innovation.py:2159-2171
+
+  先更新 task_idf_tracker（包含 year Y 数据），再提取 year Y 的特征向量。Phase 1 中同一论文的特征用的是 pre-year
+  IDF。PCA 拟合数据与实际推断数据使用了不同的 IDF 状态，违反时间因果不变量。
+
+  #36 — _generate_verb_forms 缺少 CVC 辅音双写规则
+
+  文件: calculate_impact_v6.py:554-577
+
+  "run" → "runed"/"runing"（正确应为 "ran"/"running"），"infer" → "infered"/"infering"（应为
+  "inferred"/"inferring"）。错误形式永远不会匹配文本，导致真实形式 "running"/"inferred" 落入 unknown-verb 分支，获得 0.6
+   权重而非预期的 0.18 usage cap。权重膨胀 3.3 倍。
+
+  #37 — 零观测窗口论文获得满分 Consistency Gate
+
+  文件: calculate_impact_v6.py:1609-1611
+
+  当前年发表的论文 observable_years = 0，consistency 取先验均值 0.55，gate = min(0.55/0.5, 1.0) = 1.0（满分）。而 3
+  年前发表、1/3 年持续的论文 gate 仅 ~0.84。最新论文因"无证据"反而获得最优 gate，系统性上偏。
+
+  #38 — task_doc_freq 聚合全时间段，造成动词 IDF 的未来信息泄露
+
+  文件: calculate_impact_v6.py:1396-1403, 652-653
+
+  Pass0 将所有年份的 task_yearly 求和写入 task_doc_freq。计算 2012 年论文的动词 IDF 时，使用了 2012-2025
+  全部数据。"fine-tune" 在 2012 年极罕见但在 LLM 时代后极普遍，全时段 IDF 将其表现为中频，对 2012 年论文降权。
+
+  #39 — merge_signals 裸 except: 吞掉所有解析错误
+
+  文件: merge_signals.py:84, 101
+
+  except: 包括 KeyError、MemoryError、KeyboardInterrupt。若上游字段改名，所有行静默跳过，返回空
+  dict，与"文件不存在"不可区分。
+
+  #40 — 论文类型权重被双重惩罚
+
+  文件: merge_signals.py:176, 186-188
+
+  上游 calculate_innovation.py 已对 total_score_v2 乘以 paper_type_weight（如 survey×0.3）。merge_signals.py
+  用这些已折扣的分数与未折扣分数的全分布做百分位比较。Survey 在创新度和影响力两个轴上都被双重惩罚，几乎不可能逃出
+  "Routine" 象限。
+
+  #41 — V2 与 V6 Impact 分数尺度不同但被等同处理
+
+  文件: merge_signals.py:159, 177, 191-195
+
+  V2 impact_score = diffusion_norm * persistence_gate，V6 impact_score = adoption_norm * consistency_gate *
+  paper_type_weight。同名字段、不同语义和分布，无版本检测。P70 阈值的含义随管线版本而变。
+
+  ---
+  中等级 (Medium)
+
+  #42 — stability_bonus 因累积频率比几乎恒为常数
+
+  文件: calculate_impact_v6.py:1614-1621
+
+  freq_at_current / freq_at_pub 均为累积频率（只增不减），retention_ratio 几乎总是 ≥1.0，被 min(...,1.0) 截至 1.0。默认
+  floor=0.85 下，bonus 恒等于 0.08*(1.0-0.85)/(1.0-0.85) = 0.08——一个无区分力的常数。
+
+  #43 — Laplace 平滑常数在不同语料规模下造成系统性偏差
+
+  文件: calculate_impact_v6.py:767-777
+
+  早期年份 cum_total 小（如 10,000），分母 10,000 + 100,000 = 110,000 被平滑项主导；后期年份 300,000 + 100,000 =
+  400,000，平滑占比降低。同一概念在早期年份的 novelty_drop 被系统性压缩，惩罚数据集早期的创新。
+
+  #44 — Consistency 被双重施加（概念级 + 论文级）
+
+  文件: calculate_impact_v6.py:1611, 1624-1626, 1980-1984
+
+  concept_consistency_gate 已乘入每个概念的 contribution（→adoption_raw），Pass2 又将 paper-level consistency_gate 乘到
+  adoption_norm 上。低 consistency 概念被惩罚两次。虽然全局 gate 默认关闭，但字段仍输出，下游使用者可能启用它。
+
+  #45 — Max-verb 合并策略膨胀自引创造性动词
+
+  文件: calculate_impact_v6.py:1818-1829
+
+  同一 object 出现多个 verb 时，只保留最大 verb_weight。论文中 "propose transformer"（权重 1.0）出现 1 次、"use
+  transformer"（权重 0.18）出现 10 次时，取 1.0。衡量"他人采纳"的影响力指标不应奖励自我描述的创造性动词。
+
+  #46 — PCA 滑动窗口裁剪引入近因偏差
+
+  文件: calculate_innovation.py:931-937
+
+  超过 max_accumulated_features 时丢弃最早样本。"正则学术空间"的定义随时间漂移——早期论文在宽 PCA
+  模型下评分，后期论文在窄窗口下评分。同一论文特征在不同处理时间点获得不同分数。
+
+  #47 — Per-year 百分位使 Impact 分数跨年不可比
+
+  文件: calculate_impact_v6.py:1953, 1978-1979
+
+  百分位排名在单年分布内计算。2012 年（小池、低阈值）的 P80 与 2022 年（大池、高阈值）的 P80
+  被视为等价。汇总统计（mean/p90/max）跨年比较这些数字无意义。
+
+  #48 — searchsorted(side="left") 在零值处制造百分位悬崖
+
+  文件: calculate_impact_v6.py:1978-1979
+
+  若 40% 论文 adoption_raw == 0，所有零值论文排名 0%，而 adoption_raw = 0.000001 的论文直接跳到
+  40%。底部分布出现巨大不连续。
+
+  #49 — 缺失分数默认为 0，污染百分位阈值
+
+  文件: merge_signals.py:157-159
+
+  缺失 total_score_v2 时注入 0，参与 np.percentile 计算，人为压低 P70 阈值，膨胀"高创新"分类。应排除缺失值而非视为零。
+
+  #50 — >= 阈值无 tie-breaking，离散分数下"高"象限膨胀
+
+  文件: merge_signals.py:118-119
+
+  若大量论文恰好等于 P70 值（离散分数常见），>= 将它们全部归入"高"，实际占比可能远超 30%。无诊断警告。
+
+  #51 — Inner join 静默丢弃论文，无丢失计数
+
+  文件: merge_signals.py:147-151
+
+  只保留两个数据集的交集。被丢弃的论文（如创新度有数据但影响力无数据的新论文）在输出中完全消失，且 stats
+  不记录丢失数量。
+
+  #52 — PCA perpendicular 分量造成创新分数正下限
+
+  文件: calculate_innovation.py:1012-1018
+
+  magnitude = 0.8 * signed_innovation + 0.2 * perpendicular_magnitude，即使 signed_innovation =
+  0（负方向截断），perpendicular norm 始终 ≥0。任何残差非零的论文都得到正分数，压缩底部分布，降低区分力。
+
+  #53 — 降级模式下 dot product 被 avg_task_idf 尺度主导
+
+  文件: calculate_innovation.py:994-997
+
+  PCA 未就绪时直接做点积，但特征未 z-score 归一化。avg_task_idf (0-15) 远大于其他维度 (0-1)，主导结果。PCA 激活后
+  z-score 归一化生效，在过渡边界处产生评分不连续。
+
+  #54 — _get_idf_range 计算了 docs 变量但从未用于缓存校验
+
+  文件: calculate_innovation.py:1505-1518
+
+  本意是 if cache_docs == docs 做失效检查，但实际直接 return
+  self._idf_range_cache。一旦缓存设置，永远返回旧值。当前因每年调用 precompute_idf_range()
+  缓解，但作为独立方法逻辑是错的。
+
+  ---
+  低级 (Low)
+  ┌─────┬───────────────┬───────────┬───────────────────────────────────────────────────────┐
+  │  #  │     文件      │   行号    │                         问题                          │
+  ├─────┼───────────────┼───────────┼───────────────────────────────────────────────────────┤
+  │ #55 │ impact_v6     │ 605-617   │ Tier lookup 优先于 strict usage cap（0.2 vs 0.18）    │
+  ├─────┼───────────────┼───────────┼───────────────────────────────────────────────────────┤
+  │ #56 │ impact_v6     │ 1659-1661 │ effective_concept_count fallback 为死代码             │
+  ├─────┼───────────────┼───────────┼───────────────────────────────────────────────────────┤
+  │ #57 │ impact_v6     │ 2069-2071 │ 部分年份运行时 summary 文件被截断覆写                 │
+  ├─────┼───────────────┼───────────┼───────────────────────────────────────────────────────┤
+  │ #58 │ impact_v6     │ 1691-1692 │ Pass1 不验证 Pass0 是否完整，可对空表运行             │
+  ├─────┼───────────────┼───────────┼───────────────────────────────────────────────────────┤
+  │ #59 │ impact_v6     │ 364       │ normalize_object_concept 正则剥离下划线等有效概念字符 │
+  ├─────┼───────────────┼───────────┼───────────────────────────────────────────────────────┤
+  │ #60 │ innovation    │ 1704-1723 │ update() 方法为死代码，若调用会部分破坏状态           │
+  ├─────┼───────────────┼───────────┼───────────────────────────────────────────────────────┤
+  │ #61 │ innovation    │ 1022-1024 │ 双重 @staticmethod 装饰器                             │
+  ├─────┼───────────────┼───────────┼───────────────────────────────────────────────────────┤
+  │ #62 │ innovation    │ 1399-1405 │ elif verb.endswith('ie') 因分支顺序永远不可达         │
+  ├─────┼───────────────┼───────────┼───────────────────────────────────────────────────────┤
+  │ #63 │ innovation    │ 376-381   │ get_state_id 取 dict 前 10 项作签名，依赖插入顺序     │
+  ├─────┼───────────────┼───────────┼───────────────────────────────────────────────────────┤
+  │ #64 │ innovation    │ 110       │ CountMinSketch uint32 高频桶静默溢出回绕              │
+  ├─────┼───────────────┼───────────┼───────────────────────────────────────────────────────┤
+  │ #65 │ merge_signals │ 247       │ if args.year: 对 --year 0 为 False                    │
+  ├─────┼───────────────┼───────────┼───────────────────────────────────────────────────────┤
+  │ #66 │ merge_signals │ 278-305   │ 跨年汇总池化原始计数掩盖 Simpson 悖论                 │
+  └─────┴───────────────┴───────────┴───────────────────────────────────────────────────────┘
+  ---
+  最高优先修复建议（影响定量结果最大的 5 个）：
+
+  1. #29 — 修正 PMI 联合概率的 Laplace 分母（vocab^2 → vocab 或 len(cooc_counts)），恢复 synergy 信号
+  2. #32 — Pass0/Pass1 查询加回 ORDER BY paper_id，消除数据破坏风险
+  3. #33 — stds['score_v2'] 应从百分位数组而非原始幅度计算
+  4. #36 — CVC 辅音双写规则，否则 "run"/"infer" 等动词权重膨胀 3.3x
+  5. #30 — Adoption 和 Consistency 应选取相同的 Top-K 概念集

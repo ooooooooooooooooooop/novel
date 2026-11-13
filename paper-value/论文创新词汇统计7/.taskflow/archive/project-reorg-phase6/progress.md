@@ -1,0 +1,22 @@
+# progress
+
+- 2026-02-10: 初始化 `project-reorg-phase6` active 目录并建立 `task_plan.md`。
+- 2026-02-10: 完成 `P6-0` 基线快照：`compat_usage_report --days 30`（默认排除 `--help`）当前无真实业务记录。
+- 2026-02-10: 完成 `P6-1` 策略化下线开关：
+  - `scripts/compat_launcher.py` 新增 `PROJECT_COMPAT_MODE` / `PROJECT_COMPAT_BLOCKLIST`
+  - 观测日志新增 `mode`、`blocked`、`block_reason`
+  - `tools/compat_usage_report.py` 增加 blocked 统计并改为中性“next batch”建议文案
+- 2026-02-10: 完成 `P6-2` 运行手册：`README.md`、`docs/06_脚本指南.md`、`docs/11_迁移说明.md` 增补灰度切换命令与回退说明。
+- 2026-02-10: 验证通过：`python -m py_compile`、`tools/health_check.ps1`、smoke（4 root + 2 canonical analyze）全部通过。
+- 2026-02-10: 策略验证通过：`PROJECT_COMPAT_MODE=error` 可阻断 root 入口（退出码 2）；`PROJECT_COMPAT_BLOCKLIST=query_paper.py` 可定向阻断且不影响 canonical 入口。
+- 2026-02-10: 启动 `P6-3` 观察窗口：兼容调用日志已归档并重置，窗口起始时间 2026-02-10 UTC。
+- 2026-02-10: 新增 `observation_protocol.md`，明确 14/30 天门槛、日常报表命令、灰度阻断与回退流程。
+- 2026-02-10: 增强 `P6-3`：新增 `tools/compat_observation_snapshot.py`，一键生成 14/30 天观察快照（JSON + Markdown + history）。
+- 2026-02-10: `P6-3` 快照基线：已生成 `artifacts/runtime/logs/observation/compat_window_snapshot_20260210T021622Z.md`，14d/30d 均为 0 记录（排除 `--help`）。
+- 2026-02-10: 补充 Gate A 执行模板：新增 `.taskflow/active/project-reorg-phase6/gate-a-checklist-2026-02-24.md`（含门槛判定、定向阻断灰度、回退与门禁清单）。
+- 2026-02-10: Owner 决策采用“当天快切”（不走 14/30 天窗口），直接进入 `P6-4`。
+- 2026-02-10: 删除 4 个 root 兼容入口：`run_v2_full.py`、`calculate_impact_v2.py`、`merge_signals.py`、`query_paper.py`。
+- 2026-02-10: `tools/health_check.ps1` 切换为 canonical-only 规则：
+  - 4 个 root 入口改为“必须不存在”检查；
+  - root whitelist 同步移除上述 4 个文件。
+- 2026-02-10: 文档入口同步完成：`README.md`、`docs/01_项目导读.md`、`docs/02_脚本地图.md`、`docs/04_快速开始.md`、`docs/06_脚本指南.md` 已统一到 `scripts/*` canonical 命令。

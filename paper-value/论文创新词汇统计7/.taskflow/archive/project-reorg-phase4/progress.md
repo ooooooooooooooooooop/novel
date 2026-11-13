@@ -1,0 +1,41 @@
+# progress
+
+- 2026-02-10: 初始化 Phase 4（硬编码路径与历史配置表达清理）active 目录。
+- 2026-02-10: 基于 `project-reorg-phase3/CLOSEOUT.md` 建立 `task_plan.md` 批次计划与门禁。
+- 2026-02-10: 进入 `P4-0` 基线盘点，完成 scripts/docs 全量 `rg` 扫描并人工复核误报。
+- 2026-02-10: 产出 `p4-0-baseline.md`（主链路 4 项、训练链路 3 项、legacy 链路 10 项、文档 4 项）。
+- 2026-02-10: `P4-0` 完成，下一步进入 `P4-1`（先修主链路高优先级路径与日志配置入口）。
+- 2026-02-10: `P4-1` 实施：`calculate_innovation.py` 接入 `project_config` 默认输入/动词权重/日志路径；修复 `verb_innovation_weights.json` 读取位置。
+- 2026-02-10: `P4-1` 实施：`calculate_impact_v2.py` 日志输出切换到 `paths.impact_log_path`（默认 `artifacts/runtime/logs/impact_calculation.log`）。
+- 2026-02-10: `P4-1` 配套：`configs/paths.default.json` 新增 `verb_innovation_weights_path`、`innovation_log_path`、`impact_log_path`；`merge_signals.py` 头部路径注释改为配置语义。
+- 2026-02-10: `P4-1` 验证通过：`python -m py_compile`、`tools/health_check.ps1`、6 个主入口 `--help` smoke 全部通过。
+- 2026-02-10: 下一步进入 `P4-2`（训练链路配置语义对齐，先处理 `train_research_structure_extractor.py` 绝对路径）。
+- 2026-02-10: `P4-2` 实施：`train_research_structure_extractor.py` 接入 `project_config`，训练数据与输出目录切换到 `paths.training_data_excel_path`、`paths.research_structure_model_dir`。
+- 2026-02-10: `P4-2` 实施：`train_research_structure_extractor.py` 验证分割临时文件下沉到输出目录 `tmp/`，避免在项目根目录落临时文件。
+- 2026-02-10: `P4-2` 实施：`train_deberta_multihead.py` 取消 `_paths.get(..., fallback)`，改为 `_require_path()` 强约束配置键。
+- 2026-02-10: `P4-2` 配套：`configs/paths.default.json` 新增 `training_data_excel_path` 与 `research_structure_model_dir`。
+- 2026-02-10: `P4-2` 验证通过：`python -m py_compile`（train + pipeline 相关脚本）、`tools/health_check.ps1`、6 个主入口 `--help` smoke 全部通过。
+- 2026-02-10: 下一步进入 `P4-3`（legacy 高频脚本首批：`convert_rpu_to_spans.py`、`mine_phrases.py`、`apply_abstract_layer.py`）。
+- 2026-02-10: `P4-3` 首批实施：`convert_rpu_to_spans.py` 接入 `project_config`，移除绝对路径；输入/输出改为 `paths.training_data_excel_path`、`paths.span_labels_path`、`paths.alignment_failed_samples_path`。
+- 2026-02-10: `P4-3` 首批实施：`convert_rpu_to_spans.py` 写文件前补齐父目录创建，避免输出到新目录时报错。
+- 2026-02-10: `P4-3` 首批实施：`mine_phrases.py` 路径改为 `paths.rpu_db_path`、`paths.phrase_table_path`、`paths.legacy_temp_dir`。
+- 2026-02-10: `P4-3` 首批实施：`apply_abstract_layer.py` 路径改为 `paths.rpu_db_path`、`paths.phrase_table_path`、`paths.core_mapping_path`。
+- 2026-02-10: `P4-3` 首批配套：`configs/paths.default.json` 新增 `alignment_failed_samples_path`、`phrase_table_path`、`core_mapping_path`、`legacy_temp_dir`。
+- 2026-02-10: `P4-3` 首批验证通过：`python -m py_compile`（3 个 legacy 脚本）、`tools/health_check.ps1`、6 个主入口 `--help` smoke 全部通过。
+- 2026-02-10: 下一步进入 `P4-3` 第二批（`normalize_cores.py`、`calculate_impact_v2_lowmem.py`、`calculate_impact_v2_optimized.py`）。
+- 2026-02-10: `P4-3` 第二批实施：`normalize_cores.py` 接入 `project_config`（`phrase_table_path` / `core_mapping_path`），移除明文 API Key，改为读取环境变量 `OPENAI_API_KEY`。
+- 2026-02-10: `P4-3` 第二批实施：`normalize_cores.py` 在无 `OPENAI_API_KEY` 时自动跳过 LLM 校验，并补齐输出目录创建逻辑。
+- 2026-02-10: `P4-3` 第二批实施：`calculate_impact_v2_lowmem.py` 与 `calculate_impact_v2_optimized.py` 接入 `project_config`（`rpu_db_path` / `impact_output_dir` / 运行年份），并新增 `--config` 参数。
+- 2026-02-10: `P4-3` 第二批实施：legacy impact 脚本日志路径统一到 `paths.impact_log_path`；`lowmem` 支持 `legacy_temporal_db_path`，默认回落到 `impact_output_dir/temporal_stats.db`。
+- 2026-02-10: `P4-3` 第二批配套：`configs/paths.default.json` 新增 `legacy_temporal_db_path`。
+- 2026-02-10: `P4-3` 第二批验证通过：`python -m py_compile`（6 个 legacy 脚本）、`tools/health_check.ps1`、6 个主入口 `--help` smoke 全部通过。
+- 2026-02-10: 下一步进入 `P4-3` 第三批（`supplement_paper_metadata.py`、`rpu_full_extraction.py`、`rpu_full_extraction_deberta.py`、`inspect_opinion_meta.py`）。
+- 2026-02-10: `P4-3` 第三批实施：`supplement_paper_metadata.py`、`rpu_full_extraction.py`、`rpu_full_extraction_deberta.py`、`inspect_opinion_meta.py` 接入 `project_config`，移除历史硬编码路径与目录字面量。
+- 2026-02-10: `P4-3` 第三批配套：`configs/paths.default.json` 新增 `raw_papers_csv_path`、`legacy_rpu_t5_output_dir`、`legacy_opinion_meta_lmdb_path`、`legacy_opinion_meta_lmdb_fallback_path`。
+- 2026-02-10: `P4-4` 实施：`tools/health_check.ps1` 新增 Hardcoded Path Scan（warn-only）；修复扫描规则 PowerShell 转义错误并用 `\b[A-Za-z]:...` 降低 URL 误报。
+- 2026-02-10: `P4-4` 配套：`docs/06_脚本指南.md`、`docs/11_迁移说明.md` 同步 Phase 4 配置化增量与迁移约束。
+- 2026-02-10: `P4-3` 第三批 + `P4-4` 验证通过：`python -m py_compile`（第三批 4 个 legacy 脚本）、`tools/health_check.ps1`（当前 50 条告警，warn-only）、6 个主入口 `--help` smoke 全部通过。
+- 2026-02-10: `P4-4` 收口增强：`tools/health_check.ps1` 改为分级门禁（scripts 命中硬编码即失败，docs 命中继续 warn-only），并保留最多 20 条示例输出。
+- 2026-02-10: `P4-4` 收口增强验证通过：`tools/health_check.ps1` 显示 `scripts hardcoded-path scan clean`，docs 仍有 50 条告警（不阻断）。
+- 2026-02-10: `P4-4` 文档清理批次：清理 `docs/` 下 9 个文件中的历史路径字面量（`output_7_deberta_full/*`、`innovation_v2_output/*`、`impact_output/*`、`paper_signals_output/*`、`analysis_output/*` 与绝对路径示例）。
+- 2026-02-10: `P4-4` 文档清理验证通过：硬编码扫描 `docs` 命中降至 0；`tools/health_check.ps1` 显示 scripts/docs 两侧均 clean，整体 exit code `0`。

@@ -1,0 +1,58 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# Logs and backups
+*.log
+*.bak
+
+# Test / temporary caches (do not commit)
+.hypothesis/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Stray / invalid files
+$null
+nul
+
+# IDE / 本地工具（因人而异，一般不提交）
+.trae/
+.claude/
+.vscode/
+.kiro/
+
+# 数据目录（体积大）
+data/
+
+# 大表/生成物（超过 GitHub 100MB 限制）
+**/phrase_table.json
+
+# 运行生成物与输出目录
+output_7_*/
+impact_output/
+innovation_v2_output/
+validation_output/
+anomaly_detection_results/
+anomaly_checkpoints/
+**/logs/
+**/temp/
+**/reports/
+*.db
+**/validation_v2_results.jsonl
+
+# 模型权重与缓存（体积大、可复现生成）
+**/cached_models/
+**/checkpoint-*/
+*.pkl
+*.safetensors
+*.pt
+*.pth
+training_args.bin

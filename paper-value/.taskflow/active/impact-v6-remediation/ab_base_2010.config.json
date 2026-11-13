@@ -1,0 +1,11 @@
+{
+  "runtime": {
+    "impact_v6_signals_prefix": "impact_v6_ab_base_signals",
+    "impact_v6_final_prefix": "impact_v6_ab_base_final",
+    "impact_v6_checkpoint_name": "checkpoint_v6_ab_base.json",
+    "impact_v6_summary_name": "impact_v6_ab_base_summary.json",
+    "impact_v6_progress_name": "impact_v6_ab_base_progress.json",
+    "impact_v6_enable_progress_bar": false,
+    "impact_concept_year_attribution_enabled": false
+  }
+}

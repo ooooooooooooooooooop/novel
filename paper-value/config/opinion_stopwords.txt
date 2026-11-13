@@ -1,0 +1,85 @@
+# Opinion Stopwords - 观点停用短语库
+# 此文件包含通用观点表述，这些表述不包含具体的研究观点
+
+# 通用研究表述
+this paper
+this study
+this work
+this research
+our paper
+our study
+our work
+our research
+the paper
+the study
+the work
+the research
+
+# 通用方法表述
+our method
+our approach
+our algorithm
+our technique
+our framework
+the method
+the approach
+the algorithm
+the technique
+the framework
+proposed method
+proposed approach
+proposed algorithm
+novel method
+novel approach
+new method
+new approach
+
+# 通用结果表述
+the results
+the experiments
+the evaluation
+the analysis
+experimental results
+experimental evaluation
+experimental analysis
+
+# 通用结论表述
+the conclusion
+the conclusions
+in conclusion
+we conclude
+we show
+we demonstrate
+we prove
+we propose
+
+# 通用结构表述
+related work
+future work
+background
+introduction
+methodology
+limitations
+discussion
+
+# 通用评价表述
+effective
+efficient
+better
+improved
+superior
+significant
+important
+
+# 通用动词短语（单独出现时）
+proposes
+demonstrates
+shows
+presents
+introduces
+describes
+discusses
+analyzes
+evaluates
+compares
+

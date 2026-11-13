@@ -1,0 +1,29 @@
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+
+# Logs
+*.log
+logs/
+
+# Large/generated outputs
+analysis_output/
+paper_signals_output/
+innovation_v2_output/
+impact_output/
+validation_output/
+anomaly_detection_results/
+anomaly_checkpoints/
+temp/
+.cleanup_trash/
+artifacts/runtime/
+artifacts/legacy_outputs/
+artifacts/root-cleanup/
+artifacts/archives/
+models/deberta/
+
+# Local env
+.venv/
+venv/

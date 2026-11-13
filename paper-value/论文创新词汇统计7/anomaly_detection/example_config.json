@@ -1,0 +1,89 @@
+{
+  "paths": {
+    "db_path": "",
+    "output_dir": "",
+    "mapping_path": "",
+    "results_dir": "artifacts/runtime/anomaly_detection_results",
+    "checkpoints_dir": "artifacts/runtime/anomaly_checkpoints",
+    "logs_dir": "artifacts/runtime/logs",
+    "reports_dir": "artifacts/runtime/reports",
+    "temp_dir": "artifacts/runtime/temp"
+  },
+  "performance": {
+    "max_memory_gb": 4.0,
+    "min_processing_speed": 1000,
+    "max_workers": 8,
+    "batch_size": 1000,
+    "checkpoint_interval": 10000,
+    "max_checkpoints": 10
+  },
+  "thresholds": {
+    "case_similarity_threshold": 0.9,
+    "plural_similarity_threshold": 0.85,
+    "numerical_range_threshold": 100.0,
+    "cross_domain_threshold": 0.3,
+    "semantic_similarity_threshold": 0.8,
+    "synonym_threshold": 0.9,
+    "abbreviation_threshold": 0.95,
+    "frequency_outlier_zscore": 3.0,
+    "pmi_anomaly_threshold": 10.0,
+    "entropy_anomaly_threshold": 2.0,
+    "rpu_semantic_threshold": 0.7,
+    "rpu_completeness_threshold": 0.9
+  },
+  "recovery": {
+    "retry_policies": {
+      "DataAccessException": {
+        "max_attempts": 3,
+        "backoff_factor": 2.0,
+        "initial_delay": 1.0,
+        "max_delay": 60.0
+      },
+      "DetectionLogicException": {
+        "max_attempts": 1,
+        "backoff_factor": 1.0,
+        "initial_delay": 1.0,
+        "max_delay": 60.0
+      },
+      "ResourceException": {
+        "max_attempts": 5,
+        "backoff_factor": 1.5,
+        "initial_delay": 1.0,
+        "max_delay": 60.0
+      }
+    },
+    "auto_recovery_enabled": true,
+    "max_recovery_attempts": 3,
+    "degraded_mode_enabled": true,
+    "degraded_accuracy_threshold": 0.8
+  },
+  "logging": {
+    "log_level": "INFO",
+    "log_file": "anomaly_detection.log",
+    "max_log_size_mb": 100,
+    "backup_count": 5,
+    "log_format": "%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    "date_format": "%Y-%m-%d %H:%M:%S",
+    "console_output": true,
+    "console_level": "INFO"
+  },
+  "enabled_detectors": [
+    "ConceptMappingDetector",
+    "RPUStructureDetector",
+    "TimeSeriesDetector",
+    "StatisticalDistributionDetector",
+    "EncodingFormatDetector",
+    "PerformanceDetector",
+    "ConsistencyDetector"
+  ],
+  "parallel_processing": true,
+  "incremental_detection": true,
+  "generate_reports": true,
+  "report_formats": [
+    "json",
+    "excel",
+    "html"
+  ],
+  "debug_mode": false,
+  "verbose_output": false
+}

@@ -1,0 +1,17 @@
+{
+  "runtime": {
+    "impact_v6_signals_prefix": "impact_v6_ab_cy_signals",
+    "impact_v6_final_prefix": "impact_v6_ab_cy_final",
+    "impact_v6_checkpoint_name": "checkpoint_v6_ab_cy.json",
+    "impact_v6_summary_name": "impact_v6_ab_cy_summary.json",
+    "impact_v6_progress_name": "impact_v6_ab_cy_progress.json",
+    "impact_v6_enable_progress_bar": false,
+    "impact_concept_year_attribution_enabled": true,
+    "impact_concept_year_seed_prefix": "innovation_v2",
+    "impact_concept_year_seed_field": "s_peak",
+    "impact_concept_year_seed_power": 1.0,
+    "impact_concept_year_weight_floor": 0.0,
+    "impact_concept_year_leader_relative_threshold": 0.8,
+    "impact_concept_year_co_leader_relative_threshold": 0.4
+  }
+}

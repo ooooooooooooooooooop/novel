@@ -1,0 +1,28 @@
+﻿# progress
+
+- 2026-02-09: 初始化 Phase 3（根目录硬收口）。
+- 2026-02-09: P3-1 完成：创建 .taskflow/active/project-reorg-phase3/{task_plan,progress}.md。
+- 2026-02-09: P3-2 完成：根目录设计文档下沉到 docs/reference/（CONFIG_SYSTEM_README、INNOVATION_V2_DESIGN、IMPACT_V2_DESIGN、TODO_execution_plan、文档整理方案）。
+- 2026-02-09: P3-3 完成：health_check 增加 Root Whitelist Check（可视化告警模式）。
+- 2026-02-09: P3-4 完成：README 与 docs/README 链接同步到新位置。
+- 2026-02-09: 当前告警项：innovation_calculation.log、validation_v2_results.jsonl、nul（进入 P3-5）。
+- 2026-02-09: P3-5 完成：根目录告警文件已处理，innovation_calculation.log 与 validation_v2_results.jsonl 下沉到 artifacts/root-cleanup/，已清除 nul。
+- 2026-02-09: 验证：health_check Root Whitelist Check 结果为 [OK] root whitelist clean。
+- 2026-02-09: P3-6 完成：config_manager/error_handling/performance_metrics/performance_reporter 迁入 src/innovation_core。
+- 2026-02-09: P3-6 配套：calculate_innovation.py 导入切换到 src.innovation_core；新增 src/__init__.py 与 src/innovation_core/__init__.py（显式公开接口）。
+- 2026-02-09: P3-6 验证：相关文件 py_compile 通过；health_check 新增 src/innovation_core 模块存在性检查并实跑通过。
+- 2026-02-09: P3-7 完成：inspect_opinion_meta / supplement_paper_metadata / rpu_full_extraction / rpu_full_extraction_deberta 下沉到 scripts/legacy，根目录保留兼容入口。
+- 2026-02-09: P3-7 配套：infer_single_paper_deberta.py 导入改为 scripts.legacy.rpu_full_extraction_deberta；迁移脚本内项目根路径常量已修正。
+- 2026-02-09: P3-8 完成：health_check 的 CLI/canonical 检查已覆盖上述 4 个脚本并实跑通过。
+- 2026-02-09: P3-9 完成：calculate_innovation 迁入 scripts/pipeline，根目录保留兼容入口并维持可导入能力（* 导出）。
+- 2026-02-09: P3-10 完成：infer_single_paper_deberta 迁入 scripts/query，根目录保留兼容入口并维持可导入能力（* 导出）。
+- 2026-02-09: P3-9/P3-10 配套：run_v2_full.py 导入已切到 scripts.pipeline.calculate_innovation；health_check 与 docs/06 已同步。
+- 2026-02-09: P3-11 完成：根目录兼容入口硬收口，仅保留 run_v2_full/calculate_impact_v2/merge_signals/query_paper/analyze_distributions/analyze_trends + project_config。
+- 2026-02-09: P3-11 配套：删除根目录 legacy/query/train/validation 启动器，统一以 scripts/* canonical 路径为准；docs/06 与 health_check CLI 检查已同步。
+- 2026-02-09: P3-12 完成：重复输出目录 output_7_1、output_7_2 与清理残留目录 .cleanup_trash 已下沉到 artifacts/{legacy_outputs,root-cleanup}/。
+- 2026-02-09: P3-12 配套：health_check 新增 Root Directory Whitelist 检查，根目录目录层级已收口。
+- 2026-02-09: P3-13 完成：analysis_output / innovation_v2_output / impact_output / paper_signals_output / logs / validation_output / anomaly_detection_results / anomaly_checkpoints 已统一迁移到 artifacts/runtime/ 下。
+- 2026-02-09: P3-13 配套：configs/paths.default.json 默认输出路径改为 artifacts/runtime/*；query_one_paper_score/query_classics_scores 接入 project_config；anomaly_detection 默认目录改为 artifacts/runtime/*。
+- 2026-02-09: P3-13 文档同步：docs/01、03、04、05 输出路径已切换到 artifacts/runtime/*；health_check 根目录目录白名单已更新并通过验证。
+- 2026-02-10: P3-14 完成：根目录空目录 reports 已移除，output_7_deberta 已收口至 models/deberta，_archived_srl_ner_pipeline 已归档至 artifacts/archives/_archived_srl_ner_pipeline。
+- 2026-02-10: P3-14 配套：train_deberta_multihead 与 rpu_full_extraction_deberta 改为走 project_config 路径；新增 paths.default 中 span_labels/deberta 路径键；health_check 根目录目录白名单同步收紧。

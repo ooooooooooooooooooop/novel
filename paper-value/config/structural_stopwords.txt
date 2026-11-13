@@ -1,0 +1,144 @@
+# Structural Stopwords - 结构性停用词表
+# 此文件包含论文结构、出版商、元数据等非创新性词汇
+# Total: 50 words
+
+# 论文结构词汇
+abstract
+introduction
+methods
+results
+discussion
+conclusion
+conclusions
+acknowledgments
+acknowledgements
+references
+appendix
+supplementary
+figure
+figures
+table
+tables
+materials
+
+# 出版商/期刊名称
+frontiers
+elsevier
+springer
+wiley
+nature
+science
+ieee
+plos
+mdpi
+bmc
+oxford
+cambridge
+taylor
+francis
+sage
+hindawi
+
+# 元数据词汇
+editorial
+preface
+erratum
+corrigendum
+retraction
+english
+language
+publication
+volume
+issue
+page
+pages
+doi
+isbn
+issn
+
+# 常见非创新描述词
+state-of-the-art
+cutting-edge
+novel
+innovative
+significant
+important
+comprehensive
+
+# 其他结构性词汇
+copyright
+reserved
+rights
+license
+permission
+reprint
+reprints
+
+# HTML实体和特殊字符
+nbsp
+amp
+lt
+gt
+quot
+apos
+plusmn
+times
+minus
+deg
+sup
+sub
+mdash
+ndash
+hellip
+laquo
+raquo
+
+# 论文结构词变体
+findings
+implications
+purpose
+approach
+value
+background
+methodology
+
+# 粘连变体
+introductionthe
+methodsthis
+resultsthe
+discussionour
+conclusionthe
+abstractview
+findingsresults
+purposethis
+approachthe
+implicationsthe
+valuethis
+
+# LaTeX命令
+usepackage
+documentclass
+includegraphics
+bibliographystyle
+maketitle
+textbf
+textit
+cite
+ref
+label
+caption
+
+# 真正的通用词（仅语法功能词）
+between
+within
+among
+during
+through
+without
+towards
+upon
+onto
+via
+per
+versus
+
